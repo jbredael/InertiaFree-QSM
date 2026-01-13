@@ -192,7 +192,7 @@ The model implements a ground-based pumping kite power system with two phases:
 
 ```
 ├── src/
-│   └── inertiafree-qsm/
+│   └── inertiafree_qsm/
 │       ├── __init__.py
 │       ├── power_model.py      # Main PowerModel class
 │       ├── calculations.py     # Pure calculation functions

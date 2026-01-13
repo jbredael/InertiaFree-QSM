@@ -2,8 +2,8 @@
 based on pumping kite systems based on the Luchsinger model.
 """
 
-from src.power_luchsinger.power_model import PowerModel
-from src.power_luchsinger.calculations import (
+from src.inertiafree_qsm.power_model import PowerModel
+from src.inertiafree_qsm.calculations import (
     calculate_force_factor_out,
     calculate_force_factor_in,
     calculate_tether_force_out,

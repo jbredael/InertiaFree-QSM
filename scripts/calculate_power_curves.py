@@ -13,8 +13,8 @@ workspace_root = Path(__file__).parent.parent
 if str(workspace_root) not in sys.path:
     sys.path.insert(0, str(workspace_root))
 
-from src.power_luchsinger import PowerModel
-from src.power_luchsinger.plotting import plot_comprehensive_analysis, extract_model_params
+from src.inertiafree_qsm import PowerModel
+from src.inertiafree_qsm.plotting import plot_comprehensive_analysis, extract_model_params
 
 
 def print_summary(model: PowerModel, data: dict) -> None:

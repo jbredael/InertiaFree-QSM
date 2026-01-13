@@ -17,7 +17,7 @@ import numpy as np
 import yaml
 from scipy import optimize as op
 
-from src.power_luchsinger.calculations import (
+from src.inertiafree_qsm.calculations import (
     calculate_force_factor_out,
     calculate_force_factor_in,
     calculate_tether_force_out,
