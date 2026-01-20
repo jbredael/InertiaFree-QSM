@@ -1,0 +1,37 @@
+metadata:
+  name: Ground-Gen Operational Constraints
+  description: Operational constraints for pumping ground-gen AWE system
+  note: Example operational constraints with terrain zones
+  awesIO_version: 0.1.0
+  schema: operational_constraints_schema.yml
+
+airspace_constraints:
+  max_altitude_agl_m: 500.0
+  max_altitude_msl_m: 600.0
+terrain_constraints:
+  description: Minimum height restrictions by azimuth zone and distance from ground station center. Azimuth reference True north (0deg)
+  azimuth_zones:
+    - azimuth_range_deg: [0, 40]
+      flight_allowed: true
+      distance_restrictions:
+        - distance_range_m: [0, 10]
+          min_height_agl_m: 0
+        - distance_range_m: [10, 50]
+          min_height_agl_m: 70
+        - distance_range_m: [50, 200]
+          min_height_agl_m: 100
+        - distance_range_m: [200, 500]
+          min_height_agl_m: 150
+    - azimuth_range_deg: [40, 75]  # 40-45 degrees (example with building obstruction)
+      flight_allowed: false
+    - azimuth_range_deg: [75, 360]
+      flight_allowed: true
+      distance_restrictions:
+        - distance_range_m: [0, 10]
+          min_height_agl_m: 0
+        - distance_range_m: [10, 50]
+          min_height_agl_m: 70
+        - distance_range_m: [50, 200]
+          min_height_agl_m: 100
+        - distance_range_m: [200, 500]
+          min_height_agl_m: 150

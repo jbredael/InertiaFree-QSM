@@ -1,0 +1,27 @@
+# Simulation settings for the inerita-free quasi-steady model
+
+
+
+cycle: 
+  # 'traction_phase': TractionPhase,
+  elevation_angle_traction: 35*np.pi/180.,
+  # TODO improve this? Could go up to 500
+  # TODO what does this setting do exacly?
+  tether_length_start_retraction: 500.,
+  tether_length_end_retraction: 200.,
+
+retraction: 
+  control: ('tether_force_ground', 10000),
+  time_step: .25,  # .05,
+
+
+transition: 
+  control: ('reeling_speed', 0.),
+  time_step: .25,  # .05,
+
+traction: 
+  control: ('reeling_factor', .37),
+  time_step: .25,  # .05,
+  azimuth_angle: 15. * np.pi / 180.,
+  course_angle: 110. * np.pi / 180.,
+    
