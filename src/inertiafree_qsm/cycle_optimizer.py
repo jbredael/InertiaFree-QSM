@@ -1225,7 +1225,7 @@ class OptimizerCycle(Optimizer):
 
 
 def test():
-    from .qsm import LogProfile, TractionPhaseHybrid
+    from .qsm import LogProfile  # , TractionPhaseHybrid  # 3D pattern class - commented out
     from .kitepower_kites import sys_props_v3
 
     import time
@@ -1235,7 +1235,7 @@ def test():
 
     cycle_sim_settings = {
         'cycle': {
-            'traction_phase': TractionPhaseHybrid,
+            # 'traction_phase': TractionPhaseHybrid,  # 3D pattern class - commented out, use TractionPhase instead
             'include_transition_energy': False,
         },
         'retraction': {},
