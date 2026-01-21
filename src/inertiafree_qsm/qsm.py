@@ -11,7 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from copy import copy
 import pandas as pd
-from .utils import zip_el, plot_traces
+from utils import zip_el, plot_traces
 
 np.seterr(all='raise')
 
@@ -175,11 +175,11 @@ class LogProfile(EnvAtmosphericPressure):
             self.wind_speed = self.wind_speed_ref * np.log(height / self.h_0) / np.log(self.h_ref / self.h_0)
         return self.wind_speed
 
-    def plot_wind_profile(self, color=None):
+    def plot_wind_profile(self):
         """Plot the wind speed versus the height above ground."""
-        heights = [10, 25, 50., 75., 100., 150., 200., 300., 400., 500., 600.]
+        heights = [50., 75., 100., 150., 200., 300., 400., 500.]
         wind_speeds = [self.calculate_wind(h) for h in heights]
-        plt.plot(wind_speeds, heights, color=color)
+        plt.plot(wind_speeds, heights)
         plt.xlabel('Wind speed [m/s]')
         plt.ylabel('Height [m]')
         plt.grid(True)
@@ -224,10 +224,10 @@ class NormalisedWindTable1D(EnvAtmosphericPressure):
         self.wind_speed = v
         return v
 
-    def plot_wind_profile(self, label=None, color=None):
+    def plot_wind_profile(self, label=None):
         """Plot the wind speed versus the height above ground."""
         wind_speeds = np.array(self.normalised_wind_speeds) * self.wind_speed_ref
-        plt.plot(wind_speeds, self.heights, label=label, color=color)
+        plt.plot(wind_speeds, self.heights, label=label)
         plt.xlabel('Wind speed [m s$^{-1}$]')
         plt.ylabel('Height [m]')
         plt.grid(True)
@@ -384,13 +384,10 @@ class SystemProperties(SysPropsFixedAeroCoeffs):
         self.kite_lift_coefficient_depowered = .34  # [-]
         self.kite_drag_coefficient_depowered = .15  # [-]
         self.tether_drag_coefficient = 1.1  # [-]
-        self.kite_powering_traction = 1
 
         # Relevant operational limits.
         self.reeling_speed_min_limit = 0.
         self.reeling_speed_max_limit = 8.
-        self.reeling_speed_max_limit_trac = None
-        self.reeling_speed_max_limit_retr = None
         self.tether_force_min_limit = 1200.
         self.tether_force_max_limit = 3200.
 
@@ -423,19 +420,9 @@ class SystemProperties(SysPropsFixedAeroCoeffs):
         s = self.kite_projected_area
         le = self.tether_length
 
-        powering = getattr(self, 'kite_powering_traction', 1)
-
-        # Transition from powered to depowered kite
-        d_lift = self.kite_lift_coefficient_powered \
-            - self.kite_lift_coefficient_depowered
-        d_drag = self.kite_drag_coefficient_powered \
-            - self.kite_drag_coefficient_depowered
-
         if kite_powered:
-            kite_lift_coefficient = self.kite_lift_coefficient_powered \
-                - d_lift * (1 - powering)
-            kite_drag_coefficient = self.kite_drag_coefficient_powered\
-                - d_drag * (1 - powering)
+            kite_lift_coefficient = self.kite_lift_coefficient_powered
+            kite_drag_coefficient = self.kite_drag_coefficient_powered
         else:
             kite_lift_coefficient = self.kite_lift_coefficient_depowered
             kite_drag_coefficient = self.kite_drag_coefficient_depowered
@@ -449,11 +436,6 @@ class SystemProperties(SysPropsFixedAeroCoeffs):
         self.tether_length = tether_length
         self.calculate_tether_mass()
         self.calculate_aerodynamic_properties(kite_powered)
-
-    def powering(self, powering, kite_powered=True):
-        self.kite_powering = powering
-        self.calculate_aerodynamic_properties(kite_powered)
-
 
 
 class SysPropsAeroCurves(SysPropsFixedAeroCoeffs):
@@ -806,7 +788,7 @@ class SteadyState:
                 rf = self.control_settings[1]/v_wind
             else:
                 raise ValueError("Invalid control setting.")
-            # print(v_wind, self.control_settings, theta, phi, rf)
+
             if np.sin(theta) * np.cos(phi) < rf:
                 error_message = "Reeling factor of {} is not feasible.".format(rf)
                 if np.sin(theta) < 0.:
@@ -1240,7 +1222,6 @@ class Phase(TimeSeries):
         self.impose_operational_limits = impose_operational_limits
         self.kite_powered = True
         self.follow_wind = False
-        self.speed_viol_diff = 0.  # !=0:force control, out reeling speed bounds
 
         # Start and stop conditions of phase.
         self.kinematics_start = None
@@ -1294,6 +1275,7 @@ class Phase(TimeSeries):
         self.time.append(self.timer)
         self.kinematics.append(self.kinematics_start)
         self.steady_states.append(steady_state_start)
+
         # Monitor stopping criteria in case of infinite loop.
         end_phase = False
         while not end_phase:
@@ -1399,19 +1381,8 @@ class Phase(TimeSeries):
         else:
             min_force = sys_props.tether_force_min_limit
             max_force = sys_props.tether_force_max_limit
-
+        max_speed = sys_props.reeling_speed_max_limit
         min_speed = sys_props.reeling_speed_min_limit
-        if "RetractionPhase" in self.__class__.__name__ \
-                and sys_props.reeling_speed_max_limit_retr is not None:
-            max_speed = sys_props.reeling_speed_max_limit_retr
-            min_speed = 7.5
-        elif "TractionPhase" in self.__class__.__name__ \
-                and sys_props.reeling_speed_max_limit_trac is not None:
-            max_speed = sys_props.reeling_speed_max_limit_trac
-        else:
-            max_speed = sys_props.reeling_speed_max_limit
-
-
         assert max_speed > 0 and min_speed >= 0, "Reeling speed limits should be positive."
 
         # When operational limits are imposed, evaluate if the primary control setting yield limit violations.
@@ -1432,20 +1403,15 @@ class Phase(TimeSeries):
                 setpoint_speed = None
 
                 if max_speed is not None and abs(new_state.reeling_speed) > max_speed:
-                    self.speed_viol_diff = - abs(new_state.reeling_speed) + max_speed
                     if self.__class__.__name__ == "RetractionPhase":
                         setpoint_speed = -max_speed
                     else:
                         setpoint_speed = max_speed
                 elif min_speed is not None and abs(new_state.reeling_speed) < min_speed:
-                    self.speed_viol_diff = abs(new_state.reeling_speed) - min_speed
-                    # print(new_state.reeling_speed, 'smaller')
                     if self.__class__.__name__ == "RetractionPhase":
                         setpoint_speed = -min_speed
                     else:
                         setpoint_speed = min_speed
-                else:
-                    self.speed_viol_diff = 0.
 
                 if setpoint_speed is not None:
                     new_state = SteadyState(self.steady_state_config)
@@ -1477,7 +1443,7 @@ class Phase(TimeSeries):
                                 "minimum limit.".format(new_state.reeling_speed, min_speed)
                 error_code = 2
             elif max_force is not None and new_state.tether_force_ground > max_force + 1e-3:
-                error_message = "The tether force: {:.3f} N is exceeding the {:.3f} N " \
+                error_message = "The tether force: {:.1f} N is exceeding the {:.1f} N " \
                                 "maximum limit.".format(new_state.tether_force_ground, max_force)
                 error_code = 3
             elif min_force is not None and new_state.tether_force_ground < min_force - 1e-3:
@@ -1882,19 +1848,321 @@ class TractionPhase(Phase):
         return end_phase, kin
 
 
-# ==============================================================================
-# 3D PATTERN CLASSES - COMMENTED OUT (Not used in basic 2D QSM)
-# ==============================================================================
-# The following classes implement 3D crosswind pattern functionality:
-# - TractionPhaseHybrid: Estimates crosswind patterns in traction phase
-# - LissajousPattern: Defines figure-8 Lissajous curve patterns
-# - LookupPattern: Uses recorded flight data for patterns
-# - TractionPhasePattern: Traction phase with 3D pattern trajectory
-# - EvaluatePattern: Evaluates performance along crosswind patterns
-#
-# These are moved to the bottom of the file and commented out.
-# See end of file for the full implementation.
-# ==============================================================================
+class TractionPhaseHybrid(TractionPhase):
+    # Estimates how many crosswind patterns can be flown within the traction phase.
+    def __init__(self, phase_settings={'control': ('reeling_factor', .37)}, impose_operational_limits=True):
+        super().__init__(phase_settings, impose_operational_limits)
+        self.tether_length_start_aim = self.tether_length_start
+
+        # State of kite along the cross-wind pattern.
+        self.n_crosswind_patterns = 0.
+
+    def run_simulation(self, system_properties, environment_state, steady_state_config={}, timer_start=0., n_patterns=6):
+        # TODO: check what n_patterns needs to be
+        super().run_simulation(system_properties, environment_state, steady_state_config, timer_start)
+
+        tether_lengths = np.linspace(self.tether_length_start_aim, self.tether_length_end, n_patterns)
+
+        pattern_durations = []
+        reeling_speeds = []
+        for le in tether_lengths:
+            elev = self.elevation_angle.calculate(le)
+            kin = KiteKinematics(le, self.azimuth_angle, elev, self.course_angle)
+            environment_state.calculate(kin.z)
+            rs = self.determine_new_steady_state(kin).reeling_speed
+            pattern_settings = {
+                'tether_length': le,
+                'elevation_angle_ref': elev,
+                'control': self.control_settings,
+                'time_step': .5,
+            }
+            pattern = EvaluatePattern(pattern_settings)
+            pattern.enable_limit_violation_error = False
+            pattern_duration = pattern.calc_performance_along_pattern(system_properties, environment_state,
+                                                                              steady_state_config=steady_state_config)
+            pattern_durations.append(pattern_duration)
+            reeling_speeds.append(rs)
+
+        avg_pattern_duration = np.mean(pattern_durations)
+        phase_duration_aim = (self.tether_length_end - self.tether_length_start_aim)/np.mean(reeling_speeds)
+        self.n_crosswind_patterns = phase_duration_aim/avg_pattern_duration
+
+
+class LissajousPattern:
+    def __init__(self):
+        # Lissajous curve properties for figure 8.
+        self.elevation_max = 4 * np.pi / 180  # [rad] sets max (relative) elevation angle: positive value -> flying up
+        # at edges
+        self.azimuth_max = 20 * np.pi / 180  # [rad] sets max azimuth angle
+
+        # Calculated property.
+        self.curve_length_unit_sphere = self.calc_curve_length_unit_sphere()
+
+    def get_properties_along_curve(self, s):
+        # Elevation and azimuth as function of normalized arc length.
+        beta = self.elevation_max * np.sin(4 * np.pi * s)  # [rad]
+        phi = self.azimuth_max * np.sin(2 * np.pi * s)  # [rad]
+
+        # Derivatives wrt normalized arc length.
+        dbeta_ds = 4 * np.pi * self.elevation_max * np.cos(4 * np.pi * s)  # [-]
+        dphi_ds = 2 * np.pi * self.azimuth_max * np.cos(2 * np.pi * s)  # [-]
+
+        chi = np.arctan2(dphi_ds, -dbeta_ds)
+
+        return beta, phi, chi, dbeta_ds, dphi_ds
+
+    def calc_curve_length_unit_sphere(self):
+        # Curve length of pattern on unit sphere.
+        s_range = np.linspace(0, 1, 101)
+        ds = s_range[1]
+        curve_length = 0.
+
+        for s in s_range:
+            dbeta_ds, dphi_ds = self.get_properties_along_curve(s)[3:]
+            curve_length += np.sqrt(dbeta_ds**2 + dphi_ds**2) * ds
+
+        return curve_length
+
+
+class LookupPattern:
+    #TODO: check if different order filtering smoothens the results
+    def __init__(self):
+        self.lookup_table = pd.read_csv('flight_data/realistic_pattern.csv', sep=";")
+        scale_factor = 1.
+        self.lookup_table['azimuth'] = scale_factor * self.lookup_table['azimuth']
+        self.lookup_table['elevation'] = scale_factor * self.lookup_table['elevation']
+        self.lookup_table['length_unit_sphere'] = scale_factor * self.lookup_table['length_unit_sphere']
+
+        # Calculated property.
+        self.curve_length_unit_sphere = self.lookup_table['length_unit_sphere'].iloc[-1]
+
+    def get_properties_along_curve(self, s):
+        phi = np.interp(s, self.lookup_table['s'], self.lookup_table['azimuth'])
+        beta = np.interp(s, self.lookup_table['s'], self.lookup_table['elevation'])
+
+        i = (self.lookup_table['s'] > s).idxmax()
+        dphi = self.lookup_table['azimuth'].iloc[i] - self.lookup_table['azimuth'].iloc[i - 1]
+        dbeta = self.lookup_table['elevation'].iloc[i] - self.lookup_table['elevation'].iloc[i - 1]
+        chi = np.arctan2(dphi, -dbeta)
+
+        return beta, phi, chi
+
+
+class TractionPhasePattern(Phase):
+    def __init__(self, phase_settings={'control': ('reeling_factor', .37)}, impose_operational_limits=True):
+        """
+        Args:
+            phase_settings (tuple, optional): Setting parent's `control_settings` attribute.
+            impose_operational_limits (bool, optional): Setting parent's `impose_operational_limits` attribute.
+
+        """
+        super().__init__(phase_settings, impose_operational_limits)
+
+        # Binary kite aerodynamic state.
+        self.kite_powered = True
+
+        # Properties of initial state and final position.
+        self.tether_length_start = 240.
+        self.tether_length_end = 385.
+        self.elevation_angle = TractionConstantElevation(25. * np.pi / 180.)
+
+        # State of kite along the cross-wind pattern.
+        self.n_crosswind_patterns = 0.
+        self.pattern = LissajousPattern()
+
+    def finalize_start_and_end_kite_obj(self):
+        """Finalize the initial state and ending criteria before running the simulation, respectively `kinematics_start`
+        and `position_end`. Furthermore, calculating `delta_path_angle`."""
+        elevation_angle_ref = self.elevation_angle.calculate(self.tether_length_start)
+        beta, phi, chi = self.pattern.get_properties_along_curve(self.n_crosswind_patterns % 1)[:3]
+        self.kinematics_start = KiteKinematics(self.tether_length_start, phi, elevation_angle_ref+beta, chi)
+        self.position_end = KitePosition(straight_tether_length=self.tether_length_end)
+
+    def determine_new_kinematics(self, last_kinematics, last_steady_state):
+        """Determine kinematic state of the kite for the new time point based on the previous kinematic and steady state
+        properties. For the traction phase, the tether length is updated. If the elevation angle at the start and end of
+        the phase are different, then also the elevation angle is updated.
+
+        Args:
+            last_kinematics (`KiteKinematics`): Kinematics object of previous time point.
+            last_steady_state (`SteadyState`): Steady state of previous time point.
+
+        Returns:
+            bool: Flag indicating meeting phase ending criteria.
+            `KiteKinematics`: Kinematic state of the kite for the new time point.
+
+        """
+        kin = copy(last_kinematics)
+
+        # Determine the difference in tether length for regular time step.
+        d_tether_length = last_steady_state.reeling_speed * self.time_step
+
+        if d_tether_length < 0.:
+            raise PhaseError("Reeling in during reel-out phase.", 2)
+        elif last_steady_state.reeling_speed < 1e-6:
+            raise PhaseError("Reeling speed too low.")
+
+        # Check if target tether length is not exceeded next iteration.
+        if kin.straight_tether_length + d_tether_length < self.position_end.straight_tether_length:
+            dt = self.time_step
+            end_phase = False
+        else:
+            # Determine the time needed for reaching the target tether length.
+            d_tether_length = self.position_end.straight_tether_length - kin.straight_tether_length
+            dt = d_tether_length / last_steady_state.reeling_speed
+            end_phase = True
+
+        # Set next timer and kite kinematics.
+        self.timer += dt
+        kin.straight_tether_length += d_tether_length
+        elevation_angle_ref = self.elevation_angle.calculate(kin.straight_tether_length)
+
+        pattern_length = self.pattern.curve_length_unit_sphere * last_kinematics.straight_tether_length
+        d_cross_wind_distance = last_steady_state.kite_tangential_speed * self.time_step
+
+        self.n_crosswind_patterns += d_cross_wind_distance / pattern_length
+        beta, phi, chi = self.pattern.get_properties_along_curve(self.n_crosswind_patterns % 1)[:3]
+        kin.elevation_angle = elevation_angle_ref + beta
+        kin.azimuth_angle = phi
+        kin.course_angle = chi
+        kin.update()
+
+        return end_phase, kin
+
+
+class EvaluatePattern(Phase):  # Determine performance along cross wind pattern at representative traction point. Has
+    # Phase as parent as it uses its determine_new_steady_state method.
+    def __init__(self, settings, impose_operational_limits=True):
+        # Simulation setting.
+        self.time_step = settings.get('time_step', .5)
+
+        # StatePhase of kite along the cross-wind pattern.
+        self.n_crosswind_patterns = 0.
+
+        # Representative traction state of kite along the cross-wind pattern.
+        self.tether_length = settings['tether_length']
+        self.elevation_angle_ref = settings['elevation_angle_ref']
+
+        # Result lists with time and states.
+        self.kinematics = None
+        self.steady_states = None
+        self.time = None
+        self.s = None
+
+        # Side conditions.
+        self.system_properties = None
+        self.environment_state = None
+        self.steady_state_config = None
+
+        # Control settings.
+        self.control_settings = settings['control']
+        self.impose_operational_limits = impose_operational_limits
+        self.kite_powered = True
+        self.follow_wind = False
+
+        # Monitoring parameters.
+        self.timer = None
+        self.min_reeling_speed = np.inf
+        self.max_reeling_speed = -np.inf
+        self.min_tether_force = np.inf  # Forces at ground station.
+        self.max_tether_force = -np.inf
+
+        # Monitoring settings.
+        self.enable_limit_violation_error = True
+        self.pattern = LissajousPattern()
+
+    def calc_performance_along_pattern(self, system_properties, environment_state, n_points=100, steady_state_config={}, print_details=False):
+        self.time, self.kinematics, self.steady_states = [0.], [], []
+        self.min_reeling_speed, self.max_reeling_speed = np.inf, -np.inf
+        self.s = np.linspace(0, 1, n_points)
+        ds = self.s[1]
+
+        self.system_properties = system_properties
+        self.environment_state = environment_state
+        self.steady_state_config = steady_state_config
+
+        pattern_length = self.pattern.curve_length_unit_sphere * self.tether_length
+        cos_phi, cos_beta, cos_chi = [], [], []
+        valid_pattern = True
+        for s in self.s:
+            beta, phi, chi = self.pattern.get_properties_along_curve(s)[:3]
+
+            kin = KiteKinematics(self.tether_length, phi, self.elevation_angle_ref + beta, chi)
+            self.kinematics.append(kin)
+
+            # Add first time point, kite kinematics, and steady state to corresponding result lists.
+            environment_state.calculate(kin.z)
+            if self.follow_wind:
+                kin.azimuth_angle += environment_state.downwind_direction
+                kin.update()
+            ss = self.determine_new_steady_state(kin)
+            self.steady_states.append(ss)
+
+            cos_phi.append(np.cos(kin.azimuth_angle))
+            cos_beta.append(np.cos(kin.elevation_angle))
+            cos_chi.append(np.cos(kin.course_angle))
+
+            if s != self.s[-1]:
+                if ss.kite_tangential_speed > 0:
+                    dt = ds * pattern_length / ss.kite_tangential_speed
+                else:
+                    dt = 1e1  # Some optimizations where not converging when setting this value to 1e2.
+                    valid_pattern = False
+                next_time = self.time[-1] + dt
+
+                self.time.append(next_time)
+
+        # if valid_pattern:
+        pattern_duration = self.time[-1]
+        # else:
+        #     pattern_duration = 1e3
+
+        if print_details:
+            print("Pattern duration [s]:", pattern_duration)
+            i_end = 0
+            flying_down = 0.
+            for i, chi in enumerate([90, -90, -90, 90]):
+                i_start = i_end
+                if i == 3:
+                    i_end = n_points
+                else:
+                    i_end += n_points//4
+                course_angles = [kin.course_angle for kin in self.kinematics[i_start:i_end]]
+                time_window = self.time[i_start:i_end]
+                if i <= 1:
+                    course_angles = course_angles[::-1]
+                    time_window = time_window[::-1]
+                t = np.interp(chi*np.pi/180., course_angles, time_window)
+                if i in [1, 3]:
+                    flying_down += t - t_last
+                t_last = t
+            print("Flying down [%]:", flying_down/pattern_duration*100.)
+            print("Representative azimuth angle [deg]:", np.arccos(np.trapz(cos_phi, self.time)/pattern_duration)*180./np.pi)
+            print("Representative elevation angle [deg]:", np.arccos(np.trapz(cos_beta, self.time)/pattern_duration)*180./np.pi)
+            print("Representative course angle [deg]:", np.arccos(np.trapz(cos_chi, self.time)/pattern_duration)*180./np.pi)
+
+        return pattern_duration
+
+    def plot_traces(self, x, plot_parameters, y_labels=None, y_scaling=None):
+        """Generic plotting method for making a plot of `KiteKinematics` and `SteadyState` attributes.
+
+        Args:
+            plot_parameters (tuple): Sequence of `KiteKinematics` or `SteadyState` attributes.
+            y_labels (tuple, optional): Y-axis labels corresponding to `plot_parameters`.
+            y_scaling (tuple, optional): Scaling factors corresponding to `plot_parameters`.
+
+        """
+        data_sources = (self.kinematics, self.steady_states)
+        source_labels = ('kin', 'ss')
+
+        plot_traces(x[0], data_sources, source_labels, plot_parameters, y_labels, y_scaling, x_label=x[1])
+
+    def plot_pattern(self):
+        plt.figure()
+        plt.plot([kin.azimuth_angle*180./np.pi for kin in self.kinematics],
+                 [kin.elevation_angle*180./np.pi for kin in self.kinematics])
+        kin = self.kinematics[5]
+        plt.plot([kin.azimuth_angle*180./np.pi], [kin.elevation_angle*180./np.pi], 's')
 
 
 class Cycle(TimeSeries):
@@ -1913,7 +2181,6 @@ class Cycle(TimeSeries):
             w.r.t. wind reference frame if True, or ground reference frame if False.
 
     """
-    # TODO add all attributes that are/will be set?
     def __init__(self, settings=None, impose_operational_limits=True):
         """
         Args:
@@ -1959,14 +2226,6 @@ class Cycle(TimeSeries):
         self.duty_cycle = None
         self.pumping_efficiency = None
 
-        self.avg_traction_height = None
-        self.wind_speed_at_avg_traction_height = None
-
-        self.phase_efficiencies = settings.get('phase_efficiencies',
-                                                     {'traction': 1,
-                                                      'retraction': 1})
-        # TODO print(self.phase_efficiencies)
-
     def run_simulation(self, system_properties, environment_state, steady_state_config={},
                        enable_limit_violation_error=False, print_summary=False):
         """Consecutively run the simulations of the 3 phases.
@@ -1989,7 +2248,6 @@ class Cycle(TimeSeries):
             env_retr, env_trans, env_trac = environment_state
         else:
             env_retr, env_trans, env_trac = environment_state, environment_state, environment_state
-
         error_in_phase = None
         reorder = True
 
@@ -2003,6 +2261,7 @@ class Cycle(TimeSeries):
         retr.tether_length_end = self.tether_length_end_retraction
         retr.elevation_angle_start = self.elevation_angle_traction
         retr.finalize_start_and_end_kite_obj()
+
         try:
             retr.run_simulation(system_properties, env_retr, steady_state_config, 0.)
             last_straight_tether_length = retr.kinematics[-1].straight_tether_length
@@ -2073,17 +2332,11 @@ class Cycle(TimeSeries):
             self.time = retr.time + trans.time + trac.time
             self.kinematics = retr.kinematics + trans.kinematics + trac.kinematics
             self.steady_states = retr.steady_states + trans.steady_states + trac.steady_states
-        eff_trac_energy = trac.energy * self.phase_efficiencies['traction']
-        eff_retr_energy = retr.energy * self.phase_efficiencies['retraction']
-        # TODO efficiencies only in final result - and nothing for transition
-        self.energy = eff_retr_energy + eff_trac_energy
-        # trac.energy + retr.energy
+        self.energy = trac.energy + retr.energy
         if self.include_transition_energy:
             self.energy += trans.energy
         self.duration = self.time[-1]
         self.average_power = self.energy / self.time[-1]
-        self.avg_traction_height = np.mean((trac.kinematics[0].z, trac.kinematics[-1].z))
-        self.wind_speed_at_avg_traction_height = env_trac.calculate_wind(self.avg_traction_height)
 
         if print_summary:
             print("Total cycle: {:.1f} seconds in which {:.0f}J energy produced.".format(self.time[-1], self.energy))
@@ -2094,38 +2347,10 @@ class Cycle(TimeSeries):
 
         self.duty_cycle = trac.duration/self.duration
         try:
-            self.pumping_efficiency = self.energy/eff_trac_energy  # trac.energy
+            self.pumping_efficiency = self.energy/trac.energy
         except FloatingPointError:
             self.pumping_efficiency = 0.
 
-        # Evaluate generator efficiencies
-        from .kitepower_generator import get_gen_eff,\
-            get_winch_eff, get_gen_bounds
-        print('trac, retr power; pumping eff', trac.average_power, retr.average_power, self.pumping_efficiency)
-        self.load_bounds, self.freq_bounds = get_gen_bounds()
-        eff_trac, eff_retr, eff_winch = (None, None, None)
-        if trac.average_power is not None:
-            eff_trac, load_trac, freq_trac = get_gen_eff(
-                trac.average_power,
-                trac.average_reeling_speed)
-            eff_trac = eff_trac[0]
-            self.traction_phase.gen_eff = eff_trac
-            self.traction_phase.gen_load = load_trac
-            self.traction_phase.gen_freq = freq_trac
-        if retr.average_power is not None:
-            eff_retr, load_retr, freq_retr = get_gen_eff(
-                retr.average_power,
-                retr.average_reeling_speed)
-            eff_retr = eff_retr[0]
-            self.retraction_phase.gen_eff = eff_retr
-            self.retraction_phase.gen_load = load_retr
-            self.retraction_phase.gen_freq = freq_retr
-        if eff_trac not in [None, 0] and \
-                eff_retr not in [None, 0]:
-            eff_winch = get_winch_eff(self.pumping_efficiency,
-                                      eff_trac,
-                                      eff_retr)
-        self.eff_winch = eff_winch
         return error_in_phase, self.average_power
 
     def trajectory_plot3d(self, fig_num=None):
@@ -2195,330 +2420,3 @@ if __name__ == "__main__":
     cycle.trajectory_plot()
     cycle.trajectory_plot3d()
     plt.show()
-
-
-# ==============================================================================
-# 3D PATTERN CLASSES - COMMENTED OUT (Not currently used)
-# ==============================================================================
-# These classes implement 3D crosswind pattern functionality for advanced
-# simulations. They are commented out as the basic 2D QSM is sufficient for
-# most power curve generation tasks.
-# ==============================================================================
-
-# class TractionPhaseHybrid(TractionPhase):
-#     # Estimates how many crosswind patterns can be flown within the traction phase.
-#     def __init__(self, phase_settings={'control': ('reeling_factor', .37)}, impose_operational_limits=True):
-#         super().__init__(phase_settings, impose_operational_limits)
-#         self.tether_length_start_aim = self.tether_length_start
-# 
-#         # State of kite along the cross-wind pattern.
-#         self.n_crosswind_patterns = 0.
-# 
-#     def run_simulation(self, system_properties, environment_state, steady_state_config={}, timer_start=0., n_patterns=6):
-#         # TODO: check what n_patterns needs to be
-#         super().run_simulation(system_properties, environment_state, steady_state_config, timer_start)
-# 
-#         tether_lengths = np.linspace(self.tether_length_start_aim, self.tether_length_end, n_patterns)
-# 
-#         pattern_durations = []
-#         reeling_speeds = []
-#         for le in tether_lengths:
-#             elev = self.elevation_angle.calculate(le)
-#             kin = KiteKinematics(le, self.azimuth_angle, elev, self.course_angle)
-#             environment_state.calculate(kin.z)
-#             rs = self.determine_new_steady_state(kin).reeling_speed
-#             pattern_settings = {
-#                 'tether_length': le,
-#                 'elevation_angle_ref': elev,
-#                 'control': self.control_settings,
-#                 'time_step': .5,
-#             }
-#             pattern = EvaluatePattern(pattern_settings)
-#             pattern.enable_limit_violation_error = False
-#             pattern_duration = pattern.calc_performance_along_pattern(system_properties, environment_state,
-#                                                                               steady_state_config=steady_state_config)
-#             pattern_durations.append(pattern_duration)
-#             reeling_speeds.append(rs)
-# 
-#         avg_pattern_duration = np.mean(pattern_durations)
-#         phase_duration_aim = (self.tether_length_end - self.tether_length_start_aim)/np.mean(reeling_speeds)
-#         self.n_crosswind_patterns = phase_duration_aim/avg_pattern_duration
-# 
-# 
-# 
-# 
-# class LissajousPattern:
-#     def __init__(self):
-#         # Lissajous curve properties for figure 8.
-#         self.elevation_max = 4 * np.pi / 180  # [rad] sets max (relative) elevation angle: positive value -> flying up
-#         # at edges
-#         self.azimuth_max = 20 * np.pi / 180  # [rad] sets max azimuth angle
-# 
-#         # Calculated property.
-#         self.curve_length_unit_sphere = self.calc_curve_length_unit_sphere()
-# 
-#     def get_properties_along_curve(self, s):
-#         # Elevation and azimuth as function of normalized arc length.
-#         beta = self.elevation_max * np.sin(4 * np.pi * s)  # [rad]
-#         phi = self.azimuth_max * np.sin(2 * np.pi * s)  # [rad]
-# 
-#         # Derivatives wrt normalized arc length.
-#         dbeta_ds = 4 * np.pi * self.elevation_max * np.cos(4 * np.pi * s)  # [-]
-#         dphi_ds = 2 * np.pi * self.azimuth_max * np.cos(2 * np.pi * s)  # [-]
-# 
-#         chi = np.arctan2(dphi_ds, -dbeta_ds)
-# 
-#         return beta, phi, chi, dbeta_ds, dphi_ds
-# 
-#     def calc_curve_length_unit_sphere(self):
-#         # Curve length of pattern on unit sphere.
-#         s_range = np.linspace(0, 1, 101)
-#         ds = s_range[1]
-#         curve_length = 0.
-# 
-#         for s in s_range:
-#             dbeta_ds, dphi_ds = self.get_properties_along_curve(s)[3:]
-#             curve_length += np.sqrt(dbeta_ds**2 + dphi_ds**2) * ds
-# 
-#         return curve_length
-# 
-# 
-# class LookupPattern:
-#     #TODO: check if different order filtering smoothens the results
-#     def __init__(self):
-#         self.lookup_table = pd.read_csv('flight_data/realistic_pattern.csv', sep=";")
-#         scale_factor = 1.
-#         self.lookup_table['azimuth'] = scale_factor * self.lookup_table['azimuth']
-#         self.lookup_table['elevation'] = scale_factor * self.lookup_table['elevation']
-#         self.lookup_table['length_unit_sphere'] = scale_factor * self.lookup_table['length_unit_sphere']
-# 
-#         # Calculated property.
-#         self.curve_length_unit_sphere = self.lookup_table['length_unit_sphere'].iloc[-1]
-# 
-#     def get_properties_along_curve(self, s):
-#         phi = np.interp(s, self.lookup_table['s'], self.lookup_table['azimuth'])
-#         beta = np.interp(s, self.lookup_table['s'], self.lookup_table['elevation'])
-# 
-#         i = (self.lookup_table['s'] > s).idxmax()
-#         dphi = self.lookup_table['azimuth'].iloc[i] - self.lookup_table['azimuth'].iloc[i - 1]
-#         dbeta = self.lookup_table['elevation'].iloc[i] - self.lookup_table['elevation'].iloc[i - 1]
-#         chi = np.arctan2(dphi, -dbeta)
-# 
-#         return beta, phi, chi
-# 
-# 
-# class TractionPhasePattern(Phase):
-#     def __init__(self, phase_settings={'control': ('reeling_factor', .37)}, impose_operational_limits=True):
-#         """
-#         Args:
-#             phase_settings (tuple, optional): Setting parent's `control_settings` attribute.
-#             impose_operational_limits (bool, optional): Setting parent's `impose_operational_limits` attribute.
-# 
-#         """
-#         super().__init__(phase_settings, impose_operational_limits)
-# 
-#         # Binary kite aerodynamic state.
-#         self.kite_powered = True
-# 
-#         # Properties of initial state and final position.
-#         self.tether_length_start = 240.
-#         self.tether_length_end = 385.
-#         self.elevation_angle = TractionConstantElevation(25. * np.pi / 180.)
-# 
-#         # State of kite along the cross-wind pattern.
-#         self.n_crosswind_patterns = 0.
-#         self.pattern = LissajousPattern()
-# 
-#     def finalize_start_and_end_kite_obj(self):
-#         """Finalize the initial state and ending criteria before running the simulation, respectively `kinematics_start`
-#         and `position_end`. Furthermore, calculating `delta_path_angle`."""
-#         elevation_angle_ref = self.elevation_angle.calculate(self.tether_length_start)
-#         beta, phi, chi = self.pattern.get_properties_along_curve(self.n_crosswind_patterns % 1)[:3]
-#         self.kinematics_start = KiteKinematics(self.tether_length_start, phi, elevation_angle_ref+beta, chi)
-#         self.position_end = KitePosition(straight_tether_length=self.tether_length_end)
-# 
-#     def determine_new_kinematics(self, last_kinematics, last_steady_state):
-#         """Determine kinematic state of the kite for the new time point based on the previous kinematic and steady state
-#         properties. For the traction phase, the tether length is updated. If the elevation angle at the start and end of
-#         the phase are different, then also the elevation angle is updated.
-# 
-#         Args:
-#             last_kinematics (`KiteKinematics`): Kinematics object of previous time point.
-#             last_steady_state (`SteadyState`): Steady state of previous time point.
-# 
-#         Returns:
-#             bool: Flag indicating meeting phase ending criteria.
-#             `KiteKinematics`: Kinematic state of the kite for the new time point.
-# 
-#         """
-#         kin = copy(last_kinematics)
-# 
-#         # Determine the difference in tether length for regular time step.
-#         d_tether_length = last_steady_state.reeling_speed * self.time_step
-# 
-#         if d_tether_length < 0.:
-#             raise PhaseError("Reeling in during reel-out phase.", 2)
-#         elif last_steady_state.reeling_speed < 1e-6:
-#             raise PhaseError("Reeling speed too low.")
-# 
-#         # Check if target tether length is not exceeded next iteration.
-#         if kin.straight_tether_length + d_tether_length < self.position_end.straight_tether_length:
-#             dt = self.time_step
-#             end_phase = False
-#         else:
-#             # Determine the time needed for reaching the target tether length.
-#             d_tether_length = self.position_end.straight_tether_length - kin.straight_tether_length
-#             dt = d_tether_length / last_steady_state.reeling_speed
-#             end_phase = True
-# 
-#         # Set next timer and kite kinematics.
-#         self.timer += dt
-#         kin.straight_tether_length += d_tether_length
-#         elevation_angle_ref = self.elevation_angle.calculate(kin.straight_tether_length)
-# 
-#         pattern_length = self.pattern.curve_length_unit_sphere * last_kinematics.straight_tether_length
-#         d_cross_wind_distance = last_steady_state.kite_tangential_speed * self.time_step
-# 
-#         self.n_crosswind_patterns += d_cross_wind_distance / pattern_length
-#         beta, phi, chi = self.pattern.get_properties_along_curve(self.n_crosswind_patterns % 1)[:3]
-#         kin.elevation_angle = elevation_angle_ref + beta
-#         kin.azimuth_angle = phi
-#         kin.course_angle = chi
-#         kin.update()
-# 
-#         return end_phase, kin
-# 
-# 
-# class EvaluatePattern(Phase):  # Determine performance along cross wind pattern at representative traction point. Has
-#     # Phase as parent as it uses its determine_new_steady_state method.
-#     def __init__(self, settings, impose_operational_limits=True):
-#         # Simulation setting.
-#         self.time_step = settings.get('time_step', .5)
-# 
-#         # StatePhase of kite along the cross-wind pattern.
-#         self.n_crosswind_patterns = 0.
-# 
-#         # Representative traction state of kite along the cross-wind pattern.
-#         self.tether_length = settings['tether_length']
-#         self.elevation_angle_ref = settings['elevation_angle_ref']
-# 
-#         # Result lists with time and states.
-#         self.kinematics = None
-#         self.steady_states = None
-#         self.time = None
-#         self.s = None
-# 
-#         # Side conditions.
-#         self.system_properties = None
-#         self.environment_state = None
-#         self.steady_state_config = None
-# 
-#         # Control settings.
-#         self.control_settings = settings['control']
-#         self.impose_operational_limits = impose_operational_limits
-#         self.kite_powered = True
-#         self.follow_wind = False
-# 
-#         # Monitoring parameters.
-#         self.timer = None
-#         self.min_reeling_speed = np.inf
-#         self.max_reeling_speed = -np.inf
-#         self.min_tether_force = np.inf  # Forces at ground station.
-#         self.max_tether_force = -np.inf
-# 
-#         # Monitoring settings.
-#         self.enable_limit_violation_error = True
-#         self.pattern = LissajousPattern()
-# 
-#     def calc_performance_along_pattern(self, system_properties, environment_state, n_points=100, steady_state_config={}, print_details=False):
-#         self.time, self.kinematics, self.steady_states = [0.], [], []
-#         self.min_reeling_speed, self.max_reeling_speed = np.inf, -np.inf
-#         self.s = np.linspace(0, 1, n_points)
-#         ds = self.s[1]
-# 
-#         self.system_properties = system_properties
-#         self.environment_state = environment_state
-#         self.steady_state_config = steady_state_config
-# 
-#         pattern_length = self.pattern.curve_length_unit_sphere * self.tether_length
-#         cos_phi, cos_beta, cos_chi = [], [], []
-#         valid_pattern = True
-#         for s in self.s:
-#             beta, phi, chi = self.pattern.get_properties_along_curve(s)[:3]
-# 
-#             kin = KiteKinematics(self.tether_length, phi, self.elevation_angle_ref + beta, chi)
-#             self.kinematics.append(kin)
-# 
-#             # Add first time point, kite kinematics, and steady state to corresponding result lists.
-#             environment_state.calculate(kin.z)
-#             if self.follow_wind:
-#                 kin.azimuth_angle += environment_state.downwind_direction
-#                 kin.update()
-#             ss = self.determine_new_steady_state(kin)
-#             self.steady_states.append(ss)
-# 
-#             cos_phi.append(np.cos(kin.azimuth_angle))
-#             cos_beta.append(np.cos(kin.elevation_angle))
-#             cos_chi.append(np.cos(kin.course_angle))
-# 
-#             if s != self.s[-1]:
-#                 if ss.kite_tangential_speed > 0:
-#                     dt = ds * pattern_length / ss.kite_tangential_speed
-#                 else:
-#                     dt = 1e1  # Some optimizations were not converging when setting this value to 1e2.
-#                     valid_pattern = False
-#                 next_time = self.time[-1] + dt
-# 
-#                 self.time.append(next_time)
-# 
-#         # if valid_pattern:
-#         pattern_duration = self.time[-1]
-#         # else:
-#         #     pattern_duration = 1e3
-# 
-#         if print_details:
-#             print("Pattern duration [s]:", pattern_duration)
-#             i_end = 0
-#             flying_down = 0.
-#             for i, chi in enumerate([90, -90, -90, 90]):
-#                 i_start = i_end
-#                 if i == 3:
-#                     i_end = n_points
-#                 else:
-#                     i_end += n_points//4
-#                 course_angles = [kin.course_angle for kin in self.kinematics[i_start:i_end]]
-#                 time_window = self.time[i_start:i_end]
-#                 if i <= 1:
-#                     course_angles = course_angles[::-1]
-#                     time_window = time_window[::-1]
-#                 t = np.interp(chi*np.pi/180., course_angles, time_window)
-#                 if i in [1, 3]:
-#                     flying_down += t - t_last
-#                 t_last = t
-#             print("Flying down [%]:", flying_down/pattern_duration*100.)
-#             print("Representative azimuth angle [deg]:", np.arccos(np.trapz(cos_phi, self.time)/pattern_duration)*180./np.pi)
-#             print("Representative elevation angle [deg]:", np.arccos(np.trapz(cos_beta, self.time)/pattern_duration)*180./np.pi)
-#             print("Representative course angle [deg]:", np.arccos(np.trapz(cos_chi, self.time)/pattern_duration)*180./np.pi)
-# 
-#         return pattern_duration
-# 
-#     def plot_traces(self, x, plot_parameters, y_labels=None, y_scaling=None):
-#         """Generic plotting method for making a plot of `KiteKinematics` and `SteadyState` attributes.
-# 
-#         Args:
-#             plot_parameters (tuple): Sequence of `KiteKinematics` or `SteadyState` attributes.
-#             y_labels (tuple, optional): Y-axis labels corresponding to `plot_parameters`.
-#             y_scaling (tuple, optional): Scaling factors corresponding to `plot_parameters`.
-# 
-#         """
-#         data_sources = (self.kinematics, self.steady_states)
-#         source_labels = ('kin', 'ss')
-# 
-#         plot_traces(x[0], data_sources, source_labels, plot_parameters, y_labels, y_scaling, x_label=x[1])
-# 
-#     def plot_pattern(self):
-#         plt.figure()
-#         plt.plot([kin.azimuth_angle*180./np.pi for kin in self.kinematics],
-#                  [kin.elevation_angle*180./np.pi for kin in self.kinematics])
-#         kin = self.kinematics[5]
-#         plt.plot([kin.azimuth_angle*180./np.pi], [kin.elevation_angle*180./np.pi], 's')
