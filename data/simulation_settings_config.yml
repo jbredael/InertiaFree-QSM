@@ -1,27 +1,39 @@
-# Simulation settings for the inerita-free quasi-steady model
+# Simulation settings for the inertia-free quasi-steady model
+# All angles are in radians unless otherwise specified
+# These settings are tuned for the soft_kite_pumping_ground_gen_system.yml 
+# (78 m² kite, 42000 N max tether force)
 
+cycle:
+  # Elevation angle during traction phase [rad]
+  # 35 degrees = 35 * pi / 180 = 0.6108652381980153
+  elevation_angle_traction: 0.6108652381980153
+  # Tether length at start of retraction phase [m]
+  tether_length_start_retraction: 350.0
+  # Tether length at end of retraction phase [m]
+  tether_length_end_retraction: 200.0
 
+retraction:
+  # Control setting: (control_parameter, setpoint_value)
+  # Options: 'tether_force_ground', 'tether_force_kite', 'reeling_factor', 'reeling_speed'
+  # Using a force appropriate for the 42000 N max system (~10-15% of max)
+  control: ['tether_force_ground', 5000]
+  # Time step for simulation [s]
+  time_step: 0.25
 
-cycle: 
-  # 'traction_phase': TractionPhase,
-  elevation_angle_traction: 35*np.pi/180.,
-  # TODO improve this? Could go up to 500
-  # TODO what does this setting do exacly?
-  tether_length_start_retraction: 500.,
-  tether_length_end_retraction: 200.,
+transition:
+  # Control setting for transition phase
+  control: ['reeling_speed', 0.0]
+  # Time step for simulation [s]
+  time_step: 0.25
 
-retraction: 
-  control: ('tether_force_ground', 10000),
-  time_step: .25,  # .05,
+traction:
+  # Control setting for traction phase
+  # reeling_factor is the ratio of reeling speed to wind speed
+  control: ['reeling_factor', 0.37]
+  # Time step for simulation [s]
+  time_step: 0.25
+  # Azimuth angle [rad] - 15 degrees = 0.2617993877991494
+  azimuth_angle: 0.2617993877991494
+  # Course angle [rad] - 110 degrees = 1.9198621771937625
+  course_angle: 1.9198621771937625
 
-
-transition: 
-  control: ('reeling_speed', 0.),
-  time_step: .25,  # .05,
-
-traction: 
-  control: ('reeling_factor', .37),
-  time_step: .25,  # .05,
-  azimuth_angle: 15. * np.pi / 180.,
-  course_angle: 110. * np.pi / 180.,
-    

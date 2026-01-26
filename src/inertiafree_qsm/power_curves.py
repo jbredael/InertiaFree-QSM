@@ -212,7 +212,7 @@ def estimate_wind_speed_operational_limits(loc='mmc', n_clusters=8):
 def generate_power_curves(loc='mmc', n_clusters=8):
     """Determine power curves - requires estimates of the cut-in and cut-out wind speed to be available."""
     suffix = '_{}{}'.format(n_clusters, loc)
-    limit_estimates = pd.read_csv('output/wind_limits_estimate{}.csv'.format(suffix))
+    # limit_estimates = pd.read_csv('output/wind_limits_estimate{}.csv'.format(suffix))
 
     # Cycle simulation settings for different phases of the power curves.
     cycle_sim_settings_pc_phase1 = {
@@ -248,8 +248,10 @@ def generate_power_curves(loc='mmc', n_clusters=8):
 
         # The optimization incessantly fails for the estimated cut-out wind speed. Therefore, the highest wind speed for
         # which the optimization is performed is somewhat lower than the estimated cut-out wind speed.
-        vw_cut_in = limit_estimates.iloc[i_profile-1]['vw_100m_cut_in']
-        vw_cut_out = limit_estimates.iloc[i_profile-1]['vw_100m_cut_out']
+        # vw_cut_in = limit_estimates.iloc[i_profile-1]['vw_100m_cut_in']
+        # vw_cut_out = limit_estimates.iloc[i_profile-1]['vw_100m_cut_out']
+        vw_cut_in = 7
+        vw_cut_out = 20
         wind_speeds = np.linspace(vw_cut_in, vw_cut_out-1, 50)
         wind_speeds = np.concatenate((wind_speeds, np.linspace(vw_cut_out-1, vw_cut_out-0.05, 15)))
 
@@ -276,7 +278,8 @@ def generate_power_curves(loc='mmc', n_clusters=8):
         }
 
         # Define starting point for the very first optimization at the cut-in wind speed.
-        critical_force = limit_estimates.iloc[i_profile-1]['tether_force_cut_in']
+        # critical_force = limit_estimates.iloc[i_profile-1]['tether_force_cut_in']
+        critical_force = 5000.
         x0 = np.array([critical_force, 300., theta_ro_ci, 150., 200.0])
 
         # Start optimizations.

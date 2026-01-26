@@ -1,4 +1,4 @@
-from pyOpt import Optimization, SLSQP, Gradient
+from pyoptsparse import Optimization, SLSQP
 from scipy import optimize as op
 import numpy as np
 import matplotlib.pyplot as plt
@@ -81,7 +81,7 @@ class Optimizer:
         self.environment_state = environment_state
 
         # Optimization configuration.
-        self.use_library = 'pyopt'  # Either 'pyopt' or 'scipy' can be opted. pyOpt is in general faster, however more
+        self.use_library = 'scipy'  # Either 'pyopt' or 'scipy' can be opted. pyOpt is in general faster, however more
         # cumbersome to install.
         self.use_parallel_processing = False  # Only compatible with pyOpt: used for determining the gradient. Script
         # should be run using: mpiexec -n 4 python script.py, when using parallel processing. Parallel processing does

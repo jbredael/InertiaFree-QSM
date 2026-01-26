@@ -3,6 +3,8 @@
 """Implementation of the model as presented in `Quasi-Steady Model of a Pumping Kite Power System`_ by R. Van der Vlugt
 et al. The model is implemented in such a way that it can be used for numerical optimization.
 
+This implementation focuses on 2D simulation (idealized trajectory) for pumping kite power systems.
+
 .. _Quasi-Steady Model of a Pumping Kite Power System:
     https://arxiv.org/abs/1705.04133
 
@@ -10,8 +12,11 @@ et al. The model is implemented in such a way that it can be used for numerical 
 import numpy as np
 import matplotlib.pyplot as plt
 from copy import copy
-import pandas as pd
-from utils import zip_el, plot_traces
+
+try:
+    from .utils import zip_el, plot_traces
+except ImportError:
+    from utils import zip_el, plot_traces
 
 np.seterr(all='raise')
 
@@ -216,11 +221,23 @@ class NormalisedWindTable1D(EnvAtmosphericPressure):
         self.calculate_density(altitude)
 
     def calculate_wind(self, height):
-        # Linear interpolation is used to determine the wind speed between points along the height.
-        v = np.interp(height, self.heights, self.normalised_wind_speeds,
-                      left=np.nan, right=np.nan) * self.wind_speed_ref
-        if height <= 0. or np.isnan(v):
+        """Calculate the wind speed for the given height above ground.
+
+        Linear interpolation is used to determine the wind speed between points
+        along the height. For heights outside the profile range, the boundary
+        values are used (constant extrapolation).
+
+        Args:
+            height (float): Height above ground [m].
+
+        Returns:
+            float: Wind speed at the given height [m/s].
+        """
+        if height <= 0.:
             raise OperationalLimitViolation("Invalid height is given: {:.1f}.".format(height))
+
+        # Use boundary values for extrapolation (no NaN)
+        v = np.interp(height, self.heights, self.normalised_wind_speeds) * self.wind_speed_ref
         self.wind_speed = v
         return v
 
