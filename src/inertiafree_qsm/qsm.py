@@ -11,6 +11,7 @@ This implementation focuses on 2D simulation (idealized trajectory) for pumping 
 """
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 from copy import copy
 
 try:
@@ -1317,7 +1318,7 @@ class Phase(TimeSeries):
                 raise PhaseError(error_message, 1)
 
         # Processing resulting steady states to determine the phase performance.
-        self.energy = np.trapz([ss.power_ground for ss in self.steady_states], self.time)
+        self.energy = np.trapezoid([ss.power_ground for ss in self.steady_states], self.time)
         self.duration = self.timer - timer_start
         if self.duration > 0:
             self.average_power = self.energy / self.duration
@@ -1331,11 +1332,11 @@ class Phase(TimeSeries):
     def calc_operational_properties(self):
         """Calculate the operational properties of the phase."""
         # Calculate time averages.
-        self.average_reeling_factor = np.trapz([ss.reeling_factor for ss in self.steady_states],
+        self.average_reeling_factor = np.trapezoid([ss.reeling_factor for ss in self.steady_states],
                                                self.time) / self.duration
-        self.average_reeling_speed = np.trapz([ss.reeling_speed for ss in self.steady_states],
+        self.average_reeling_speed = np.trapezoid([ss.reeling_speed for ss in self.steady_states],
                                               self.time) / self.duration
-        self.average_tether_force_ground = np.trapz([ss.tether_force_ground for ss in self.steady_states],
+        self.average_tether_force_ground = np.trapezoid([ss.tether_force_ground for ss in self.steady_states],
                                                     self.time) / self.duration
 
         # Calculate the length properties of the path covered by the kite.
@@ -2154,9 +2155,9 @@ class EvaluatePattern(Phase):  # Determine performance along cross wind pattern 
                     flying_down += t - t_last
                 t_last = t
             print("Flying down [%]:", flying_down/pattern_duration*100.)
-            print("Representative azimuth angle [deg]:", np.arccos(np.trapz(cos_phi, self.time)/pattern_duration)*180./np.pi)
-            print("Representative elevation angle [deg]:", np.arccos(np.trapz(cos_beta, self.time)/pattern_duration)*180./np.pi)
-            print("Representative course angle [deg]:", np.arccos(np.trapz(cos_chi, self.time)/pattern_duration)*180./np.pi)
+            print("Representative azimuth angle [deg]:", np.arccos(np.trapezoid(cos_phi, self.time)/pattern_duration)*180./np.pi)
+            print("Representative elevation angle [deg]:", np.arccos(np.trapezoid(cos_beta, self.time)/pattern_duration)*180./np.pi)
+            print("Representative course angle [deg]:", np.arccos(np.trapezoid(cos_chi, self.time)/pattern_duration)*180./np.pi)
 
         return pattern_duration
 
@@ -2435,5 +2436,5 @@ if __name__ == "__main__":
     cycle.time_plot(('straight_tether_length', 'reeling_speed', 'x', 'y', 'z'),
                     ('r [m]', r'$\dot{\mathrm{r}}$ [m/s]', 'x [m]', 'y [m]', 'z [m]'))
     cycle.trajectory_plot()
-    cycle.trajectory_plot3d()
+    # cycle.trajectory_plot3d()
     plt.show()
