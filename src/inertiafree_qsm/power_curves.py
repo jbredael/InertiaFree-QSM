@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from copy import deepcopy
 
-from qsm import LogProfile, NormalisedWindTable1D, KiteKinematics, SteadyState, TractionPhaseHybrid, \
+from .qsm import LogProfile, NormalisedWindTable1D, KiteKinematics, SteadyState, TractionPhaseHybrid, \
     TractionConstantElevation, SteadyStateError, TractionPhase
-from kitepower_kites import sys_props_v3
-from cycle_optimizer import OptimizerCycle
-from power_curve_constructor import PowerCurveConstructor
+from .kitepower_kites import sys_props_v3
+from .cycle_optimizer import OptimizerCycle
+from .power_curve_constructor import PowerCurveConstructor
 
 # Assumptions representative reel-out state at cut-in wind speed.
 theta_ro_ci = 25 * np.pi / 180.

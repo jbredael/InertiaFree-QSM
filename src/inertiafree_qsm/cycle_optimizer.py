@@ -3,8 +3,8 @@ from scipy import optimize as op
 import numpy as np
 import matplotlib.pyplot as plt
 
-from qsm import Cycle
-from utils import flatten_dict
+from .qsm import Cycle
+from .utils import flatten_dict
 
 
 class OptimizerError(Exception):

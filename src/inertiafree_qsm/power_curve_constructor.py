@@ -3,8 +3,8 @@ import matplotlib as mpl
 import numpy as np
 import pickle
 
-from qsm import SteadyStateError, OperationalLimitViolation, PhaseError
-from utils import flatten_dict
+from .qsm import SteadyStateError, OperationalLimitViolation, PhaseError
+from .utils import flatten_dict
 
 
 class PowerCurveConstructor:

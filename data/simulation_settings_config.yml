@@ -1,7 +1,5 @@
 # Simulation settings for the inertia-free quasi-steady model
 # All angles are in radians unless otherwise specified
-# These settings are tuned for the soft_kite_pumping_ground_gen_system.yml 
-# (78 m² kite, 42000 N max tether force)
 
 cycle:
   # Elevation angle during traction phase [rad]

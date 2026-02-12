@@ -33,8 +33,11 @@ from .config_loader import (
     load_simulation_settings,
     create_wind_profile_from_resource,
     get_reference_wind_speeds,
-    calculate_power_curves,
+    get_cluster_data,
 )
+
+# Power curve constructor (always available for direct simulation)
+from .power_curve_constructor2 import PowerCurveConstructor2, OPTIMIZER_AVAILABLE
 
 __version__ = "0.1.0"
 
@@ -65,6 +68,8 @@ __all__ = [
     "load_simulation_settings",
     "create_wind_profile_from_resource",
     "get_reference_wind_speeds",
-    # Main function
-    "calculate_power_curves",
+    "get_cluster_data",
+    # Power curve constructor
+    "PowerCurveConstructor2",
+    "OPTIMIZER_AVAILABLE",
 ]
