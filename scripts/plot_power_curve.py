@@ -58,8 +58,7 @@ def plot_power_curve(filePath, output_path=None, show_plot=True):
     name = metadata.get('name', 'Power Curve')
     referenceHeight = metadata.get('wind_resource', {}).get('reference_height_m', 100)
     
-    # Extract wind speeds and power data
-    windSpeeds = data.get('reference_wind_speeds_m_s', [])
+    # Extract power curves
     powerCurves = data.get('power_curves', [])
     
     if not powerCurves:
@@ -72,10 +71,18 @@ def plot_power_curve(filePath, output_path=None, show_plot=True):
     # Plot for each profile (typically just one)
     for profile in powerCurves:
         profileId = profile.get('profile_id', 'Unknown')
-        cyclePower = profile.get('cycle_power_w', [])
-        reelOutPower = profile.get('reel_out_power_w', [])
-        reelInPower = profile.get('reel_in_power_w', [])
-        cycleTime = profile.get('cycle_time_s', [])
+        windSpeedData = profile.get('wind_speed_data', [])
+        
+        if not windSpeedData:
+            print(f"No wind speed data for profile {profileId}")
+            continue
+        
+        # Extract data arrays
+        windSpeeds = [entry['wind_speed_m_s'] for entry in windSpeedData]
+        cyclePower = [entry['performance']['power']['average_cycle_power_w'] for entry in windSpeedData]
+        reelOutPower = [entry['performance']['power']['average_reel_out_power_w'] for entry in windSpeedData]
+        reelInPower = [entry['performance']['power']['average_reel_in_power_w'] for entry in windSpeedData]
+        cycleTime = [entry['performance']['timing']['cycle_time_s'] for entry in windSpeedData]
         
         # Convert power to kW
         cyclePowerKw = [p / 1000 for p in cyclePower]
@@ -120,10 +127,12 @@ def plot_power_curve(filePath, output_path=None, show_plot=True):
             if wingArea:
                 airDensity = 1.225  # kg/m³ at sea level
                 powerCoeff = []
-                for i, ws in enumerate(windSpeeds):
-                    if ws > 0 and cyclePower[i] >= 0:
+                for entry in windSpeedData:
+                    ws = entry['wind_speed_m_s']
+                    cp_val = entry['performance']['power']['average_cycle_power_w']
+                    if ws > 0 and cp_val >= 0:
                         availablePower = 0.5 * airDensity * wingArea * ws**3
-                        cp = cyclePower[i] / availablePower if availablePower > 0 else 0
+                        cp = cp_val / availablePower if availablePower > 0 else 0
                         powerCoeff.append(cp)
                     else:
                         powerCoeff.append(0)

@@ -7,7 +7,7 @@ and provides a simple interface for calculating power curves.
 
 import numpy as np
 import yaml
-from awesio.validator import validate
+# from awesio.validator import validate  # Unused import, commented out
 
 def load_yaml(file_path):
     """Load a YAML file.

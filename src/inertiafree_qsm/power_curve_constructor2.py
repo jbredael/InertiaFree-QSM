@@ -540,43 +540,43 @@ class PowerCurveConstructor2:
             dict: Power curve data in awesIO format.
         """
         cluster_data = get_cluster_data(self.wind_resource, cluster_id)
-        env_state = self.create_environment(cluster_id)
 
-        # Calculate speed ratio at operating altitude
-        env_state.set_reference_wind_speed(1.0)
-        env_state.calculate(self.operating_altitude)
-        speed_ratio = env_state.wind_speed
+        # Build wind speed data entries
+        wind_speed_data = []
+        for i, (ws, kpi) in enumerate(zip(self.wind_speeds, self.performance_indicators)):
+            wind_speed_entry = {
+                'wind_speed_m_s': float(ws),
+                'success': kpi.get('sim_successful', True),
+                'performance': {
+                    'power': {
+                        'average_cycle_power_w': kpi['average_power']['cycle'],
+                        'average_reel_out_power_w': kpi['average_power']['out'],
+                        'average_reel_in_power_w': kpi['average_power']['in'],
+                    },
+                    'timing': {
+                        'reel_out_time_s': kpi['duration']['out'],
+                        'reel_in_time_s': kpi['duration']['in'] + kpi['duration'].get('trans', 0.0),
+                        'cycle_time_s': kpi['duration']['cycle'],
+                    },
+                },
+            }
 
-        # Extract data from performance indicators
-        cycle_powers = []
-        reel_out_powers = []
-        reel_in_powers = []
-        reel_out_times = []
-        reel_in_times = []
-        cycle_times = []
+            # Add time history if available (from kinematics in KPI)
+            if 'kinematics' in kpi and kpi['kinematics']:
+                time_history = self._extract_time_history_from_kpi(kpi)
+                if time_history is not None:
+                    wind_speed_entry['time_history'] = time_history
 
-        for kpi in self.performance_indicators:
-            cycle_powers.append(kpi['average_power']['cycle'])
-            reel_out_powers.append(kpi['average_power']['out'])
-            reel_in_powers.append(kpi['average_power']['in'])
-            reel_out_times.append(kpi['duration']['out'])
-            reel_in_times.append(
-                kpi['duration']['in'] + kpi['duration'].get('trans', 0.0)
-            )
-            cycle_times.append(kpi['duration']['cycle'])
+            wind_speed_data.append(wind_speed_entry)
 
         power_curve = {
             'profile_id': cluster_id + 1,
-            'speed_ratio_at_operating_altitude': float(speed_ratio),
-            'u_normalized': [float(u) for u in cluster_data.get('u_normalized', [])],
-            'v_normalized': [float(v) for v in cluster_data.get('v_normalized', [])],
             'probability_weight': float(cluster_data.get('frequency', 1.0 / self.n_clusters)),
-            'cycle_power_w': cycle_powers,
-            'reel_out_power_w': reel_out_powers,
-            'reel_in_power_w': reel_in_powers,
-            'reel_out_time_s': reel_out_times,
-            'reel_in_time_s': reel_in_times,
-            'cycle_time_s': cycle_times,
+            'wind_profile': {
+                'u_normalized': [float(u) for u in cluster_data.get('u_normalized', [])],
+                'v_normalized': [float(v) for v in cluster_data.get('v_normalized', [])],
+            },
+            'wind_speed_data': wind_speed_data,
         }
 
         return power_curve
@@ -608,7 +608,8 @@ class PowerCurveConstructor2:
         if self.wind_speeds is not None and len(self.wind_speeds) > 0:
             wind_speeds = self.wind_speeds
             first_curve = power_curves[0]
-            cycle_powers = first_curve['cycle_power_w']
+            wind_speed_data = first_curve['wind_speed_data']
+            cycle_powers = [entry['performance']['power']['average_cycle_power_w'] for entry in wind_speed_data]
             cut_in_ws = self._find_cut_in_wind_speed(wind_speeds, cycle_powers)
             cut_out_ws = float(wind_speeds[-1])
         else:
@@ -618,7 +619,8 @@ class PowerCurveConstructor2:
 
         # Calculate nominal power
         nominal_power = max(
-            max(pc['cycle_power_w']) for pc in power_curves
+            max(entry['performance']['power']['average_cycle_power_w'] for entry in pc['wind_speed_data'])
+            for pc in power_curves
         ) if power_curves else 0.0
 
         # Prepare output in awesIO power_curves_schema format
@@ -672,8 +674,14 @@ class PowerCurveConstructor2:
             ],
         }
 
+        # Custom YAML dumper for better list indentation
+        class IndentedDumper(yaml.Dumper):
+            def increase_indent(self, flow=False, indentless=False):
+                return super(IndentedDumper, self).increase_indent(flow, indentless=False)
+            
+        # Write YAML with proper formatting
         with open(file_path, 'w') as f:
-            yaml.dump(export_dict, f, default_flow_style=False)
+            yaml.dump(export_dict, f, Dumper=IndentedDumper, default_flow_style=False, sort_keys=False, indent=2, width=1000)
 
     def import_results(self, file_path):
         """Import optimization results from YAML file.
@@ -985,7 +993,7 @@ class PowerCurveConstructor2:
         elif not isinstance(cluster_ids, (list, tuple)):
             cluster_ids = [cluster_ids]
 
-        # Calculate power curves for selected clusters
+        # Plot power curves for selected clusters
         power_curves = []
         all_results = []
 
@@ -1000,13 +1008,15 @@ class PowerCurveConstructor2:
 
         # Determine cut-in and cut-out wind speeds from first cluster
         first_curve = power_curves[0]
-        cycle_powers = first_curve['cycle_power_w']
+        wind_speed_data = first_curve['wind_speed_data']
+        cycle_powers = [entry['performance']['power']['average_cycle_power_w'] for entry in wind_speed_data]
         cut_in_ws = self._find_cut_in_wind_speed(wind_speeds, cycle_powers)
         cut_out_ws = float(wind_speeds[-1])
 
         # Calculate nominal power (max power from all clusters)
         nominal_power = max(
-            max(pc['cycle_power_w']) for pc in power_curves
+            max(entry['performance']['power']['average_cycle_power_w'] for entry in pc['wind_speed_data'])
+            for pc in power_curves
         )
 
         # Prepare output in awesIO power_curves_schema format
@@ -1045,8 +1055,14 @@ class PowerCurveConstructor2:
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
+            # Custom YAML dumper for better list indentation
+            class IndentedDumper(yaml.Dumper):
+                def increase_indent(self, flow=False, indentless=False):
+                    return super(IndentedDumper, self).increase_indent(flow, indentless=False)
+                
+            # Write YAML with proper formatting
             with open(output_path, 'w') as f:
-                yaml.dump(output, f, default_flow_style=False, sort_keys=False)
+                yaml.dump(output, f, Dumper=IndentedDumper, default_flow_style=False, sort_keys=False, indent=2, width=1000)
 
             if verbose:
                 print(f"\nPower curves saved to {output_path}")
@@ -1086,12 +1102,7 @@ class PowerCurveConstructor2:
             print(f"Calculating power curve for cluster {cluster_id + 1}...")
 
         results = []
-        cycle_powers = []
-        reel_out_powers = []
-        reel_in_powers = []
-        reel_out_times = []
-        reel_in_times = []
-        cycle_times = []
+        wind_speed_data = []
 
         for i, ws in enumerate(wind_speeds):
             if verbose:
@@ -1100,26 +1111,39 @@ class PowerCurveConstructor2:
             result = self._run_single_simulation_direct(ws, env_state)
             results.append(result)
 
-            cycle_powers.append(result['cycle_power_w'])
-            reel_out_powers.append(result['reel_out_power_w'])
-            reel_in_powers.append(result['reel_in_power_w'])
-            reel_out_times.append(result['reel_out_time_s'])
-            reel_in_times.append(result['reel_in_time_s'])
-            cycle_times.append(result['cycle_time_s'])
+            # Build wind speed data entry with averages and time history
+            wind_speed_entry = {
+                'wind_speed_m_s': float(ws),
+                'success': result['success'],
+                'performance': {
+                    'power': {
+                        'average_cycle_power_w': result['average_cycle_power_w'],
+                        'average_reel_out_power_w': result['average_reel_out_power_w'],
+                        'average_reel_in_power_w': result['average_reel_in_power_w'],
+                    },
+                    'timing': {
+                        'reel_out_time_s': result['reel_out_time_s'],
+                        'reel_in_time_s': result['reel_in_time_s'],
+                        'cycle_time_s': result['cycle_time_s'],
+                    },
+                },
+            }
+
+            # Add time history if available
+            if result['time_history'] is not None:
+                wind_speed_entry['time_history'] = result['time_history']
+
+            wind_speed_data.append(wind_speed_entry)
 
         # Build power curve in awesIO format (profile_id is 1-indexed)
         power_curve = {
             'profile_id': cluster_id + 1,
-            'speed_ratio_at_operating_altitude': float(speed_ratio),
-            'u_normalized': [float(u) for u in cluster_data.get('u_normalized', [])],
-            'v_normalized': [float(v) for v in v_normalized],
             'probability_weight': float(probability_weight),
-            'cycle_power_w': cycle_powers,
-            'reel_out_power_w': reel_out_powers,
-            'reel_in_power_w': reel_in_powers,
-            'reel_out_time_s': reel_out_times,
-            'reel_in_time_s': reel_in_times,
-            'cycle_time_s': cycle_times,
+            'wind_profile': {
+                'u_normalized': [float(u) for u in cluster_data.get('u_normalized', [])],
+                'v_normalized': [float(v) for v in v_normalized],
+            },
+            'wind_speed_data': wind_speed_data,
         }
 
         return power_curve, results
@@ -1132,7 +1156,7 @@ class PowerCurveConstructor2:
             env_state (NormalisedWindTable1D): Environment state object.
 
         Returns:
-            dict: Simulation result with power and timing data.
+            dict: Simulation result with power, timing data, and time history.
         """
         env_state.set_reference_wind_speed(wind_speed)
 
@@ -1162,25 +1186,108 @@ class PowerCurveConstructor2:
             reel_out_power = traction_energy / traction_duration if traction_duration > 0 else 0.0
             reel_in_power = retraction_energy / retraction_duration if retraction_duration > 0 else 0.0
 
+            # Extract time history data from cycle
+            time_history = self._extract_time_history(cycle)
+
             return {
-                'cycle_power_w': float(average_power),
-                'reel_out_power_w': float(reel_out_power),
-                'reel_in_power_w': float(reel_in_power),
+                'average_cycle_power_w': float(average_power),
+                'average_reel_out_power_w': float(reel_out_power),
+                'average_reel_in_power_w': float(reel_in_power),
                 'reel_out_time_s': float(reel_out_time),
                 'reel_in_time_s': float(reel_in_time),
                 'cycle_time_s': float(cycle_time),
                 'success': error_in_phase is None,
+                'time_history': time_history,
             }
-        except Exception:
+        except Exception as e:
+            print(f"    ERROR at {wind_speed:.1f} m/s: {type(e).__name__}: {e}")
             return {
-                'cycle_power_w': 0.0,
-                'reel_out_power_w': 0.0,
-                'reel_in_power_w': 0.0,
+                'average_cycle_power_w': 0.0,
+                'average_reel_out_power_w': 0.0,
+                'average_reel_in_power_w': 0.0,
                 'reel_out_time_s': 0.0,
                 'reel_in_time_s': 0.0,
                 'cycle_time_s': 0.0,
                 'success': False,
+                'time_history': None,
             }
+
+    def _extract_time_history(self, cycle):
+        """Extract time history data from a cycle simulation.
+
+        Args:
+            cycle (Cycle): Cycle object with simulation results.
+
+        Returns:
+            dict: Time history data with altitude, forces, power, speeds, etc.
+        """
+        if not hasattr(cycle, 'time') or not cycle.time:
+            return None
+
+        time_history = {
+            'time_s': [float(t) for t in cycle.time],
+            'altitude_m': [],
+            'tether_force_n': [],
+            'power_w': [],
+            'reel_speed_m_s': [],
+            'tether_length_m': [],
+            'elevation_angle_rad': [],
+        }
+
+        # Extract data from kinematics and steady_states
+        for kin, ss in zip(cycle.kinematics, cycle.steady_states):
+            time_history['altitude_m'].append(float(kin.z))
+            time_history['tether_force_n'].append(float(ss.tether_force_ground))
+            time_history['power_w'].append(float(ss.power_ground))
+            time_history['reel_speed_m_s'].append(float(ss.reeling_speed))
+            time_history['tether_length_m'].append(float(kin.straight_tether_length))
+            time_history['elevation_angle_rad'].append(float(kin.elevation_angle))
+
+        return time_history
+
+    def _extract_time_history_from_kpi(self, kpi):
+        """Extract time history data from KPI dictionary (optimization results).
+
+        Args:
+            kpi (dict): Performance indicator dictionary containing kinematics.
+
+        Returns:
+            dict: Time history data with altitude, forces, power, speeds, etc.
+        """
+        if 'kinematics' not in kpi or not kpi['kinematics']:
+            return None
+
+        if 'steady_states' not in kpi or not kpi['steady_states']:
+            return None
+
+        # Get time vector if available
+        if 'time' in kpi and kpi['time']:
+            time_vec = [float(t) for t in kpi['time']]
+        else:
+            # Construct time vector from duration data
+            n_points = len(kpi['kinematics'])
+            time_vec = list(np.linspace(0, kpi['duration']['cycle'], n_points))
+
+        time_history = {
+            'time_s': time_vec,
+            'altitude_m': [],
+            'tether_force_n': [],
+            'power_w': [],
+            'reel_speed_m_s': [],
+            'tether_length_m': [],
+            'elevation_angle_rad': [],
+        }
+
+        # Extract data from kinematics and steady_states
+        for kin, ss in zip(kpi['kinematics'], kpi['steady_states']):
+            time_history['altitude_m'].append(float(kin.z))
+            time_history['tether_force_n'].append(float(ss.tether_force_ground))
+            time_history['power_w'].append(float(ss.power_ground))
+            time_history['reel_speed_m_s'].append(float(ss.reeling_speed))
+            time_history['tether_length_m'].append(float(kin.straight_tether_length))
+            time_history['elevation_angle_rad'].append(float(kin.elevation_angle))
+
+        return time_history
 
     @staticmethod
     def _find_cut_in_wind_speed(wind_speeds, cycle_powers):
@@ -1211,7 +1318,8 @@ class PowerCurveConstructor2:
 
         for pc in power_curves:
             profile_id = pc['profile_id']
-            cycle_power_kw = np.array(pc['cycle_power_w']) / 1000.0
+            wind_speed_data = pc['wind_speed_data']
+            cycle_power_kw = np.array([entry['performance']['power']['average_cycle_power_w'] for entry in wind_speed_data]) / 1000.0
             ax.plot(wind_speeds, cycle_power_kw, label=f'Cluster {profile_id}', linewidth=1.5)
 
         ax.set_xlabel('Reference Wind Speed [m/s]', fontsize=12)
