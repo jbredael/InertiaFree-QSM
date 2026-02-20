@@ -177,7 +177,7 @@ class PowerCurveConstructor2:
         ss.find_state(self.sys_props, env_state, kinematics)
         return ss.tether_force_ground
 
-    def estimate_cut_in_wind_speed(self, env_state, v_start=5.6, v_max=10.0, dv=0.01):
+    def estimate_cut_in_wind_speed(self, env_state, v_start=1.0, v_max=10.0, dv=0.01):
         """Estimate cut-in wind speed for feasible steady flight states.
 
         Iteratively determine lowest wind speed for which, along the entire
@@ -186,7 +186,8 @@ class PowerCurveConstructor2:
 
         Args:
             env_state: Environment state object.
-            v_start (float): Starting wind speed [m/s].
+            v_start (float): Starting wind speed [m/s]. Should be below the actual
+                cut-in speed to allow upward search.
             v_max (float): Maximum wind speed to check [m/s].
             dv (float): Wind speed step size [m/s].
 
@@ -210,7 +211,9 @@ class PowerCurveConstructor2:
                     and tether_force_end > self.sys_props.tether_force_min_limit
                 ):
                     if v == v_start:
-                        raise ValueError("Starting speed is too high.")
+                        # Starting speed already feasible, return it as lower bound
+                        print(f"  Note: Cut-in speed may be below {v_start:.1f} m/s")
+                        return v_start, critical_force
                     return v, critical_force
             except SteadyStateError:
                 pass
@@ -410,15 +413,25 @@ class PowerCurveConstructor2:
         vw_cut_in=None,
         vw_cut_out=None,
         n_points=50,
+        fine_n_points_near_cutout=15,
+        fine_range_m_s=1.0,
         verbose=True,
     ):
         """Generate optimized power curve for a wind profile cluster.
+
+        This method performs sequential optimization to find optimal cycle parameters
+        at each wind speed. The elevation angle from simulation settings is NOT used
+        as a constraint - it is only used to calculate the operating altitude.
 
         Args:
             cluster_id (int): The cluster ID (0-indexed).
             vw_cut_in (float, optional): Cut-in wind speed [m/s].
             vw_cut_out (float, optional): Cut-out wind speed [m/s].
             n_points (int): Number of points in power curve.
+            fine_n_points_near_cutout (int): Number of fine-resolution points near cut-out.
+                Set to 0 to disable fine resolution near cut-out.
+            fine_range_m_s (float): Wind speed range [m/s] for fine resolution.
+                Fine points span from (cut_out - range) to (cut_out - 0.05).
             verbose (bool): Whether to print progress.
 
         Returns:
@@ -443,10 +456,16 @@ class PowerCurveConstructor2:
                     print(f"  Cut-out wind speed: {vw_cut_out:.2f} m/s")
 
         # Generate wind speed array
-        wind_speeds = np.linspace(vw_cut_in, vw_cut_out - 1, n_points)
-        wind_speeds = np.concatenate(
-            (wind_speeds, np.linspace(vw_cut_out - 1, vw_cut_out - 0.05, 15))
-        )
+        wind_speeds = np.linspace(vw_cut_in, vw_cut_out - fine_range_m_s, n_points)
+        
+        # Add fine resolution points near cut-out if requested
+        if fine_n_points_near_cutout > 0:
+            fine_points = np.linspace(
+                vw_cut_out - fine_range_m_s, 
+                vw_cut_out - 0.05, 
+                fine_n_points_near_cutout
+            )
+            wind_speeds = np.concatenate((wind_speeds, fine_points))
 
         # Configure optimization sequence
         cycle_sim_settings_phase1 = deepcopy(self.simulation_settings)
@@ -561,6 +580,79 @@ class PowerCurveConstructor2:
         }
 
         return power_curve
+
+    def _build_full_power_curve_output(self, cluster_ids=None, method_name='Optimization-Based'):
+        """Build full power curve output with metadata in awesIO format.
+
+        This creates the same output structure as generate_power_curves_direct.
+
+        Args:
+            cluster_ids (list, optional): List of cluster IDs to include.
+                If None, includes all calculated clusters.
+            method_name (str): Name of the method used for metadata.
+
+        Returns:
+            dict: Complete power curve data in awesIO format.
+        """
+        if cluster_ids is None:
+            # Determine which clusters have results
+            cluster_ids = [0]  # Default to first cluster
+
+        # Build power curves for each cluster
+        power_curves = []
+        for cluster_id in cluster_ids:
+            power_curve = self._build_power_curve_output(cluster_id)
+            power_curves.append(power_curve)
+
+        # Determine cut-in and cut-out wind speeds
+        if self.wind_speeds is not None and len(self.wind_speeds) > 0:
+            wind_speeds = self.wind_speeds
+            first_curve = power_curves[0]
+            cycle_powers = first_curve['cycle_power_w']
+            cut_in_ws = self._find_cut_in_wind_speed(wind_speeds, cycle_powers)
+            cut_out_ws = float(wind_speeds[-1])
+        else:
+            cut_in_ws = 0.0
+            cut_out_ws = 0.0
+            wind_speeds = []
+
+        # Calculate nominal power
+        nominal_power = max(
+            max(pc['cycle_power_w']) for pc in power_curves
+        ) if power_curves else 0.0
+
+        # Prepare output in awesIO power_curves_schema format
+        altitudes = self.wind_resource.get('altitudes', [])
+        output = {
+            'metadata': {
+                'name': f'Ground-Gen Power Curves ({method_name})',
+                'description': 'Power curves for pumping ground-gen AWE system',
+                'note': f'Power curve data generated from QSM {method_name.lower()}. Wind speeds at {self.reference_height:.0f}m reference height.',
+                'awesIO_version': '0.1.0',
+                'schema': 'power_curves_schema.yml',
+                'time_created': datetime.now().isoformat(),
+                'model_config': {
+                    'wing_area_m2': float(self.sys_props.kite_projected_area),
+                    'nominal_power_w': float(nominal_power),
+                    'nominal_tether_force_n': float(self.sys_props.tether_force_max_limit),
+                    'cut_in_wind_speed_m_s': float(cut_in_ws),
+                    'cut_out_wind_speed_m_s': float(cut_out_ws),
+                    'operating_altitude_m': float(self.operating_altitude),
+                    'tether_length_operational_m': float(self.avg_tether_length),
+                },
+                'wind_resource': {
+                    'n_clusters': self.n_clusters,
+                    'n_profiles_calculated': len(cluster_ids),
+                    'profile_ids_calculated': [cid + 1 for cid in cluster_ids],
+                    'reference_height_m': float(self.reference_height),
+                },
+            },
+            'altitudes_m': [float(a) for a in altitudes],
+            'reference_wind_speeds_m_s': [float(ws) for ws in wind_speeds],
+            'power_curves': power_curves,
+        }
+
+        return output
 
     def export_results(self, file_path):
         """Export optimization results to YAML file.

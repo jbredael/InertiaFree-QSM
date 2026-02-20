@@ -19,7 +19,11 @@ import numpy as np
 SRC_DIR = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(SRC_DIR))
 
-from inertiafree_qsm import PowerCurveConstructor2, OPTIMIZER_AVAILABLE
+from inertiafree_qsm import PowerCurveConstructor2
+from inertiafree_qsm.config_loader import (
+    get_direct_simulation_wind_speeds,
+    get_optimization_wind_speed_settings,
+)
 
 
 # Define file paths
@@ -39,6 +43,11 @@ def generate_direct_simulation_power_curves():
     print("GENERATING POWER CURVES - DIRECT SIMULATION METHOD")
     print("=" * 80)
     
+    # Load wind speed settings from config
+    wind_speeds = get_direct_simulation_wind_speeds(SIMULATION_SETTINGS_PATH)
+    print(f"Wind speed range: {wind_speeds[0]:.1f} - {wind_speeds[-1]:.1f} m/s")
+    print(f"Number of points: {len(wind_speeds)}")
+    
     # Create power curve constructor
     constructor = PowerCurveConstructor2(
         system_config_path=SYSTEM_CONFIG_PATH,
@@ -48,11 +57,10 @@ def generate_direct_simulation_power_curves():
     )
     
     constructor.print_summary()
-    print()
     
     # Generate power curves using direct simulation
     result = constructor.generate_power_curves_direct(
-        wind_speeds=None,  # Use default range
+        wind_speeds=wind_speeds,
         cluster_ids=None,  # Calculate all clusters
         output_path=OUTPUT_PATH_DIRECT,
         verbose=True,
@@ -64,30 +72,49 @@ def generate_direct_simulation_power_curves():
 
 
 def generate_optimized_power_curves(constructor):
-    """Generate power curves using optimization-based method."""
-    if not OPTIMIZER_AVAILABLE:
-        print("=" * 80)
-        print("OPTIMIZATION MODULE NOT AVAILABLE")
-        print("=" * 80)
-        print("\n⚠ PowerCurveConstructor2 optimization requires pyoptsparse which is not installed.")
-        print("  Skipping optimization-based power curve generation.\n")
-        return None
-    
+    """Generate power curves using optimization-based method."""    
     print("=" * 80)
     print("GENERATING POWER CURVES - OPTIMIZATION-BASED METHOD")
     print("=" * 80)
     
+    # Load wind speed settings from config
+    wind_settings = get_optimization_wind_speed_settings(SIMULATION_SETTINGS_PATH)
+    vw_cut_in = wind_settings['cut_in']
+    vw_cut_out = wind_settings['cut_out']
+    n_points = wind_settings['n_points']
+    fine_n_points = wind_settings['fine_n_points_near_cutout']
+    fine_range = wind_settings['fine_range_m_s']
+    
+    if vw_cut_in is not None:
+        print(f"Cut-in wind speed: {vw_cut_in:.1f} m/s (from config)")
+    else:
+        print("Cut-in wind speed: auto-estimation")
+    
+    if vw_cut_out is not None:
+        print(f"Cut-out wind speed: {vw_cut_out:.1f} m/s (from config)")
+    else:
+        print("Cut-out wind speed: auto-estimation")
+    
+    print(f"Number of points: {n_points}")
+    if fine_n_points > 0:
+        print(f"Fine resolution: {fine_n_points} points over last {fine_range:.1f} m/s")
+    
     # Generate optimized power curve for first cluster
     power_curve = constructor.generate_power_curve(
         cluster_id=0,
-        vw_cut_in=7.0,  # Start from higher wind speed to save time
-        vw_cut_out=20.0,
-        n_points=30,  # Fewer points for faster demonstration
+        vw_cut_in=vw_cut_in,
+        vw_cut_out=vw_cut_out,
+        n_points=n_points,
+        fine_n_points_near_cutout=fine_n_points,
+        fine_range_m_s=fine_range,
         verbose=True,
     )
     
-    # Build output in awesIO format
-    output = constructor._build_power_curve_output(cluster_id=0)
+    # Build full output in awesIO format (same structure as direct simulation)
+    output = constructor._build_full_power_curve_output(
+        cluster_ids=[0],
+        method_name='Optimization-Based'
+    )
     
     # Save to file
     import yaml
@@ -217,10 +244,11 @@ def plot_comparison(direct_result, optimized_result, constructor):
 if __name__ == "__main__":
     # Generate power curves using both methods
     direct_result, constructor = generate_direct_simulation_power_curves()
-    optimized_result = generate_optimized_power_curves(constructor)
+    # optimized_result = generate_optimized_power_curves(constructor)
     
     # Create comparison plots
-    plot_comparison(direct_result, optimized_result, constructor)
+    # plot_comparison(direct_result, optimized_result, constructor)
+    
         
     print("=" * 80)
     print("POWER CURVE GENERATION COMPLETE")

@@ -1,19 +1,76 @@
 # Simulation settings for the inertia-free quasi-steady model
-# All angles are in radians unless otherwise specified
+# All angles are in degrees
+
+# ============================================================================
+# DIRECT SIMULATION SETTINGS
+# ============================================================================
+# Settings for the non-optimized direct simulation method
+# This method is faster but uses pre-defined cycle parameters
+
+direct_simulation:
+  # Wind speed range for power curve calculation
+  wind_speeds:
+    # Minimum wind speed [m/s]
+    cut_in: 4.0
+    # Maximum wind speed [m/s]
+    cut_out: 20
+    # Step size between wind speeds [m/s]
+    step: 2
+
+# ============================================================================
+# OPTIMIZATION SETTINGS
+# ============================================================================
+# Settings for the optimization-based power curve generation
+# This method is slower but finds optimal cycle parameters for each wind speed
+
+optimization:
+  # Wind speed range for power curve calculation
+  wind_speeds:
+    # Minimum wind speed [m/s] (set to null for auto-estimation)
+    cut_in: 7.0
+    # Maximum wind speed [m/s] (set to null for auto-estimation)
+    cut_out: 12.0
+    # Number of points to calculate (determines spacing)
+    n_points: 3
+    
+    # Fine resolution settings near cut-out wind speed
+    # These add extra points near the cut-out to capture system behavior
+    # at operational limits more accurately
+    fine_resolution:
+      # Number of fine points to add near cut-out (set to 0 to disable)
+      n_points_near_cutout: 10
+      # How far back from cut-out to start fine resolution [m/s]
+      # Fine points will span from (cut_out - range_m_s) to (cut_out - 0.05)
+      range_m_s: 2.0
+
+# ============================================================================
+# CYCLE CONFIGURATION
+# ============================================================================
+# Cycle parameters for simulation
 
 cycle:
-  # Elevation angle during traction phase [rad]
-  # 35 degrees = 35 * pi / 180 = 0.6108652381980153
-  elevation_angle_traction: 0.6108652381980153
-  # Tether length at start of retraction phase [m]
+  # Elevation angle during traction phase [degrees]
+  # - Direct simulation: Used as a fixed constraint during traction phase
+  # - Optimization: Only used to calculate operating altitude (NOT a constraint)
+  elevation_angle_traction: 35.0
+  
+  # Maximum tether length (start of retraction phase) [m]
+  # If not specified here, will use max_tether_length_m from system config
+  # Set this to override the system config value
   tether_length_start_retraction: 350.0
-  # Tether length at end of retraction phase [m]
+  
+  # Minimum tether length (end of retraction phase) [m]
   tether_length_end_retraction: 200.0
+
+# ============================================================================
+# PHASE SETTINGS
+# ============================================================================
+# Parameters for each phase of the pumping cycle
 
 retraction:
   # Control setting: (control_parameter, setpoint_value)
   # Options: 'tether_force_ground', 'tether_force_kite', 'reeling_factor', 'reeling_speed'
-  # Using a force appropriate for the 42000 N max system (~10-15% of max)
+  # Using a force appropriate for the system (~10-15% of max)
   control: ['tether_force_ground', 5000]
   # Time step for simulation [s]
   time_step: 0.25
@@ -30,8 +87,8 @@ traction:
   control: ['reeling_factor', 0.37]
   # Time step for simulation [s]
   time_step: 0.25
-  # Azimuth angle [rad] - 15 degrees = 0.2617993877991494
-  azimuth_angle: 0.2617993877991494
-  # Course angle [rad] - 110 degrees = 1.9198621771937625
-  course_angle: 1.9198621771937625
+  # Azimuth angle [degrees]
+  azimuth_angle: 15.0
+  # Course angle [degrees]
+  course_angle: 110.0
 

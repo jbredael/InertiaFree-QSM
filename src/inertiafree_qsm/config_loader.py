@@ -128,6 +128,9 @@ def load_wind_resource(file_path):
 def load_simulation_settings(file_path):
     """Load simulation settings from YAML file.
 
+    All angles in the config file are expected to be in degrees and will be
+    converted to radians internally.
+
     Args:
         file_path (str): Path to the simulation settings YAML file.
 
@@ -148,11 +151,15 @@ def load_simulation_settings(file_path):
             return tuple(control_config)
         return control_config
 
+    # Helper function to convert degrees to radians
+    def deg_to_rad(angle_deg):
+        return float(angle_deg) * np.pi / 180.0
+
     # Build settings dictionary
     settings = {
         'cycle': {
-            'elevation_angle_traction': float(cycle_config.get(
-                'elevation_angle_traction', 35 * np.pi / 180.
+            'elevation_angle_traction': deg_to_rad(cycle_config.get(
+                'elevation_angle_traction', 35.0
             )),
             'tether_length_start_retraction': float(cycle_config.get(
                 'tether_length_start_retraction', 500.0
@@ -172,16 +179,79 @@ def load_simulation_settings(file_path):
         'traction': {
             'control': parse_control(traction_config.get('control', ('reeling_factor', 0.37))),
             'time_step': float(traction_config.get('time_step', 0.25)),
-            'azimuth_angle': float(traction_config.get(
-                'azimuth_angle', 15. * np.pi / 180.
+            'azimuth_angle': deg_to_rad(traction_config.get(
+                'azimuth_angle', 15.0
             )),
-            'course_angle': float(traction_config.get(
-                'course_angle', 110. * np.pi / 180.
+            'course_angle': deg_to_rad(traction_config.get(
+                'course_angle', 110.0
             )),
         },
     }
 
     return settings
+
+
+def get_direct_simulation_wind_speeds(file_path):
+    """Get wind speed settings for direct simulation method.
+
+    Args:
+        file_path (str): Path to the simulation settings YAML file.
+
+    Returns:
+        np.ndarray: Array of wind speeds for direct simulation [m/s].
+    """
+    config = load_yaml(file_path)
+    direct_config = config.get('direct_simulation', {})
+    wind_config = direct_config.get('wind_speeds', {})
+    
+    cut_in = float(wind_config.get('cut_in', 4.0))
+    cut_out = float(wind_config.get('cut_out', 26.0))
+    step = float(wind_config.get('step', 0.5))
+    
+    return np.arange(cut_in, cut_out, step)
+
+
+def get_optimization_wind_speed_settings(file_path):
+    """Get wind speed settings for optimization method.
+
+    Args:
+        file_path (str): Path to the simulation settings YAML file.
+
+    Returns:
+        dict: Dictionary with keys 'cut_in', 'cut_out', 'n_points',
+            'fine_n_points_near_cutout', 'fine_range_m_s'.
+            Values can be None if auto-estimation is requested.
+    """
+    config = load_yaml(file_path)
+    opt_config = config.get('optimization', {})
+    wind_config = opt_config.get('wind_speeds', {})
+    fine_config = wind_config.get('fine_resolution', {})
+    
+    # Read values, allowing None for auto-estimation
+    cut_in = wind_config.get('cut_in', None)
+    cut_out = wind_config.get('cut_out', None)
+    n_points = wind_config.get('n_points', 50)
+    
+    # Read fine resolution settings
+    fine_n_points = fine_config.get('n_points_near_cutout', 15)
+    fine_range = fine_config.get('range_m_s', 1.0)
+    
+    # Convert to float if not None
+    if cut_in is not None:
+        cut_in = float(cut_in)
+    if cut_out is not None:
+        cut_out = float(cut_out)
+    n_points = int(n_points)
+    fine_n_points = int(fine_n_points)
+    fine_range = float(fine_range)
+    
+    return {
+        'cut_in': cut_in,
+        'cut_out': cut_out,
+        'n_points': n_points,
+        'fine_n_points_near_cutout': fine_n_points,
+        'fine_range_m_s': fine_range,
+    }
 
 
 def create_wind_profile_from_resource(wind_resource, cluster_id=0):
