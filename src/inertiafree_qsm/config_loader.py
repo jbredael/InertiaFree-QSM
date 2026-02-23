@@ -52,52 +52,37 @@ def load_system_config(file_path):
     drum = ground_station.get('drum', {})
 
     # Extract KCU parameters
-    kcu = components.get('kcu', {})
+    kcu = components.get('control_system', {})
     kcu_structure = kcu.get('structure', {})
 
     # Calculate kite mass (wing + bridle + KCU)
-    wing_mass = wing_structure.get('mass_kg', 20.0)
+    wing_mass = wing_structure.get('mass_kg')
     bridle = components.get('bridle', {})
-    bridle_mass = bridle.get('structure', {}).get('mass_kg', 0.0)
-    kcu_mass = kcu_structure.get('mass_kg', 0.0)
+    bridle_mass = bridle.get('structure', {}).get('mass_kg')
+    kcu_mass = kcu_structure.get('mass_kg')
     kite_mass = wing_mass + bridle_mass + kcu_mass
 
-    # Calculate lift and drag coefficients
-    # Note: For QSM, 'powered' = high L/D for traction (reel-out)
-    #       'depowered' = low L/D for retraction (reel-in)
-    # Some YAML configs may have these inverted or use different conventions.
-    cl_powered = wing_aero.get('lift_coefficient_reel_out', 0.8)
-    cd_powered = wing_aero.get('drag_coefficient_reel_out', 0.2)
+    # Lift and drag coefficients
+    cl_powered = wing_aero.get('lift_coefficient_reel_out')
+    cd_powered = wing_aero.get('drag_coefficient_reel_out')
 
-    # For depowered state, use values that give LOW L/D ratio (~2-4)
-    # This is typical for a depowered kite during retraction
-    cl_depowered = wing_aero.get('lift_coefficient_reel_in', 0.2)
-    cd_depowered = wing_aero.get('drag_coefficient_reel_in', 0.1)
-
-    # Sanity check: depowered L/D should be lower than powered L/D
-    ld_powered = cl_powered / cd_powered if cd_powered > 0 else 4.0
-    ld_depowered = cl_depowered / cd_depowered if cd_depowered > 0 else 2.0
-
-    if ld_depowered > ld_powered:
-        # If depowered has higher L/D than powered, the values are likely
-        # swapped or incorrectly specified. Use typical depowered values.
-        cl_depowered = 0.2
-        cd_depowered = 0.1
+    cl_depowered = wing_aero.get('lift_coefficient_reel_in')
+    cd_depowered = wing_aero.get('drag_coefficient_reel_in')
 
     sys_props = {
-        'kite_projected_area': wing_structure.get('projected_surface_area_m2', 20.0),
+        'kite_projected_area': wing_structure.get('projected_surface_area_m2'),
         'kite_mass': kite_mass,
-        'tether_density': tether_structure.get('density_kg_m3', 724.0),
-        'tether_diameter': tether_structure.get('diameter_m', 0.004),
-        'tether_force_max_limit': tether_structure.get('max_tether_force_n', 10000.0),
-        'tether_force_min_limit': tether_structure.get('max_tether_force_n', 10000.0) * 0.03,
+        'tether_density': tether_structure.get('density_kg_m3'),
+        'tether_diameter': tether_structure.get('diameter_m'),
+        'tether_force_max_limit': tether_structure.get('max_tether_force_n'),
+        'tether_force_min_limit': tether_structure.get('max_tether_force_n') * 0.03,
         'kite_lift_coefficient_powered': cl_powered,
         'kite_drag_coefficient_powered': cd_powered,
         'kite_lift_coefficient_depowered': cl_depowered,
         'kite_drag_coefficient_depowered': cd_depowered,
         'reeling_speed_min_limit': 0.0,
-        'reeling_speed_max_limit': drum.get('max_tether_speed_m_s', 10.0),
-        'tether_drag_coefficient': tether_aero.get('drag_coefficient', 1.1),
+        'reeling_speed_max_limit': drum.get('max_tether_speed_m_s'),
+        'tether_drag_coefficient': tether_aero.get('drag_coefficient'),
     }
 
     return sys_props
@@ -159,31 +144,30 @@ def load_simulation_settings(file_path):
     settings = {
         'cycle': {
             'elevation_angle_traction': deg_to_rad(cycle_config.get(
-                'elevation_angle_traction', 35.0
+                'elevation_angle_traction'
             )),
             'tether_length_start_retraction': float(cycle_config.get(
-                'tether_length_start_retraction', 500.0
+                'tether_length_start_retraction'
             )),
             'tether_length_end_retraction': float(cycle_config.get(
-                'tether_length_end_retraction', 200.0
+                'tether_length_end_retraction'
             )),
         },
         'retraction': {
-            'control': parse_control(retraction_config.get('control', ('tether_force_ground', 10000))),
-            'time_step': float(retraction_config.get('time_step', 0.25)),
+            'control': parse_control(retraction_config.get('control', ('tether_force_ground'))),
+            'time_step': float(retraction_config.get('time_step')),
         },
         'transition': {
-            'control': parse_control(transition_config.get('control', ('reeling_speed', 0.0))),
-            'time_step': float(transition_config.get('time_step', 0.25)),
+            'control': parse_control(transition_config.get('control', ('reeling_speed'))),
+            'time_step': float(transition_config.get('time_step')),
         },
         'traction': {
-            'control': parse_control(traction_config.get('control', ('reeling_factor', 0.37))),
-            'time_step': float(traction_config.get('time_step', 0.25)),
+            'control': parse_control(traction_config.get('control', ('reeling_factor'))),
+            'time_step': float(traction_config.get('time_step')),
             'azimuth_angle': deg_to_rad(traction_config.get(
-                'azimuth_angle', 15.0
+                'azimuth_angle'
             )),
-            'course_angle': deg_to_rad(traction_config.get(
-                'course_angle', 110.0
+            'course_angle': deg_to_rad(traction_config.get('course_angle'
             )),
         },
     }
@@ -204,9 +188,9 @@ def get_direct_simulation_wind_speeds(file_path):
     direct_config = config.get('direct_simulation', {})
     wind_config = direct_config.get('wind_speeds', {})
     
-    cut_in = float(wind_config.get('cut_in', 4.0))
-    cut_out = float(wind_config.get('cut_out', 26.0))
-    step = float(wind_config.get('step', 0.5))
+    cut_in = float(wind_config.get('cut_in'))
+    cut_out = float(wind_config.get('cut_out'))
+    step = float(wind_config.get('step'))
     
     return np.arange(cut_in, cut_out, step)
 
@@ -233,8 +217,8 @@ def get_optimization_wind_speed_settings(file_path):
     n_points = wind_config.get('n_points', 50)
     
     # Read fine resolution settings
-    fine_n_points = fine_config.get('n_points_near_cutout', 15)
-    fine_range = fine_config.get('range_m_s', 1.0)
+    fine_n_points = fine_config.get('n_points_near_cutout')
+    fine_range = fine_config.get('range_m_s')
     
     # Convert to float if not None
     if cut_in is not None:
@@ -288,7 +272,7 @@ def create_wind_profile_from_resource(wind_resource, cluster_id=0):
 
     # Reference height from metadata
     metadata = wind_resource.get('metadata', {})
-    reference_height = metadata.get('reference_height_m', 100.0)
+    reference_height = metadata.get('reference_height_m')
 
     return altitudes, u_normalized, reference_height
 

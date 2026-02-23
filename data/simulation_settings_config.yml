@@ -13,9 +13,9 @@ direct_simulation:
     # Minimum wind speed [m/s]
     cut_in: 4.0
     # Maximum wind speed [m/s]
-    cut_out: 20
+    cut_out: 25
     # Step size between wind speeds [m/s]
-    step: 2
+    step: 0.5
 
 # ============================================================================
 # OPTIMIZATION SETTINGS
@@ -27,9 +27,9 @@ optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s] (set to null for auto-estimation)
-    cut_in: 7.0
+    cut_in: 10.0
     # Maximum wind speed [m/s] (set to null for auto-estimation)
-    cut_out: 12.0
+    cut_out: 15.0
     # Number of points to calculate (determines spacing)
     n_points: 3
     
@@ -38,7 +38,7 @@ optimization:
     # at operational limits more accurately
     fine_resolution:
       # Number of fine points to add near cut-out (set to 0 to disable)
-      n_points_near_cutout: 10
+      n_points_near_cutout: 0
       # How far back from cut-out to start fine resolution [m/s]
       # Fine points will span from (cut_out - range_m_s) to (cut_out - 0.05)
       range_m_s: 2.0
@@ -52,15 +52,15 @@ cycle:
   # Elevation angle during traction phase [degrees]
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
-  elevation_angle_traction: 35.0
+  elevation_angle_traction: 30.0
   
   # Maximum tether length (start of retraction phase) [m]
   # If not specified here, will use max_tether_length_m from system config
   # Set this to override the system config value
-  tether_length_start_retraction: 350.0
+  tether_length_start_retraction: 300.0
   
   # Minimum tether length (end of retraction phase) [m]
-  tether_length_end_retraction: 200.0
+  tether_length_end_retraction: 200
 
 # ============================================================================
 # PHASE SETTINGS
@@ -88,7 +88,7 @@ traction:
   # Time step for simulation [s]
   time_step: 0.25
   # Azimuth angle [degrees]
-  azimuth_angle: 15.0
+  azimuth_angle: 13.0
   # Course angle [degrees]
-  course_angle: 110.0
+  course_angle: 100.0
 

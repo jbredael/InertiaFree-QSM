@@ -635,6 +635,8 @@ class OptimizerCycle(Optimizer):
             'duty_cycle': cycle.duty_cycle,
             'pumping_efficiency': cycle.pumping_efficiency,
             'kinematics': cycle.kinematics,
+            'steady_states': cycle.steady_states,
+            'time': cycle.time,
         }
         return res
 

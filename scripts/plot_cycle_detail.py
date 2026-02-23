@@ -10,7 +10,9 @@ import numpy as np
 from pathlib import Path
 
 # Specify the path to your power curve YAML file here
-POWER_CURVE_FILE = r'results/power_curves_direct_simulation.yml'
+POWER_CURVE_FILE_DIRECT = r'results/power_curves_direct_simulation.yml'
+POWER_CURVE_FILE_OPTIMIZED = r'results/power_curves_optimized.yml'
+RESULTS_DIR = Path('results')
 WIND_SPEED = 10.0  # m/s
 
 
@@ -222,9 +224,16 @@ def main():
     """Main function to run the detailed cycle plotting script."""
     # Plot the cycle detail
     plot_cycle_detail(
-        filePath=POWER_CURVE_FILE,
+        filePath=POWER_CURVE_FILE_DIRECT,
         windSpeed=WIND_SPEED,
-        outputPath='results/cycle_detail_10ms.png',  # Set to None to not save
+        outputPath=RESULTS_DIR / 'cycle_detail_direct.png',  # Set to None to not save
+        showPlot=True
+    )
+
+    plot_cycle_detail(
+        filePath=POWER_CURVE_FILE_OPTIMIZED,
+        windSpeed=WIND_SPEED,
+        outputPath=RESULTS_DIR / 'cycle_detail_optimized.png',  # Set to None to not save
         showPlot=True
     )
 
