@@ -21,8 +21,6 @@ from .config_loader import (
     load_system_config,
     load_wind_resource,
     load_simulation_settings,
-    create_wind_profile_from_resource,
-    get_cluster_data,
 )
 from .qsm import (
     Cycle,
@@ -136,9 +134,28 @@ class PowerCurveConstructor2:
         Returns:
             NormalisedWindTable1D: Environment state with wind profile.
         """
-        altitudes, u_normalized, h_ref = create_wind_profile_from_resource(
-            self.wind_resource, cluster_id
-        )
+        altitudes = self.wind_resource['altitudes']
+        clusters = self.wind_resource['clusters']
+
+        if not clusters:
+            raise ValueError("No clusters found in wind resource data")
+
+        # Find the cluster with matching ID (clusters use 1-indexed IDs)
+        cluster = None
+        for c in clusters:
+            if c.get('id') == cluster_id + 1:
+                cluster = c
+                break
+
+        if cluster is None:
+            if cluster_id >= len(clusters):
+                raise ValueError(
+                    f"Cluster ID {cluster_id} not found in wind resource data"
+                )
+            cluster = clusters[cluster_id]
+
+        u_normalized = np.array(cluster.get('u_normalized', []))
+        h_ref = self.wind_resource.get('metadata', {}).get('reference_height_m')
 
         env_state = NormalisedWindTable1D()
         env_state.heights = list(altitudes)
@@ -474,19 +491,35 @@ class PowerCurveConstructor2:
         cycle_sim_settings_phase2 = deepcopy(cycle_sim_settings_phase1)
         cycle_sim_settings_phase2['cycle']['traction_phase'] = TractionPhaseHybrid
 
-        # Create optimizers
+        # Create optimizers — build optimizer_config dicts from settings
+        opt_settings = self.simulation_settings['optimization']
+        opt_config = {
+            'x0': opt_settings['optimizer']['x0'].copy(),
+            'scaling': opt_settings['optimizer']['scaling'].copy(),
+            'bounds': opt_settings['bounds'].copy(),
+        }
+
+        # Phase 1: cap elevation upper bound at 30 deg
+        opt_config_phase1 = {
+            'x0': opt_config['x0'].copy(),
+            'scaling': opt_config['scaling'].copy(),
+            'bounds': opt_config['bounds'].copy(),
+        }
+        opt_config_phase1['bounds'][2, 1] = 30 * np.pi / 180.0
+
         op_cycle_phase1 = OptimizerCycle(
             cycle_sim_settings_phase1,
             self.sys_props,
             env_state,
+            optimizer_config=opt_config_phase1,
             reduce_x=np.array([0, 1, 2, 3]),
         )
-        op_cycle_phase1.bounds_real_scale[2][1] = 30 * np.pi / 180.0
 
         op_cycle_phase2 = OptimizerCycle(
             cycle_sim_settings_phase2,
             self.sys_props,
             env_state,
+            optimizer_config=opt_config,
             reduce_x=np.array([0, 1, 2, 3]),
         )
 
@@ -543,19 +576,25 @@ class PowerCurveConstructor2:
                     time_list, kpi['kinematics'], kpi['steady_states']
                 )
 
+            def _safe_float(val):
+                """Convert value to float, returning NaN for None."""
+                if val is None:
+                    return float('nan')
+                return float(val)
+
             wind_speed_entry = {
                 'wind_speed_m_s': float(ws),
                 'success': bool(kpi.get('sim_successful', True)),
                 'performance': {
                     'power': {
-                        'average_cycle_power_w': float(kpi['average_power']['cycle']),
-                        'average_reel_out_power_w': float(kpi['average_power']['out']),
-                        'average_reel_in_power_w': float(kpi['average_power']['in']),
+                        'average_cycle_power_w': _safe_float(kpi['average_power']['cycle']),
+                        'average_reel_out_power_w': _safe_float(kpi['average_power']['out']),
+                        'average_reel_in_power_w': _safe_float(kpi['average_power']['in']),
                     },
                     'timing': {
-                        'reel_out_time_s': float(kpi['duration']['out']),
-                        'reel_in_time_s': float(kpi['duration']['in']) + float(kpi['duration'].get('trans', 0.0)),
-                        'cycle_time_s': float(kpi['duration']['cycle']),
+                        'reel_out_time_s': _safe_float(kpi['duration']['out']),
+                        'reel_in_time_s': _safe_float(kpi['duration']['in']) + _safe_float(kpi['duration'].get('trans', 0.0)),
+                        'cycle_time_s': _safe_float(kpi['duration']['cycle']),
                     },
                 },
             }
@@ -606,7 +645,13 @@ class PowerCurveConstructor2:
         # Build per-cluster power curve dicts
         power_curves = []
         for cluster_id, wind_speed_data in zip(cluster_ids, wind_speed_data_per_cluster):
-            cluster_data = get_cluster_data(self.wind_resource, cluster_id)
+            clusters = self.wind_resource.get('clusters', [])
+            if cluster_id >= len(clusters):
+                raise ValueError(
+                    f"Cluster ID {cluster_id} not found. "
+                    f"Available clusters: 0-{len(clusters)-1}"
+                )
+            cluster_data = clusters[cluster_id]
             v_normalized = cluster_data.get(
                 'v_normalized',
                 [0.0] * len(cluster_data.get('u_normalized', [])),

@@ -12,14 +12,15 @@ Usage:
 import sys
 from pathlib import Path
 
+import numpy as np
+
 # Add the src directory to the path
 SRC_DIR = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from inertiafree_qsm import PowerCurveConstructor2
 from inertiafree_qsm.config_loader import (
-    get_direct_simulation_wind_speeds,
-    get_optimization_wind_speed_settings,
+    load_simulation_settings,
 )
 
 
@@ -27,7 +28,7 @@ from inertiafree_qsm.config_loader import (
 PROJECT_ROOT = Path(__file__).parent.parent
 
 SYSTEM_CONFIG_PATH = PROJECT_ROOT / "data" / "kitepower V3_20.yml"
-WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "wind_resource20.yml"
+WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "wind_resource.yml"
 SIMULATION_SETTINGS_PATH = PROJECT_ROOT / "data" / "simulation_settings_config.yml"
 OUTPUT_PATH_DIRECT = PROJECT_ROOT / "results" / "power_curves_direct_simulation.yml"
 OUTPUT_PATH_OPTIMIZED = PROJECT_ROOT / "results" / "power_curves_optimized.yml"
@@ -40,7 +41,9 @@ def generate_direct_simulation_power_curves():
     print("=" * 80)
     
     # Load wind speed settings from config
-    wind_speeds = get_direct_simulation_wind_speeds(SIMULATION_SETTINGS_PATH)
+    sim_settings = load_simulation_settings(SIMULATION_SETTINGS_PATH)
+    ds_wind = sim_settings['direct_simulation']['wind_speeds']
+    wind_speeds = np.arange(ds_wind['cut_in'], ds_wind['cut_out'], ds_wind['step'])
     print(f"Wind speed range: {wind_speeds[0]:.1f} - {wind_speeds[-1]:.1f} m/s")
     print(f"Number of points: {len(wind_speeds)}")
     
@@ -73,12 +76,13 @@ def generate_optimized_power_curves(constructor):
     print("=" * 80)
     
     # Load wind speed settings from config
-    wind_settings = get_optimization_wind_speed_settings(SIMULATION_SETTINGS_PATH)
-    vw_cut_in = wind_settings['cut_in']
-    vw_cut_out = wind_settings['cut_out']
-    n_points = wind_settings['n_points']
-    fine_n_points = wind_settings['fine_n_points_near_cutout']
-    fine_range = wind_settings['fine_range_m_s']
+    sim_settings = load_simulation_settings(SIMULATION_SETTINGS_PATH)
+    opt_wind = sim_settings['optimization']['wind_speeds']
+    vw_cut_in = opt_wind.get('cut_in')
+    vw_cut_out = opt_wind.get('cut_out')
+    n_points = opt_wind['n_points']
+    fine_n_points = opt_wind['fine_resolution']['n_points_near_cutout']
+    fine_range = opt_wind['fine_resolution']['range_m_s']
     
     if vw_cut_in is not None:
         print(f"Cut-in wind speed: {vw_cut_in:.1f} m/s (from config)")
@@ -113,7 +117,7 @@ def generate_optimized_power_curves(constructor):
 if __name__ == "__main__":
     # Generate power curves using both methods
     direct_result, constructor = generate_direct_simulation_power_curves()
-    # optimized_result = generate_optimized_power_curves(constructor)
+    optimized_result = generate_optimized_power_curves(constructor)
 
     print("=" * 80)
     print("POWER CURVE GENERATION COMPLETE")

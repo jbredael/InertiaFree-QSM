@@ -63,10 +63,10 @@ optimization:
     elevation_angle_min: 25.0
     elevation_angle_max: 60.0
     # Tether length bounds as fractions of max_tether_length
-    tether_length_diff_fraction_min: 0.1
-    tether_length_diff_fraction_max: 0.8
-    min_tether_length_fraction_min: 0.2
-    min_tether_length_fraction_max: 0.8
+    tether_length_diff_fraction_min: 0.3
+    tether_length_diff_fraction_max: 0.5
+    min_tether_length_fraction_min: 0.3
+    min_tether_length_fraction_max: 0.5
 
 # ============================================================================
 # CYCLE CONFIGURATION

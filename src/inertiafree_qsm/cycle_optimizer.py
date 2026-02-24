@@ -491,24 +491,42 @@ class OptimizerCycle(Optimizer):
         "Reel-in tether\nlength [m]",
         "Minimum tether\nlength [m]"
     ]
-    X0_REAL_SCALE_DEFAULT = np.array([5000, 500, 0.523599, 120, 150])
-    SCALING_X_DEFAULT = np.array([1e-4, 1e-4, 1, 1e-3, 1e-3])
+    X0_REAL_SCALE_DEFAULT = np.array([np.nan, np.nan, np.nan, np.nan, np.nan])
+    SCALING_X_DEFAULT = np.array([np.nan, np.nan, np.nan, np.nan, np.nan])
     BOUNDS_REAL_SCALE_DEFAULT = np.array([
         [np.nan, np.nan],
         [np.nan, np.nan],
-        [25*np.pi/180, 60.*np.pi/180.],
-        [150, 250],
-        [150, 250],
+        [np.nan, np.nan],
+        [np.nan, np.nan],
+        [np.nan, np.nan],
     ])
 
-    def __init__(self, cycle_settings, system_properties, environment_state, reduce_x=None, reduce_ineq_cons=None):
+    def __init__(self, cycle_settings, system_properties, environment_state,
+                 optimizer_config, reduce_x=None, reduce_ineq_cons=None):
+        """Initialize the cycle optimizer.
+
+        Args:
+            cycle_settings (dict): Cycle simulation settings.
+            system_properties (SystemProperties): System properties object.
+            environment_state: Environment / wind profile object.
+            optimizer_config (dict): Dictionary with keys ``'x0'``
+                (np.ndarray), ``'scaling'`` (np.ndarray), and a sibling
+                ``'bounds'`` array of shape (5, 2). Typically obtained from
+                ``simulation_settings['optimization']``.
+            reduce_x (np.ndarray, optional): Indices of optimization variables
+                to include. Defaults to None (all variables).
+            reduce_ineq_cons (int or np.ndarray, optional): Inequality
+                constraint indices to enforce. Defaults to None (all four).
+        """
         # Initiate attributes of parent class.
-        bounds = self.BOUNDS_REAL_SCALE_DEFAULT.copy()
+        x0 = np.array(optimizer_config['x0'], dtype=float)
+        scaling = np.array(optimizer_config['scaling'], dtype=float)
+        bounds = np.array(optimizer_config['bounds'], dtype=float)
         bounds[0, :] = [system_properties.tether_force_min_limit, system_properties.tether_force_max_limit]
         bounds[1, :] = [system_properties.tether_force_min_limit, system_properties.tether_force_max_limit]
         if reduce_ineq_cons is None:
             reduce_ineq_cons = np.arange(4)
-        super().__init__(self.X0_REAL_SCALE_DEFAULT.copy(), bounds, self.SCALING_X_DEFAULT.copy(),
+        super().__init__(x0, bounds, scaling,
                          reduce_x, reduce_ineq_cons, system_properties, environment_state)
 
         # Set cycle settings after printing the settings that may be overruled by the optimization.
@@ -662,8 +680,19 @@ def test():
             'course_angle': 100 * np.pi / 180.,
         },
     }
-    oc = OptimizerCycle(cycle_sim_settings, sys_props_v3, env_state, reduce_x=np.array([0, 1, 2, 3]))
-    oc.x0_real_scale = np.array([4500, 1000, 30*np.pi/180., 150, 230])
+    oc = OptimizerCycle(cycle_sim_settings, sys_props_v3, env_state,
+                        optimizer_config={
+                            'x0': np.array([4500, 1000, 30*np.pi/180., 150, 230]),
+                            'scaling': np.array([1e-4, 1e-4, 1, 1e-3, 1e-3]),
+                            'bounds': np.array([
+                                [np.nan, np.nan],
+                                [np.nan, np.nan],
+                                [25*np.pi/180, 60*np.pi/180],
+                                [150, 250],
+                                [150, 250],
+                            ]),
+                        },
+                        reduce_x=np.array([0, 1, 2, 3]))
     print(oc.optimize())
     oc.eval_point(True)
     plt.show()

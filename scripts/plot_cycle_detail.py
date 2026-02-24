@@ -13,8 +13,8 @@ from pathlib import Path
 POWER_CURVE_FILE_DIRECT = r'results/power_curves_direct_simulation20.yml'
 POWER_CURVE_FILE_OPTIMIZED = r'results/power_curves_optimized.yml'
 RESULTS_DIR = Path('results')
-WIND_SPEED = 20  # m/s
-PROFILE_ID = 8  # profile_id to plot (1-based); set to None to use the first available profile
+WIND_SPEED = 15  # m/s
+PROFILE_ID = 1  # profile_id to plot (1-based); set to None to use the first available profile
 
 
 def load_power_curve_data(filePath):
