@@ -10,10 +10,11 @@ import numpy as np
 from pathlib import Path
 
 # Specify the path to your power curve YAML file here
-POWER_CURVE_FILE_DIRECT = r'results/power_curves_direct_simulation.yml'
+POWER_CURVE_FILE_DIRECT = r'results/power_curves_direct_simulation20.yml'
 POWER_CURVE_FILE_OPTIMIZED = r'results/power_curves_optimized.yml'
 RESULTS_DIR = Path('results')
-WIND_SPEED = 10.0  # m/s
+WIND_SPEED = 20  # m/s
+PROFILE_ID = 8  # profile_id to plot (1-based); set to None to use the first available profile
 
 
 def load_power_curve_data(filePath):
@@ -36,36 +37,53 @@ def load_power_curve_data(filePath):
     return data
 
 
-def find_wind_speed_data(data, targetWindSpeed):
-    """Find the data for a specific wind speed.
+def find_wind_speed_data(data, targetWindSpeed, profileId=None):
+    """Find the data for a specific wind speed and profile.
 
     Args:
         data (dict): Power curve data.
         targetWindSpeed (float): Target wind speed in m/s.
+        profileId (int, optional): The profile_id to search in (1-based).
+            If None, the first profile containing the wind speed is used.
+            Defaults to None.
 
     Returns:
         dict: Wind speed data entry, or None if not found.
     """
     powerCurves = data.get('power_curves', [])
-    
+
+    if not powerCurves:
+        return None
+
+    # List available profile ids for informational purposes
+    availableIds = [p.get('profile_id') for p in powerCurves]
+
     for profile in powerCurves:
+        if profileId is not None and profile.get('profile_id') != profileId:
+            continue
         windSpeedData = profile.get('wind_speed_data', [])
         for entry in windSpeedData:
             if abs(entry['wind_speed_m_s'] - targetWindSpeed) < 0.01:
                 return entry
-    
+
+    if profileId is not None:
+        print(f"Profile ID {profileId} not found or does not contain wind speed {targetWindSpeed} m/s.")
+        print(f"Available profile IDs: {availableIds}")
     return None
 
 
-def plot_cycle_detail(filePath, windSpeed, outputPath=None, showPlot=True):
+def plot_cycle_detail(filePath, windSpeed, profileId=None, outputPath=None, showPlot=True):
     """Plot detailed cycle information for a specific wind speed.
 
     Args:
         filePath (str or Path): Path to the YAML file containing power curve data.
         windSpeed (float): Wind speed to plot in m/s.
-        outputPath (str or Path, optional): Path to save the figure. 
+        profileId (int, optional): The profile_id to plot (1-based).
+            If None, the first profile containing the wind speed is used.
+            Defaults to None.
+        outputPath (str or Path, optional): Path to save the figure.
             If None, figure is not saved. Defaults to None.
-        showPlot (bool, optional): Whether to display the plot. 
+        showPlot (bool, optional): Whether to display the plot.
             Defaults to True.
     """
     # Load data
@@ -75,9 +93,10 @@ def plot_cycle_detail(filePath, windSpeed, outputPath=None, showPlot=True):
     metadata = data.get('metadata', {})
     name = metadata.get('name', 'Power Curve')
     referenceHeight = metadata.get('wind_resource', {}).get('reference_height_m', 100)
+    profileLabel = f" (Profile {profileId})" if profileId is not None else ""
     
     # Find the specific wind speed data
-    wsData = find_wind_speed_data(data, windSpeed)
+    wsData = find_wind_speed_data(data, windSpeed, profileId)
     
     if wsData is None:
         print(f"Wind speed {windSpeed} m/s not found in data")
@@ -112,7 +131,7 @@ def plot_cycle_detail(filePath, windSpeed, outputPath=None, showPlot=True):
     
     # Create figure with subplots
     fig, axes = plt.subplots(3, 2, figsize=(16, 12))
-    fig.suptitle(f'Detailed Cycle Analysis - Wind Speed: {windSpeed} m/s at {referenceHeight}m', 
+    fig.suptitle(f'Detailed Cycle Analysis - Wind Speed: {windSpeed} m/s at {referenceHeight}m{profileLabel}',
                  fontsize=16, fontweight='bold')
     
     # Plot 1: Altitude vs Time
@@ -226,16 +245,17 @@ def main():
     plot_cycle_detail(
         filePath=POWER_CURVE_FILE_DIRECT,
         windSpeed=WIND_SPEED,
+        profileId=PROFILE_ID,
         outputPath=RESULTS_DIR / 'cycle_detail_direct.png',  # Set to None to not save
         showPlot=True
     )
 
-    plot_cycle_detail(
-        filePath=POWER_CURVE_FILE_OPTIMIZED,
-        windSpeed=WIND_SPEED,
-        outputPath=RESULTS_DIR / 'cycle_detail_optimized.png',  # Set to None to not save
-        showPlot=True
-    )
+    # plot_cycle_detail(
+    #     filePath=POWER_CURVE_FILE_OPTIMIZED,
+    #     windSpeed=WIND_SPEED,
+    #     outputPath=RESULTS_DIR / 'cycle_detail_optimized.png',  # Set to None to not save
+    #     showPlot=True
+    # )
 
 
 if __name__ == '__main__':

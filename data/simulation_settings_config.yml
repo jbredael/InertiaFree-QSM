@@ -27,21 +27,46 @@ optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s] (set to null for auto-estimation)
-    cut_in: 10.0
+    cut_in: 4
     # Maximum wind speed [m/s] (set to null for auto-estimation)
-    cut_out: 15.0
+    cut_out: 20
     # Number of points to calculate (determines spacing)
-    n_points: 3
-    
+    n_points: 10
+
     # Fine resolution settings near cut-out wind speed
     # These add extra points near the cut-out to capture system behavior
     # at operational limits more accurately
     fine_resolution:
       # Number of fine points to add near cut-out (set to 0 to disable)
-      n_points_near_cutout: 0
+      n_points_near_cutout: 3
       # How far back from cut-out to start fine resolution [m/s]
       # Fine points will span from (cut_out - range_m_s) to (cut_out - 0.05)
       range_m_s: 2.0
+
+  # SLSQP optimizer configuration
+  optimizer:
+    # Maximum number of iterations per wind speed point
+    max_iterations: 30
+    # Function tolerance for convergence
+    ftol: 1.0e-6
+    # Finite difference step size for gradient estimation
+    eps: 1.0e-6
+    # Optimizer starting point: [force_out_N, force_in_N, elevation_deg,
+    #   tether_length_diff_m, min_tether_length_m]
+    x0: [5000, 500, 30.0, 120, 150]
+    # Variable scaling factors (maps variables to similar search ranges)
+    scaling: [1.0e-4, 1.0e-4, 1.0, 1.0e-3, 1.0e-3]
+
+  # Optimizer bounds (where not derived from system properties)
+  bounds:
+    # Elevation angle bounds [degrees]
+    elevation_angle_min: 25.0
+    elevation_angle_max: 60.0
+    # Tether length bounds as fractions of max_tether_length
+    tether_length_diff_fraction_min: 0.1
+    tether_length_diff_fraction_max: 0.8
+    min_tether_length_fraction_min: 0.2
+    min_tether_length_fraction_max: 0.8
 
 # ============================================================================
 # CYCLE CONFIGURATION
@@ -53,14 +78,17 @@ cycle:
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
   elevation_angle_traction: 30.0
-  
+
   # Maximum tether length (start of retraction phase) [m]
   # If not specified here, will use max_tether_length_m from system config
   # Set this to override the system config value
-  tether_length_start_retraction: 300.0
-  
+  tether_length_start_retraction: 500.0
+
   # Minimum tether length (end of retraction phase) [m]
   tether_length_end_retraction: 200
+
+  # Include transition phase energy in cycle energy calculation
+  include_transition_energy: true
 
 # ============================================================================
 # PHASE SETTINGS
@@ -68,7 +96,7 @@ cycle:
 # Parameters for each phase of the pumping cycle
 
 retraction:
-  # Control setting: (control_parameter, setpoint_value)
+  # Control setting: [control_parameter, setpoint_value]
   # Options: 'tether_force_ground', 'tether_force_kite', 'reeling_factor', 'reeling_speed'
   # Using a force appropriate for the system (~10-15% of max)
   control: ['tether_force_ground', 5000]
@@ -91,4 +119,41 @@ traction:
   azimuth_angle: 13.0
   # Course angle [degrees]
   course_angle: 100.0
+
+# ============================================================================
+# STEADY STATE SOLVER SETTINGS
+# ============================================================================
+# Configuration for the iterative steady-state solver in the QSM
+
+steady_state:
+  # Maximum iterations for the kinematic ratio convergence loop
+  max_iterations: 250
+  # Normalized lift-to-drag error tolerance for convergence [-]
+  convergence_tolerance: 1.0e-6
+
+# ============================================================================
+# PHASE SOLVER SETTINGS
+# ============================================================================
+# Numerical settings for the phase-level simulation
+
+phase_solver:
+  # Maximum number of time points before terminating a phase simulation
+  max_time_points: 5000
+
+# ============================================================================
+# CROSSWIND PATTERN SETTINGS
+# ============================================================================
+# Settings for the crosswind pattern estimation (TractionPhaseHybrid)
+
+crosswind_pattern:
+  # Number of representative traction points for pattern estimation
+  n_traction_points: 6
+  # Number of points to evaluate along one pattern arc
+  n_pattern_eval_points: 100
+  # Lissajous figure-of-eight pattern shape
+  lissajous:
+    # Maximum relative elevation angle amplitude [degrees]
+    elevation_amplitude: 4.0
+    # Maximum azimuth angle amplitude [degrees]
+    azimuth_amplitude: 20.0
 

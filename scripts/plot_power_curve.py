@@ -211,11 +211,11 @@ def main():
         show_plot=True
     )
 
-    plot_power_curve(
-        filePath=POWER_CURVE_FILE_OPTIMIZED,
-        output_path=RESULTS_DIR / 'power_curve_optimized.png',
-        show_plot=True
-    )
+    # plot_power_curve(
+    #     filePath=POWER_CURVE_FILE_OPTIMIZED,
+    #     output_path=RESULTS_DIR / 'power_curve_optimized.png',
+    #     show_plot=True
+    # )
 
 
 if __name__ == '__main__':

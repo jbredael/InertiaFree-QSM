@@ -16,7 +16,7 @@ components:
       simple_aero_model: # Parameters for simple models
         lift_coefficient_reel_out: 0.9
         drag_coefficient_reel_out: 0.2
-        lift_coefficient_reel_in: 0.2
+        lift_coefficient_reel_in: 0.15 # 0.2
         drag_coefficient_reel_in: 0.1
     structure:
       projected_surface_area_m2: 19.75
