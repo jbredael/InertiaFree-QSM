@@ -38,36 +38,41 @@ if __name__ == "__main__":
         system_config_path=SYSTEM_CONFIG_PATH,
         wind_resource_path=WIND_RESOURCE_PATH,
         simulation_settings_path=SIMULATION_SETTINGS_PATH,
+        validate_file=True
     )
     
     constructor.print_summary()
     
-    # # Generate power curves using direct simulation
-    # result = constructor.generate_power_curves_direct(
-    #     output_path=OUTPUT_PATH_DIRECT,
-    #     verbose=True,
-    #     show_plot=True,
-    #     save_plot=False,
-    # )
+    # Generate power curves using direct simulation
+    result = constructor.generate_power_curves_direct(
+        output_path=OUTPUT_PATH_DIRECT,
+        verbose=True,
+        show_plot=False,
+        save_plot=True, 
+        validate_file=True
+    )
 
-    # # Generate power curves using optimized simulation
-    # result = constructor.generate_power_curves_optimized(
-    #     output_path=OUTPUT_PATH_OPTIMIZED,
-    #     verbose=True,
-    #     show_plot=True,
-    #     save_plot=False,
-    # )
+    # Generate power curves using optimized simulation
+    result = constructor.generate_power_curves_optimized(
+        output_path=OUTPUT_PATH_OPTIMIZED,
+        verbose=True,
+        show_plot=False,
+        save_plot=True,
+        validate_file=True
+    )
 
     result = constructor.simulate_single_wind_speed(
         wind_speed=10.0, method="direct",
         output_path=OUTPUT_PATH_DIRECT_SINGLE_POINT,
-        verbose=True, show_plot=True, save_plot=True,
+        verbose=True, show_plot=False, save_plot=True,
+        validate_file=True
     )
 
     result = constructor.simulate_single_wind_speed(
         wind_speed=10.0, method="optimization",
         output_path=OUTPUT_PATH_OPTIMIZED_SINGLE_POINT,
-        verbose=True, show_plot=True, save_plot=True,
+        verbose=True, show_plot=False, save_plot=True,
+        validate_file=True
     )
 
     print("=" * 80)

@@ -69,6 +69,7 @@ class PowerCurveConstructor:
         system_config_path,
         wind_resource_path,
         simulation_settings_path,
+        validate_file=True,
     ):
         """Initialize the power curve optimizer with configuration files."""
         self.system_config_path = Path(system_config_path)
@@ -76,8 +77,8 @@ class PowerCurveConstructor:
         self.simulation_settings_path = Path(simulation_settings_path)
 
         # Load configurations (validation is internal to loader functions)
-        self.sys_props_dict = load_system_config(self.system_config_path)
-        self.wind_resource = load_wind_resource(self.wind_resource_path)
+        self.sys_props_dict = load_system_config(self.system_config_path, validate_file=validate_file)
+        self.wind_resource = load_wind_resource(self.wind_resource_path, validate_file=validate_file)
         self.simulation_settings = load_simulation_settings(self.simulation_settings_path)
 
         # Create system properties object
@@ -421,7 +422,8 @@ class PowerCurveConstructor:
 
     def simulate_single_wind_speed(self, wind_speed, cluster_id=1, method='direct',
                                     output_path=None, verbose=False,
-                                    show_plot=False, save_plot=False):
+                                    show_plot=False, save_plot=False,
+                                    validate_file=False):
         """Simulate a single cycle at one wind speed.
 
         Produces a full power-curve YAML file (with a single wind speed entry)
@@ -435,6 +437,8 @@ class PowerCurveConstructor:
             show_plot (bool): If True, display the cycle detail plot. Defaults to False.
             save_plot (bool): If True, save the cycle detail plot as a PNG alongside
                 the YAML output. Requires ``output_path``. Defaults to False.
+            validate_file (bool): If True, validate the saved YAML against the
+                awesIO schema. Defaults to False.
 
         Returns:
             dict: Full power-curve output dict (single wind speed).
@@ -459,6 +463,7 @@ class PowerCurveConstructor:
             method_name=method.replace('_', ' ').title(),
             output_path=output_path,
             verbose=output_path is not None,
+            validate_file=validate_file,
         )
 
         if (show_plot or save_plot) and output_path is not None:
@@ -477,7 +482,8 @@ class PowerCurveConstructor:
         output_path=None,
         verbose=True,
         show_plot=False,
-        save_plot=False,):
+        save_plot=False,
+        validate_file=False,):
         """Generate optimized power curves for one or more wind profile clusters.
 
         This method performs sequential optimization to find optimal cycle parameters
@@ -495,6 +501,8 @@ class PowerCurveConstructor:
                 Defaults to False.
             save_plot (bool): If True, save the power curve plot as a PNG alongside
                 the YAML output. Requires ``output_path``. Defaults to False.
+            validate_file (bool): If True, validate the saved YAML against the
+                awesIO schema. Defaults to False.
 
         Returns:
             dict: Power curve data in awesIO format.
@@ -555,6 +563,7 @@ class PowerCurveConstructor:
             method_name='Optimization-Based',
             output_path=output_path,
             verbose=verbose,
+            validate_file=validate_file,
         )
 
         if (show_plot or save_plot) and output_path is not None:
@@ -699,7 +708,8 @@ class PowerCurveConstructor:
         output_path=None,
         verbose=True,
         show_plot=False,
-        save_plot=False,):
+        save_plot=False,
+        validate_file=False,):
         """Generate power curves using direct simulation (non-optimized).
 
         This method runs the QSM model with pre-defined cycle settings for each
@@ -717,6 +727,8 @@ class PowerCurveConstructor:
                 Defaults to False.
             save_plot (bool): If True, save the power curve plot as a PNG alongside
                 the YAML output. Requires ``output_path``. Defaults to False.
+            validate_file (bool): If True, validate the saved YAML against the
+                awesIO schema. Defaults to False.
 
         Returns:
             dict: Power curve data in awesIO format.
@@ -751,6 +763,7 @@ class PowerCurveConstructor:
             method_name='Direct Simulation',
             output_path=output_path,
             verbose=verbose,
+            validate_file=validate_file,
         )
 
         if (show_plot or save_plot) and output_path is not None:
@@ -869,7 +882,8 @@ class PowerCurveConstructor:
         wind_speed_data_per_cluster,
         method_name,
         output_path=None,
-        verbose=True,):
+        verbose=True,
+        validate_file=False,):
         """Build complete power curve output with metadata and optionally save.
 
         Constructs per-cluster power curve dicts with wind profile metadata,
@@ -883,6 +897,8 @@ class PowerCurveConstructor:
             method_name (str): Name of the method (e.g., 'Optimization-Based').
             output_path (str, optional): Path to save the output YAML file.
             verbose (bool): Whether to print progress.
+            validate_file (bool): If True, validate the saved YAML against the
+                awesIO schema after saving. Defaults to False.
 
         Returns:
             dict: Complete power curve data in awesIO format.
@@ -972,6 +988,17 @@ class PowerCurveConstructor:
 
             if verbose:
                 print(f"\nPower curves saved to {output_path}")
+
+            if validate_file:
+                try:
+                    from awesio.validator import validate as awesio_validate
+                    print(f"\nValidating {output_path} against awesIO schema...")
+                    awesio_validate(str(output_path))
+                    print("  Validation passed.")
+                except ImportError:
+                    print("  awesIO not installed; skipping validation.")
+                except Exception as e:
+                    print(f"  Validation failed: {e}")
 
         return output
 

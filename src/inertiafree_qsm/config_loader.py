@@ -22,7 +22,7 @@ def load_yaml(file_path):
         return yaml.full_load(f)
 
 
-def load_system_config(file_path):
+def load_system_config(file_path, validate_file=False):
     """Load system configuration from YAML file.
 
     Extracts the relevant parameters for the QSM model from the awesIO
@@ -30,10 +30,21 @@ def load_system_config(file_path):
 
     Args:
         file_path (str): Path to the system configuration YAML file.
+        validate_file (bool): If True, validate the YAML against the awesIO schema.
 
     Returns:
         dict: System properties dictionary compatible with SystemProperties class.
     """
+    if validate_file:
+        try:
+            from awesio.validator import validate as awesio_validate
+            awesio_validate(input=file_path)
+            print(f"  ✓ {file_path.name} validated against system_schema")
+        except ImportError:
+            print("  awesIO not installed; skipping validation.")
+        except Exception as e:
+            print(f"  Validation failed: {e}")
+
     config = load_yaml(file_path)
     components = config.get('components', {})
 
@@ -88,16 +99,26 @@ def load_system_config(file_path):
     return sys_props
 
 
-def load_wind_resource(file_path):
+def load_wind_resource(file_path, validate_file=True):
     """Load wind resource data from YAML file.
 
     Args:
         file_path (str): Path to the wind resource YAML file.
+        validate_file (bool): If True, validate the YAML against the awesIO schema.
 
     Returns:
         dict: Wind resource data containing altitude profiles, metadata,
             wind speed bins, wind direction bins, and clusters.
     """
+    if validate_file:
+        try:
+            from awesio.validator import validate as awesio_validate
+            awesio_validate(input=file_path)
+            print(f"  ✓ {file_path.name} validated against system_schema")
+        except ImportError:
+            print("  awesIO not installed; skipping validation.")
+        except Exception as e:
+            print(f"  Validation failed: {e}")
     config = load_yaml(file_path)
 
     wind_resource = {
