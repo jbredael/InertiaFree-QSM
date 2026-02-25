@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 from .qsm import Cycle
 from .utils import flatten_dict
+from . import plotting
 
 
 class OptimizerError(Exception):
@@ -70,7 +71,7 @@ class Optimizer:
     """Class collecting useful functionalities for solving an optimization problem and evaluating the results using
     different settings and, thereby, enabling assessing the effect of these settings."""
     def __init__(self, x0_real_scale, bounds_real_scale, scaling_x, reduce_x, reduce_ineq_cons,
-                 system_properties, environment_state):
+                 system_properties, environment_state, optimizer_config):
         assert isinstance(x0_real_scale, np.ndarray)
         assert isinstance(bounds_real_scale, np.ndarray)
         assert isinstance(scaling_x, np.ndarray)
@@ -98,6 +99,10 @@ class Optimizer:
             # solving the problem.
         else:
             self.reduce_ineq_cons = reduce_ineq_cons
+
+        # Solver tolerances (sourced from optimizer config / YAML).
+        self.ftol = optimizer_config['ftol']  # Function tolerance for convergence.
+        self.eps = optimizer_config['eps']    # Finite difference step size for gradient estimation.
 
         # Settings inferred from the optimization configuration.
         self.x0 = None  # Scaled starting point.
@@ -212,7 +217,6 @@ class Optimizer:
             bounds = bounds[self.reduce_x]
 
         print_details = True
-        ftol, eps = 1e-6, 1e-6
         if self.use_library == 'scipy':
             con = {
                 'type': 'ineq',  # g_i(x) >= 0
@@ -226,8 +230,8 @@ class Optimizer:
             options = {
                 'disp': print_details,
                 'maxiter': maxiter,
-                'ftol': ftol,
-                'eps': eps,
+                'ftol': self.ftol,
+                'eps': self.eps,
                 'iprint': iprint,
             }
             self.op_res = dict(op.minimize(self.obj_fun, starting_point, args=args, bounds=bounds, method='SLSQP',
@@ -261,9 +265,9 @@ class Optimizer:
             optimizer = SLSQP()
             optimizer.setOption('IPRINT', iprint)  # -1 - None, 0 - Screen, 1 - File
             optimizer.setOption('MAXIT', maxiter)
-            optimizer.setOption('ACC', ftol)
+            optimizer.setOption('ACC', self.ftol)
 
-            optimizer(op_problem, sens_type='FD', sens_mode=sens_mode, sens_step=eps, *args)
+            optimizer(op_problem, sens_type='FD', sens_mode=sens_mode, sens_step=self.eps, *args)
             op_sol = op_problem.solution(0)
 
             if iprint == 1:
@@ -421,67 +425,6 @@ class Optimizer:
         ax[0].set_title("v={:.1f}m/s".format(self.environment_state.wind_speed))
         plt.subplots_adjust(right=0.7)
 
-    def plot_sensitivity_efficiency_indicators(self, i_x=0):
-        """Sweep search range of the requested variable and calculate and plot efficiency indicators."""
-        ref_point_label = "x_ref"
-
-        # Perform the sensitivity analysis around the intersection point set by either the optimization vector provided
-        # as argument, the optimal vector, or the starting point for the simulation.
-        if self.x_opt_real_scale is not None:
-            x_real_scale = self.x_opt_real_scale
-        else:
-            x_real_scale = self.x0_real_scale
-
-        # Reference point
-        x_ref = x_real_scale[i_x]
-        power_cycle_ref = self.eval_performance_indicators(x_real_scale, scale_x=False)['average_power']['cycle']
-        power_out_ref = self.eval_performance_indicators(x_real_scale, scale_x=False)['average_power']['out']
-        xlabel = self.OPT_VARIABLE_LABELS[i_x]
-
-        # Sweep between limits and write results to
-        lb, ub = self.bounds_real_scale[i_x]
-        xi_sweep = np.linspace(lb, ub, 100)
-        power_cycle_norm, power_out_norm, g, active_g, duty_cycle, pumping_eff = [], [], [], [], [], []
-        for xi in xi_sweep:
-            x_full = list(x_real_scale)
-            x_full[i_x] = xi
-
-            try:
-                res_eval = self.eval_fun(x_full, scale_x=False)
-                kpis = self.eval_performance_indicators(x_full, scale_x=False)
-                power_cycle_norm.append(kpis['average_power']['cycle']/power_cycle_ref)
-                if kpis['average_power']['out']:
-                    power_out_norm.append(kpis['average_power']['out']/power_out_ref)
-                else:
-                    power_out_norm.append(None)
-                cons = res_eval[1][self.reduce_ineq_cons]
-                g.append(res_eval[1])
-                active_g.append(any([c < -1e-6 for c in cons]))
-                duty_cycle.append(kpis['duty_cycle'])
-                pumping_eff.append(kpis['pumping_efficiency'])
-            except:
-                power_cycle_norm.append(None), power_out_norm.append(None)
-                duty_cycle.append(None), pumping_eff.append(None)
-                g.append(None), active_g.append(False)
-
-        fig, ax = plt.figure()
-        ax.plot(xi_sweep, power_cycle_norm, '--', label='normalized cycle power')
-        ax.plot(xi_sweep, power_out_norm, '--', label='normalized traction power')
-        ax.plot(xi_sweep, duty_cycle, label='duty cycle')
-        ax.plot(xi_sweep, pumping_eff, label='pumping efficiency')
-
-        # Plot marker at the reference point.
-        ax.plot(x_ref, 1, 'x', label=ref_point_label, markersize=12)
-        ax.fill_between(xi_sweep, 0, 1, where=active_g, alpha=0.4, transform=ax.get_xaxis_transform())
-        ax.set_xlabel(xlabel.replace('\n', ' '))
-        ax.set_ylabel("Response [-]")
-        ax.grid()
-
-        ax.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
-        ax.set_title("v={:.1f}m/s".format(self.environment_state.wind_speed))
-        plt.subplots_adjust(right=0.7)
-
-
 class OptimizerCycle(Optimizer):
     """Tether force controlled cycle optimizer. Zero reeling speed is used as setpoint for transition phase."""
     OPT_VARIABLE_LABELS = [
@@ -527,7 +470,7 @@ class OptimizerCycle(Optimizer):
         if reduce_ineq_cons is None:
             reduce_ineq_cons = np.arange(4)
         super().__init__(x0, bounds, scaling,
-                         reduce_x, reduce_ineq_cons, system_properties, environment_state)
+                         reduce_x, reduce_ineq_cons, system_properties, environment_state, optimizer_config)
 
         # Set cycle settings after printing the settings that may be overruled by the optimization.
         cycle_settings.setdefault('cycle', {})
@@ -657,46 +600,3 @@ class OptimizerCycle(Optimizer):
             'time': cycle.time,
         }
         return res
-
-
-def test():
-    from qsm import LogProfile, TractionPhaseHybrid
-    from kitepower_kites import sys_props_v3
-
-    env_state = LogProfile()
-    env_state.set_reference_wind_speed(12.)
-
-    cycle_sim_settings = {
-        'cycle': {
-            'traction_phase': TractionPhaseHybrid,
-            'include_transition_energy': False,
-        },
-        'retraction': {},
-        'transition': {
-            'time_step': 0.25,
-        },
-        'traction': {
-            'azimuth_angle': 13 * np.pi / 180.,
-            'course_angle': 100 * np.pi / 180.,
-        },
-    }
-    oc = OptimizerCycle(cycle_sim_settings, sys_props_v3, env_state,
-                        optimizer_config={
-                            'x0': np.array([4500, 1000, 30*np.pi/180., 150, 230]),
-                            'scaling': np.array([1e-4, 1e-4, 1, 1e-3, 1e-3]),
-                            'bounds': np.array([
-                                [np.nan, np.nan],
-                                [np.nan, np.nan],
-                                [25*np.pi/180, 60*np.pi/180],
-                                [150, 250],
-                                [150, 250],
-                            ]),
-                        },
-                        reduce_x=np.array([0, 1, 2, 3]))
-    print(oc.optimize())
-    oc.eval_point(True)
-    plt.show()
-
-
-if __name__ == "__main__":
-    test()

@@ -36,6 +36,7 @@ from .qsm import (
     TractionPhaseHybrid,
 )
 from .cycle_optimizer import OptimizerCycle
+from . import plotting
 
 
 class PowerCurveConstructor2:
@@ -418,16 +419,25 @@ class PowerCurveConstructor2:
                 vw_last = vw
    
 
-    def simulate_single_wind_speed(self, wind_speed, cluster_id=0, method='direct'):
+    def simulate_single_wind_speed(self, wind_speed, cluster_id=1, method='direct',
+                                    output_path=None, verbose=False,
+                                    show_plot=False, save_plot=False):
         """Simulate a single cycle at one wind speed.
+
+        Produces a full power-curve YAML file (with a single wind speed entry)
+        via ``_build_and_save_output`` and optionally plots the cycle detail.
 
         Args:
             wind_speed (float): Reference wind speed at reference height [m/s].
             cluster_id (int): Cluster ID (1-indexed).
             method (str): Simulation method, either 'direct' or 'optimization'.
+            output_path (str or Path, optional): Path to save the YAML output.
+            show_plot (bool): If True, display the cycle detail plot. Defaults to False.
+            save_plot (bool): If True, save the cycle detail plot as a PNG alongside
+                the YAML output. Requires ``output_path``. Defaults to False.
 
         Returns:
-            dict: Wind speed entry with performance data and optional time history.
+            dict: Full power-curve output dict (single wind speed).
 
         Raises:
             ValueError: If method is not 'direct' or 'optimization'.
@@ -435,20 +445,39 @@ class PowerCurveConstructor2:
         env_state = self.create_environment(cluster_id)
 
         if method == 'direct':
-            return self._run_single_simulation_direct(wind_speed, env_state)
+            entry = self._run_single_simulation_direct(wind_speed, env_state)
         elif method == 'optimization':
-            return self._run_single_simulation_optimized(wind_speed, env_state)
+            entry = self._run_single_simulation_optimized(wind_speed, env_state)
         else:
             raise ValueError(
                 f"Unknown method '{method}'. Use 'direct' or 'optimization'."
             )
+
+        output = self._build_and_save_output(
+            cluster_ids=[cluster_id],
+            wind_speed_data_per_cluster=[[entry]],
+            method_name=method.replace('_', ' ').title(),
+            output_path=output_path,
+            verbose=output_path is not None,
+        )
+
+        if (show_plot or save_plot) and output_path is not None:
+            fig_path = Path(output_path).with_suffix('.pdf') if save_plot else None
+            plotting.plot_cycle_detail(
+                output_path, wind_speed, profile_id=cluster_id,
+                output_path=fig_path, show_plot=show_plot,
+            )
+
+        return output
 
     def generate_power_curves_optimized(
         self,
         wind_speeds=None,
         cluster_ids=None,
         output_path=None,
-        verbose=True,):
+        verbose=True,
+        show_plot=False,
+        save_plot=False,):
         """Generate optimized power curves for one or more wind profile clusters.
 
         This method performs sequential optimization to find optimal cycle parameters
@@ -462,6 +491,10 @@ class PowerCurveConstructor2:
                 If None, calculates all clusters.
             output_path (str, optional): Path to save the output YAML file.
             verbose (bool): Whether to print progress.
+            show_plot (bool): If True, display the power curve plot after generation.
+                Defaults to False.
+            save_plot (bool): If True, save the power curve plot as a PNG alongside
+                the YAML output. Requires ``output_path``. Defaults to False.
 
         Returns:
             dict: Power curve data in awesIO format.
@@ -496,14 +529,16 @@ class PowerCurveConstructor2:
                     if verbose:
                         print(f"  Cut-out wind speed: {vw_cut_out:.2f} m/s")
 
-            wind_speeds = np.linspace(vw_cut_in, vw_cut_out - fine_range_m_s, n_points)
             if fine_n_points_near_cutout > 0:
+                wind_speeds = np.linspace(vw_cut_in, vw_cut_out - fine_range_m_s, n_points, endpoint=False)
                 fine_points = np.linspace(
                     vw_cut_out - fine_range_m_s,
                     vw_cut_out - 0.05,
                     fine_n_points_near_cutout,
                 )
                 wind_speeds = np.concatenate((wind_speeds, fine_points))
+            else:
+                wind_speeds = np.linspace(vw_cut_in, vw_cut_out - fine_range_m_s, n_points)
 
         # Calculate optimized power curves for each cluster
         wind_speed_data_per_cluster = []
@@ -521,6 +556,10 @@ class PowerCurveConstructor2:
             output_path=output_path,
             verbose=verbose,
         )
+
+        if (show_plot or save_plot) and output_path is not None:
+            fig_path = Path(output_path).with_suffix('.pdf') if save_plot else None
+            plotting.plot_power_curve(output_path, output_path=fig_path, show_plot=show_plot)
 
         return output
 
@@ -557,12 +596,16 @@ class PowerCurveConstructor2:
             'x0': opt_settings['optimizer']['x0'].copy(),
             'scaling': opt_settings['optimizer']['scaling'].copy(),
             'bounds': opt_settings['bounds'].copy(),
+            'ftol': opt_settings['optimizer']['ftol'],
+            'eps': opt_settings['optimizer']['eps'],
         }
 
         opt_config_phase1 = {
             'x0': opt_config['x0'].copy(),
             'scaling': opt_config['scaling'].copy(),
             'bounds': opt_config['bounds'].copy(),
+            'ftol': opt_config['ftol'],
+            'eps': opt_config['eps'],
         }
         opt_config_phase1['bounds'][2, 1] = 30 * np.pi / 180.0
 
@@ -631,6 +674,8 @@ class PowerCurveConstructor2:
             'x0': opt_settings['optimizer']['x0'].copy(),
             'scaling': opt_settings['optimizer']['scaling'].copy(),
             'bounds': opt_settings['bounds'].copy(),
+            'ftol': opt_settings['optimizer']['ftol'],
+            'eps': opt_settings['optimizer']['eps'],
         }
 
         power_optimizer = OptimizerCycle(
@@ -652,7 +697,9 @@ class PowerCurveConstructor2:
         wind_speeds=None,
         cluster_ids=None,
         output_path=None,
-        verbose=True,):
+        verbose=True,
+        show_plot=False,
+        save_plot=False,):
         """Generate power curves using direct simulation (non-optimized).
 
         This method runs the QSM model with pre-defined cycle settings for each
@@ -666,6 +713,10 @@ class PowerCurveConstructor2:
                 If None, calculates all clusters/profiles.
             output_path (str, optional): Path to save the output YAML file.
             verbose (bool): Whether to print progress messages.
+            show_plot (bool): If True, display the power curve plot after generation.
+                Defaults to False.
+            save_plot (bool): If True, save the power curve plot as a PNG alongside
+                the YAML output. Requires ``output_path``. Defaults to False.
 
         Returns:
             dict: Power curve data in awesIO format.
@@ -701,6 +752,10 @@ class PowerCurveConstructor2:
             output_path=output_path,
             verbose=verbose,
         )
+
+        if (show_plot or save_plot) and output_path is not None:
+            fig_path = Path(output_path).with_suffix('.pdf') if save_plot else None
+            plotting.plot_power_curve(output_path, output_path=fig_path, show_plot=show_plot)
 
         return output
 

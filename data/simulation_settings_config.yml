@@ -27,18 +27,18 @@ optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s] (set to null for auto-estimation)
-    cut_in: 8.0
+    cut_in: null
     # Maximum wind speed [m/s] (set to null for auto-estimation)
-    cut_out: 20.0
+    cut_out: null
     # Number of points to calculate (determines spacing)
-    n_points: 6
+    n_points: 20
 
     # Fine resolution settings near cut-out wind speed
     # These add extra points near the cut-out to capture system behavior
     # at operational limits more accurately
     fine_resolution:
       # Number of fine points to add near cut-out (set to 0 to disable)
-      n_points_near_cutout: 3
+      n_points_near_cutout: 5
       # How far back from cut-out to start fine resolution [m/s]
       # Fine points will span from (cut_out - range_m_s) to (cut_out - 0.05)
       range_m_s: 2.0
@@ -60,7 +60,7 @@ optimization:
   # Optimizer bounds (where not derived from system properties)
   bounds:
     # Elevation angle bounds [degrees]
-    elevation_angle_min: 25.0
+    elevation_angle_min: 20.0
     elevation_angle_max: 60.0
     # Tether length bounds as fractions of max_tether_length
     tether_length_diff_fraction_min: 0.3
@@ -129,7 +129,7 @@ steady_state:
   # Maximum iterations for the kinematic ratio convergence loop
   max_iterations: 250
   # Normalized lift-to-drag error tolerance for convergence [-]
-  convergence_tolerance: 1.0e-6
+  convergence_tolerance: 1.0e-3
 
 # ============================================================================
 # PHASE SOLVER SETTINGS

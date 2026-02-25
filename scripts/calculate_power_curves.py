@@ -28,6 +28,8 @@ WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "wind_resource.yml"
 SIMULATION_SETTINGS_PATH = PROJECT_ROOT / "data" / "simulation_settings_config.yml"
 OUTPUT_PATH_DIRECT = PROJECT_ROOT / "results" / "power_curves_direct_simulation.yml"
 OUTPUT_PATH_OPTIMIZED = PROJECT_ROOT / "results" / "power_curves_optimized.yml"
+OUTPUT_PATH_DIRECT_SINGLE_POINT = PROJECT_ROOT / "results" / "power_curve_single_point.yml"
+OUTPUT_PATH_OPTIMIZED_SINGLE_POINT = PROJECT_ROOT / "results" / "power_curve_single_point_optimized.yml"
 
 if __name__ == "__main__":
 
@@ -40,15 +42,32 @@ if __name__ == "__main__":
     
     constructor.print_summary()
     
-    # Generate power curves using direct simulation
-    result = constructor.generate_power_curves_direct(
-        output_path=OUTPUT_PATH_DIRECT,
-        verbose=True,
+    # # Generate power curves using direct simulation
+    # result = constructor.generate_power_curves_direct(
+    #     output_path=OUTPUT_PATH_DIRECT,
+    #     verbose=True,
+    #     show_plot=True,
+    #     save_plot=False,
+    # )
+
+    # # Generate power curves using optimized simulation
+    # result = constructor.generate_power_curves_optimized(
+    #     output_path=OUTPUT_PATH_OPTIMIZED,
+    #     verbose=True,
+    #     show_plot=True,
+    #     save_plot=False,
+    # )
+
+    result = constructor.simulate_single_wind_speed(
+        wind_speed=10.0, method="direct",
+        output_path=OUTPUT_PATH_DIRECT_SINGLE_POINT,
+        verbose=True, show_plot=True, save_plot=True,
     )
-    # Generate power curves using optimized simulation
-    result = constructor.generate_power_curves_optimized(
-        output_path=OUTPUT_PATH_OPTIMIZED,
-        verbose=True,
+
+    result = constructor.simulate_single_wind_speed(
+        wind_speed=10.0, method="optimization",
+        output_path=OUTPUT_PATH_OPTIMIZED_SINGLE_POINT,
+        verbose=True, show_plot=True, save_plot=True,
     )
 
     print("=" * 80)
@@ -57,5 +76,7 @@ if __name__ == "__main__":
     print("\nGenerated files:")
     print(f"  1. Direct simulation: {OUTPUT_PATH_DIRECT}")
     print(f"  2. Optimized curves: {OUTPUT_PATH_OPTIMIZED}")
+    print(f"  3. Single point simulation: {OUTPUT_PATH_DIRECT_SINGLE_POINT}")
+    print(f"  4. Single point optimized: {OUTPUT_PATH_OPTIMIZED_SINGLE_POINT}")
     print("\nAll done!")
 
