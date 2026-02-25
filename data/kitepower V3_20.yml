@@ -59,7 +59,7 @@ components:
       max_tether_speed_m_s: 10.0
     generator:
       type: permanent_magnet_synchronous
-      max_power_kw: 50.0
+      max_power_kw: 15.0
       efficiency: 1
     storage:
       type: battery_bank

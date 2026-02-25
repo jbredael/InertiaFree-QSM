@@ -19,10 +19,6 @@ SRC_DIR = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from inertiafree_qsm import PowerCurveConstructor2
-from inertiafree_qsm.config_loader import (
-    load_simulation_settings,
-)
-
 
 # Define file paths
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -33,91 +29,27 @@ SIMULATION_SETTINGS_PATH = PROJECT_ROOT / "data" / "simulation_settings_config.y
 OUTPUT_PATH_DIRECT = PROJECT_ROOT / "results" / "power_curves_direct_simulation.yml"
 OUTPUT_PATH_OPTIMIZED = PROJECT_ROOT / "results" / "power_curves_optimized.yml"
 
+if __name__ == "__main__":
 
-def generate_direct_simulation_power_curves():
-    """Generate power curves using direct simulation method."""
-    print("=" * 80)
-    print("GENERATING POWER CURVES - DIRECT SIMULATION METHOD")
-    print("=" * 80)
-    
-    # Load wind speed settings from config
-    sim_settings = load_simulation_settings(SIMULATION_SETTINGS_PATH)
-    ds_wind = sim_settings['direct_simulation']['wind_speeds']
-    wind_speeds = np.arange(ds_wind['cut_in'], ds_wind['cut_out'], ds_wind['step'])
-    print(f"Wind speed range: {wind_speeds[0]:.1f} - {wind_speeds[-1]:.1f} m/s")
-    print(f"Number of points: {len(wind_speeds)}")
-    
     # Create power curve constructor
     constructor = PowerCurveConstructor2(
         system_config_path=SYSTEM_CONFIG_PATH,
         wind_resource_path=WIND_RESOURCE_PATH,
         simulation_settings_path=SIMULATION_SETTINGS_PATH,
-        validate_inputs=False,
     )
     
     constructor.print_summary()
     
     # Generate power curves using direct simulation
     result = constructor.generate_power_curves_direct(
-        wind_speeds=wind_speeds,
-        cluster_ids=None,  # Calculate all clusters
         output_path=OUTPUT_PATH_DIRECT,
         verbose=True,
     )
-    
-    print(f"\nDirect simulation results saved to: {OUTPUT_PATH_DIRECT}\n")
-    return result, constructor
-
-
-def generate_optimized_power_curves(constructor):
-    """Generate power curves using optimization-based method."""    
-    print("=" * 80)
-    print("GENERATING POWER CURVES - OPTIMIZATION-BASED METHOD")
-    print("=" * 80)
-    
-    # Load wind speed settings from config
-    sim_settings = load_simulation_settings(SIMULATION_SETTINGS_PATH)
-    opt_wind = sim_settings['optimization']['wind_speeds']
-    vw_cut_in = opt_wind.get('cut_in')
-    vw_cut_out = opt_wind.get('cut_out')
-    n_points = opt_wind['n_points']
-    fine_n_points = opt_wind['fine_resolution']['n_points_near_cutout']
-    fine_range = opt_wind['fine_resolution']['range_m_s']
-    
-    if vw_cut_in is not None:
-        print(f"Cut-in wind speed: {vw_cut_in:.1f} m/s (from config)")
-    else:
-        print("Cut-in wind speed: auto-estimation")
-    
-    if vw_cut_out is not None:
-        print(f"Cut-out wind speed: {vw_cut_out:.1f} m/s (from config)")
-    else:
-        print("Cut-out wind speed: auto-estimation")
-    
-    print(f"Number of points: {n_points}")
-    if fine_n_points > 0:
-        print(f"Fine resolution: {fine_n_points} points over last {fine_range:.1f} m/s")
-    
-    # Generate optimized power curve for first cluster
-    # Note: generate_power_curve now builds full output and saves automatically
-    output = constructor.generate_power_curve(
-        cluster_id=0,
-        vw_cut_in=vw_cut_in,
-        vw_cut_out=vw_cut_out,
-        n_points=n_points,
-        fine_n_points_near_cutout=fine_n_points,
-        fine_range_m_s=fine_range,
+    # Generate power curves using optimized simulation
+    result = constructor.generate_power_curves_optimized(
         output_path=OUTPUT_PATH_OPTIMIZED,
         verbose=True,
     )
-    
-    return output
-
-
-if __name__ == "__main__":
-    # Generate power curves using both methods
-    direct_result, constructor = generate_direct_simulation_power_curves()
-    optimized_result = generate_optimized_power_curves(constructor)
 
     print("=" * 80)
     print("POWER CURVE GENERATION COMPLETE")

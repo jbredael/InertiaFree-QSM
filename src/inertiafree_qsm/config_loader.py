@@ -214,16 +214,16 @@ def load_simulation_settings(file_path):
         'wind_speeds': {
             'cut_in': opt_wind.get('cut_in'),
             'cut_out': opt_wind.get('cut_out'),
-            'n_points': int(opt_wind.get('n_points', 50)),
+            'n_points': int(opt_wind.get('n_points')),
             'fine_resolution': {
-                'n_points_near_cutout': int(opt_fine.get('n_points_near_cutout', 0)),
-                'range_m_s': float(opt_fine.get('range_m_s', 1.0)),
+                'n_points_near_cutout': int(opt_fine.get('n_points_near_cutout')),
+                'range_m_s': float(opt_fine.get('range_m_s')),
             },
         },
         'optimizer': {
-            'max_iterations': int(opt_optimizer.get('max_iterations', 30)),
-            'ftol': float(opt_optimizer.get('ftol', 1e-6)),
-            'eps': float(opt_optimizer.get('eps', 1e-6)),
+            'max_iterations': int(opt_optimizer.get('max_iterations')),
+            'ftol': float(opt_optimizer.get('ftol')),
+            'eps': float(opt_optimizer.get('eps')),
             'x0': np.array(x0_list, dtype=float),
             'scaling': np.array(opt_optimizer.get('scaling', []), dtype=float),
         },

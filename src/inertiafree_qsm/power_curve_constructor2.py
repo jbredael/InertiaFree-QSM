@@ -49,7 +49,6 @@ class PowerCurveConstructor2:
         system_config_path (str): Path to the system configuration YAML file.
         wind_resource_path (str): Path to the wind resource YAML file.
         simulation_settings_path (str): Path to the simulation settings YAML file.
-        validate_inputs (bool): Whether to validate input files using awesIO.
 
     Attributes:
         sys_props (SystemProperties): System properties object.
@@ -69,7 +68,6 @@ class PowerCurveConstructor2:
         system_config_path,
         wind_resource_path,
         simulation_settings_path,
-        validate_inputs=True,
     ):
         """Initialize the power curve optimizer with configuration files."""
         self.system_config_path = Path(system_config_path)
@@ -79,9 +77,7 @@ class PowerCurveConstructor2:
         # Load configurations (validation is internal to loader functions)
         self.sys_props_dict = load_system_config(self.system_config_path)
         self.wind_resource = load_wind_resource(self.wind_resource_path)
-        self.simulation_settings = load_simulation_settings(
-            self.simulation_settings_path
-        )
+        self.simulation_settings = load_simulation_settings(self.simulation_settings_path)
 
         # Create system properties object
         self.sys_props = SystemProperties(self.sys_props_dict)
@@ -125,11 +121,11 @@ class PowerCurveConstructor2:
         self.phi_traction = self.simulation_settings['traction']['azimuth_angle']
         self.chi_traction = self.simulation_settings['traction']['course_angle']
 
-    def create_environment(self, cluster_id=0):
+    def create_environment(self, cluster_id=1):
         """Create an environment state object for a specific wind cluster.
 
         Args:
-            cluster_id (int): The cluster ID (0-indexed).
+            cluster_id (int): The cluster ID (1-indexed).
 
         Returns:
             NormalisedWindTable1D: Environment state with wind profile.
@@ -143,7 +139,7 @@ class PowerCurveConstructor2:
         # Find the cluster with matching ID (clusters use 1-indexed IDs)
         cluster = None
         for c in clusters:
-            if c.get('id') == cluster_id + 1:
+            if c.get('id') == cluster_id:
                 cluster = c
                 break
 
@@ -420,68 +416,133 @@ class PowerCurveConstructor2:
             if sim_successful:
                 x_opt_last = x_opt
                 vw_last = vw
+   
 
-    def generate_power_curve(
+    def simulate_single_wind_speed(self, wind_speed, cluster_id=0, method='direct'):
+        """Simulate a single cycle at one wind speed.
+
+        Args:
+            wind_speed (float): Reference wind speed at reference height [m/s].
+            cluster_id (int): Cluster ID (1-indexed).
+            method (str): Simulation method, either 'direct' or 'optimization'.
+
+        Returns:
+            dict: Wind speed entry with performance data and optional time history.
+
+        Raises:
+            ValueError: If method is not 'direct' or 'optimization'.
+        """
+        env_state = self.create_environment(cluster_id)
+
+        if method == 'direct':
+            return self._run_single_simulation_direct(wind_speed, env_state)
+        elif method == 'optimization':
+            return self._run_single_simulation_optimized(wind_speed, env_state)
+        else:
+            raise ValueError(
+                f"Unknown method '{method}'. Use 'direct' or 'optimization'."
+            )
+
+    def generate_power_curves_optimized(
         self,
-        cluster_id=0,
-        vw_cut_in=None,
-        vw_cut_out=None,
-        n_points=50,
-        fine_n_points_near_cutout=15,
-        fine_range_m_s=1.0,
+        wind_speeds=None,
+        cluster_ids=None,
         output_path=None,
-        verbose=True,
-    ):
-        """Generate optimized power curve for a wind profile cluster.
+        verbose=True,):
+        """Generate optimized power curves for one or more wind profile clusters.
 
         This method performs sequential optimization to find optimal cycle parameters
         at each wind speed. The elevation angle from simulation settings is NOT used
         as a constraint - it is only used to calculate the operating altitude.
 
         Args:
-            cluster_id (int): The cluster ID (0-indexed).
-            vw_cut_in (float, optional): Cut-in wind speed [m/s].
-            vw_cut_out (float, optional): Cut-out wind speed [m/s].
-            n_points (int): Number of points in power curve.
-            fine_n_points_near_cutout (int): Number of fine-resolution points near cut-out.
-                Set to 0 to disable fine resolution near cut-out.
-            fine_range_m_s (float): Wind speed range [m/s] for fine resolution.
-                Fine points span from (cut_out - range) to (cut_out - 0.05).
+            wind_speeds (array-like, optional): Wind speeds to evaluate [m/s]. If None,
+                defaults to range defined in simulation settings.
+            cluster_ids (list, optional): List of cluster IDs (1-indexed) to calculate.
+                If None, calculates all clusters.
             output_path (str, optional): Path to save the output YAML file.
             verbose (bool): Whether to print progress.
 
         Returns:
             dict: Power curve data in awesIO format.
         """
-        # Create environment
-        env_state = self.create_environment(cluster_id)
+        # Determine which clusters to process
+        if cluster_ids is None:
+            cluster_ids = list(range(1, self.n_clusters + 1))
+        elif not isinstance(cluster_ids, (list, tuple)):
+            cluster_ids = [cluster_ids]
 
-        # Estimate operational limits if not provided
-        if vw_cut_in is None or vw_cut_out is None:
-            if verbose:
-                print(f"Estimating operational limits for cluster {cluster_id + 1}...")
+        # Determine wind speeds once, estimating from the first cluster if needed
+        if wind_speeds is not None:
+            wind_speeds = np.array(wind_speeds)
+        else:
+            opt_settings = self.simulation_settings['optimization']
+            vw_cut_in = opt_settings['wind_speeds']['cut_in']
+            vw_cut_out = opt_settings['wind_speeds']['cut_out']
+            n_points = opt_settings['wind_speeds']['n_points']
+            fine_n_points_near_cutout = opt_settings['wind_speeds']['fine_resolution']['n_points_near_cutout']
+            fine_range_m_s = opt_settings['wind_speeds']['fine_resolution']['range_m_s']
 
-            if vw_cut_in is None:
-                vw_cut_in, critical_force = self.estimate_cut_in_wind_speed(env_state)
+            if vw_cut_in is None or vw_cut_out is None:
+                env_state_ref = self.create_environment(cluster_ids[0])
                 if verbose:
-                    print(f"  Cut-in wind speed: {vw_cut_in:.2f} m/s")
+                    print(f"Estimating operational limits from cluster {cluster_ids[0]}...")
+                if vw_cut_in is None:
+                    vw_cut_in, _ = self.estimate_cut_in_wind_speed(env_state_ref)
+                    if verbose:
+                        print(f"  Cut-in wind speed: {vw_cut_in:.2f} m/s")
+                if vw_cut_out is None:
+                    vw_cut_out, _ = self.estimate_cut_out_wind_speed(env_state_ref)
+                    if verbose:
+                        print(f"  Cut-out wind speed: {vw_cut_out:.2f} m/s")
 
-            if vw_cut_out is None:
-                vw_cut_out, elev_cut_out = self.estimate_cut_out_wind_speed(env_state)
-                if verbose:
-                    print(f"  Cut-out wind speed: {vw_cut_out:.2f} m/s")
+            wind_speeds = np.linspace(vw_cut_in, vw_cut_out - fine_range_m_s, n_points)
+            if fine_n_points_near_cutout > 0:
+                fine_points = np.linspace(
+                    vw_cut_out - fine_range_m_s,
+                    vw_cut_out - 0.05,
+                    fine_n_points_near_cutout,
+                )
+                wind_speeds = np.concatenate((wind_speeds, fine_points))
 
-        # Generate wind speed array
-        wind_speeds = np.linspace(vw_cut_in, vw_cut_out - fine_range_m_s, n_points)
-        
-        # Add fine resolution points near cut-out if requested
-        if fine_n_points_near_cutout > 0:
-            fine_points = np.linspace(
-                vw_cut_out - fine_range_m_s, 
-                vw_cut_out - 0.05, 
-                fine_n_points_near_cutout
+        # Calculate optimized power curves for each cluster
+        wind_speed_data_per_cluster = []
+        for cluster_id in cluster_ids:
+            wind_speed_data = self._calculate_power_curve_optimized(
+                cluster_id, wind_speeds, verbose
             )
-            wind_speeds = np.concatenate((wind_speeds, fine_points))
+            wind_speed_data_per_cluster.append(wind_speed_data)
+
+        # Build full output with metadata and save
+        output = self._build_and_save_output(
+            cluster_ids=cluster_ids,
+            wind_speed_data_per_cluster=wind_speed_data_per_cluster,
+            method_name='Optimization-Based',
+            output_path=output_path,
+            verbose=verbose,
+        )
+
+        return output
+
+    def _calculate_power_curve_optimized(self, cluster_id, wind_speeds, verbose):
+        """Calculate optimized power curve for a single wind cluster.
+
+        Args:
+            cluster_id (int): The cluster ID (1-indexed).
+            wind_speeds (array-like): Wind speeds to evaluate [m/s].
+            verbose (bool): Whether to print progress messages.
+
+        Returns:
+            list: Wind speed data entries for this cluster.
+        """
+        # Reset per-run optimization state so clusters don't bleed into each other
+        self.x_opts = []
+        self.x0_list = []
+        self.optimization_details = []
+        self.constraints = []
+        self.performance_indicators = []
+
+        env_state = self.create_environment(cluster_id)
 
         # Configure optimization sequence
         cycle_sim_settings_phase1 = deepcopy(self.simulation_settings)
@@ -491,7 +552,6 @@ class PowerCurveConstructor2:
         cycle_sim_settings_phase2 = deepcopy(cycle_sim_settings_phase1)
         cycle_sim_settings_phase2['cycle']['traction_phase'] = TractionPhaseHybrid
 
-        # Create optimizers — build optimizer_config dicts from settings
         opt_settings = self.simulation_settings['optimization']
         opt_config = {
             'x0': opt_settings['optimizer']['x0'].copy(),
@@ -499,7 +559,6 @@ class PowerCurveConstructor2:
             'bounds': opt_settings['bounds'].copy(),
         }
 
-        # Phase 1: cap elevation upper bound at 30 deg
         opt_config_phase1 = {
             'x0': opt_config['x0'].copy(),
             'scaling': opt_config['scaling'].copy(),
@@ -523,7 +582,6 @@ class PowerCurveConstructor2:
             reduce_x=np.array([0, 1, 2, 3]),
         )
 
-        # Define sequential optimization strategy
         optimization_sequence = {
             7.0: {
                 'power_optimizer': op_cycle_phase1,
@@ -539,219 +597,62 @@ class PowerCurveConstructor2:
             },
         }
 
-        # Define starting point
-        if vw_cut_in is not None:
-            x0_start = np.array(
-                [
-                    critical_force if 'critical_force' in locals() else 5000.0,
-                    300.0,
-                    25 * np.pi / 180.0,
-                    150.0,
-                    200.0,
-                ]
-            )
-        else:
-            x0_start = np.array([5000.0, 300.0, 25 * np.pi / 180.0, 150.0, 200.0])
+        x0_start = np.array(opt_settings['optimizer']['x0'].copy())
 
-        # Run sequential optimizations
         if verbose:
-            print(f"Running optimizations for cluster {cluster_id + 1}...")
+            print(f"Running optimizations for cluster {cluster_id}...")
 
         self.run_predefined_sequence(optimization_sequence, x0_start, wind_speeds)
 
         # Build wind speed data entries from optimization KPIs
-        wind_speed_data = []
-        for ws, kpi in zip(self.wind_speeds, self.performance_indicators):
-            # Get time history from KPI kinematics/steady_states
-            time_history = None
-            if ('kinematics' in kpi and kpi['kinematics']
-                    and 'steady_states' in kpi and kpi['steady_states']):
-                # Build time vector from KPI
-                if 'time' in kpi and kpi['time']:
-                    time_list = list(kpi['time'])
-                else:
-                    n_pts = len(kpi['kinematics'])
-                    time_list = list(np.linspace(0, kpi['duration']['cycle'], n_pts))
-                time_history = self._extract_time_history(
-                    time_list, kpi['kinematics'], kpi['steady_states']
-                )
+        wind_speed_data = [
+            self._build_wind_speed_entry(ws, kpi)
+            for ws, kpi in zip(self.wind_speeds, self.performance_indicators)
+        ]
 
-            def _safe_float(val):
-                """Convert value to float, returning NaN for None."""
-                if val is None:
-                    return float('nan')
-                return float(val)
+        return wind_speed_data
 
-            wind_speed_entry = {
-                'wind_speed_m_s': float(ws),
-                'success': bool(kpi.get('sim_successful', True)),
-                'performance': {
-                    'power': {
-                        'average_cycle_power_w': _safe_float(kpi['average_power']['cycle']),
-                        'average_reel_out_power_w': _safe_float(kpi['average_power']['out']),
-                        'average_reel_in_power_w': _safe_float(kpi['average_power']['in']),
-                    },
-                    'timing': {
-                        'reel_out_time_s': _safe_float(kpi['duration']['out']),
-                        'reel_in_time_s': _safe_float(kpi['duration']['in']) + _safe_float(kpi['duration'].get('trans', 0.0)),
-                        'cycle_time_s': _safe_float(kpi['duration']['cycle']),
-                    },
-                },
-            }
-            if time_history is not None:
-                wind_speed_entry['time_history'] = time_history
-
-            wind_speed_data.append(wind_speed_entry)
-
-        # Build full output with metadata and save
-        output = self._build_and_save_output(
-            cluster_ids=[cluster_id],
-            wind_speed_data_per_cluster=[wind_speed_data],
-            method_name='Optimization-Based',
-            output_path=output_path,
-            verbose=verbose,
-        )
-
-        return output
-
-    def _build_and_save_output(
-        self,
-        cluster_ids,
-        wind_speed_data_per_cluster,
-        method_name,
-        output_path=None,
-        verbose=True,
-    ):
-        """Build complete power curve output with metadata and optionally save.
-
-        Constructs per-cluster power curve dicts with wind profile metadata,
-        wraps them in a full output structure, and optionally saves to YAML.
+    def _run_single_simulation_optimized(self, wind_speed, env_state):
+        """Run a single optimized cycle simulation for one wind speed.
 
         Args:
-            cluster_ids (list): List of cluster IDs (0-indexed).
-            wind_speed_data_per_cluster (list): List of wind speed data lists,
-                one per cluster. Each inner list contains dicts with
-                wind_speed_m_s, success, performance, and optionally time_history.
-            method_name (str): Name of the method (e.g., 'Optimization-Based').
-            output_path (str, optional): Path to save the output YAML file.
-            verbose (bool): Whether to print progress.
+            wind_speed (float): Reference wind speed [m/s].
+            env_state (NormalisedWindTable1D): Environment state object.
 
         Returns:
-            dict: Complete power curve data in awesIO format.
+            dict: Wind speed entry with performance data and optional time history.
         """
-        # Extract wind speeds from first cluster's data
-        wind_speeds = [entry['wind_speed_m_s'] for entry in wind_speed_data_per_cluster[0]]
+        cycle_sim_settings = deepcopy(self.simulation_settings)
+        cycle_sim_settings['cycle']['traction_phase'] = TractionPhaseHybrid
+        cycle_sim_settings['cycle']['include_transition_energy'] = False
 
-        # Build per-cluster power curve dicts
-        power_curves = []
-        for cluster_id, wind_speed_data in zip(cluster_ids, wind_speed_data_per_cluster):
-            clusters = self.wind_resource.get('clusters', [])
-            if cluster_id >= len(clusters):
-                raise ValueError(
-                    f"Cluster ID {cluster_id} not found. "
-                    f"Available clusters: 0-{len(clusters)-1}"
-                )
-            cluster_data = clusters[cluster_id]
-            v_normalized = cluster_data.get(
-                'v_normalized',
-                [0.0] * len(cluster_data.get('u_normalized', [])),
-            )
-            power_curves.append({
-                'profile_id': cluster_id + 1,
-                'probability_weight': float(cluster_data.get('frequency', 1.0 / self.n_clusters)),
-                'wind_profile': {
-                    'u_normalized': [float(u) for u in cluster_data.get('u_normalized', [])],
-                    'v_normalized': [float(v) for v in v_normalized],
-                },
-                'wind_speed_data': wind_speed_data,
-            })
-
-        # Determine cut-in and cut-out from first cluster
-        cycle_powers = [entry['performance']['power']['average_cycle_power_w']
-                        for entry in wind_speed_data_per_cluster[0]]
-        cut_in_ws = self._find_cut_in_wind_speed(wind_speeds, cycle_powers)
-        cut_out_ws = wind_speeds[-1]
-
-        # Calculate nominal power (max across all clusters)
-        nominal_power = max(
-            max(entry['performance']['power']['average_cycle_power_w'] for entry in wsd)
-            for wsd in wind_speed_data_per_cluster
-        )
-
-        # Prepare output in awesIO power_curves_schema format
-        altitudes = self.wind_resource.get('altitudes', [])
-        output = {
-            'metadata': {
-                'name': f'Ground-Gen Power Curves ({method_name})',
-                'description': 'Power curves for pumping ground-gen AWE system',
-                'note': f'Power curve data generated from QSM {method_name.lower()}. Wind speeds at {self.reference_height:.0f}m reference height.',
-                'awesIO_version': '0.1.0',
-                'schema': 'power_curves_schema.yml',
-                'time_created': datetime.now().isoformat(),
-                'model_config': {
-                    'wing_area_m2': float(self.sys_props.kite_projected_area),
-                    'nominal_power_w': float(nominal_power),
-                    'nominal_tether_force_n': float(self.sys_props.tether_force_max_limit),
-                    'cut_in_wind_speed_m_s': float(cut_in_ws),
-                    'cut_out_wind_speed_m_s': float(cut_out_ws),
-                    'operating_altitude_m': float(self.operating_altitude),
-                    'tether_length_operational_m': float(self.avg_tether_length),
-                },
-                'wind_resource': {
-                    'n_clusters': self.n_clusters,
-                    'n_profiles_calculated': len(cluster_ids),
-                    'profile_ids_calculated': [cid + 1 for cid in cluster_ids],
-                    'reference_height_m': float(self.reference_height),
-                },
-            },
-            'altitudes_m': [float(a) for a in altitudes],
-            'reference_wind_speeds_m_s': [float(ws) for ws in wind_speeds],
-            'power_curves': power_curves,
+        opt_settings = self.simulation_settings['optimization']
+        opt_config = {
+            'x0': opt_settings['optimizer']['x0'].copy(),
+            'scaling': opt_settings['optimizer']['scaling'].copy(),
+            'bounds': opt_settings['bounds'].copy(),
         }
 
-        # Save to file if path provided
-        if output_path is not None:
-            output_path = Path(output_path)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+        power_optimizer = OptimizerCycle(
+            cycle_sim_settings,
+            self.sys_props,
+            env_state,
+            optimizer_config=opt_config,
+            reduce_x=np.array([0, 1, 2, 3]),
+        )
 
-            class IndentedDumper(yaml.Dumper):
-                def increase_indent(self, flow=False, indentless=False):
-                    return super(IndentedDumper, self).increase_indent(flow, indentless=False)
+        x0 = np.array(opt_settings['optimizer']['x0'].copy())
+        self.run_optimization(wind_speed, power_optimizer, x0)
 
-            with open(output_path, 'w') as f:
-                yaml.dump(output, f, Dumper=IndentedDumper,
-                          default_flow_style=False, sort_keys=False,
-                          indent=2, width=1000)
-
-            if verbose:
-                print(f"\nPower curves saved to {output_path}")
-
-        return output
-
-
-    def print_summary(self):
-        """Print a summary of the system configuration."""
-        print("System Configuration:")
-        print(f"  Kite projected area: {self.sys_props.kite_projected_area:.1f} m²")
-        print(f"  Kite mass: {self.sys_props.kite_mass:.1f} kg")
-        print(f"  Max tether force: {self.sys_props.tether_force_max_limit:.0f} N")
-        print(f"  Min tether force: {self.sys_props.tether_force_min_limit:.0f} N")
-        print(f"  Tether diameter: {self.sys_props.tether_diameter * 1000:.1f} mm")
-        print(f"  Max reeling speed: {self.sys_props.reeling_speed_max_limit:.1f} m/s")
-        print("\nOperating Parameters:")
-        print(f"  Reference height: {self.reference_height:.0f} m")
-        print(f"  Operating altitude: {self.operating_altitude:.1f} m")
-        print(f"  Average tether length: {self.avg_tether_length:.1f} m")
-        print(f"  Elevation angle: {np.degrees(self.elevation_angle):.1f}°")
-        print(f"  Number of wind clusters: {self.n_clusters}")
+        kpi = self.performance_indicators[-1]
+        return self._build_wind_speed_entry(wind_speed, kpi)
 
     def generate_power_curves_direct(
         self,
         wind_speeds=None,
         cluster_ids=None,
         output_path=None,
-        verbose=True,
-    ):
+        verbose=True,):
         """Generate power curves using direct simulation (non-optimized).
 
         This method runs the QSM model with pre-defined cycle settings for each
@@ -760,22 +661,27 @@ class PowerCurveConstructor2:
 
         Args:
             wind_speeds (array-like, optional): Wind speeds to evaluate [m/s].
-                Defaults to 4.0 to 25.5 m/s in 0.5 m/s steps.
-            cluster_ids (list, optional): List of cluster IDs (0-indexed) to calculate.
-                If None, calculates all clusters.
+                Defaults to wind speeds defined in simulation settings.
+            cluster_ids (list, optional): List of cluster IDs (1-indexed) to calculate.
+                If None, calculates all clusters/profiles.
             output_path (str, optional): Path to save the output YAML file.
             verbose (bool): Whether to print progress messages.
 
         Returns:
             dict: Power curve data in awesIO format.
         """
-        # Default wind speed range
         if wind_speeds is None:
-            wind_speeds = np.arange(4.0, 26.0, 0.5)
+            wind_speeds = np.arange(
+                self.simulation_settings['direct_simulation']['wind_speeds']['cut_in'],
+                self.simulation_settings['direct_simulation']['wind_speeds']['cut_out'] + self.simulation_settings['direct_simulation']['wind_speeds']['step'] / 2,
+                self.simulation_settings['direct_simulation']['wind_speeds']['step'],
+            )
+        elif wind_speeds is not None:
+            print(f"Using custom wind speeds: {wind_speeds}")
 
         # Determine which clusters to process
         if cluster_ids is None:
-            cluster_ids = list(range(self.n_clusters))
+            cluster_ids = list(range(1, self.n_clusters + 1))
         elif not isinstance(cluster_ids, (list, tuple)):
             cluster_ids = [cluster_ids]
 
@@ -802,7 +708,7 @@ class PowerCurveConstructor2:
         """Calculate power curve for a single wind cluster using direct simulation.
 
         Args:
-            cluster_id (int): The cluster ID (0-indexed).
+            cluster_id (int): The cluster ID (1-indexed).
             wind_speeds (array-like): Wind speeds to evaluate [m/s].
             verbose (bool): Whether to print progress messages.
 
@@ -812,7 +718,7 @@ class PowerCurveConstructor2:
         env_state = self.create_environment(cluster_id)
 
         if verbose:
-            print(f"Calculating power curve for cluster {cluster_id + 1}...")
+            print(f"Calculating power curve for cluster {cluster_id}...")
 
         wind_speed_data = []
         for i, ws in enumerate(wind_speeds):
@@ -900,6 +806,185 @@ class PowerCurveConstructor2:
                 },
             }
 
+
+
+    def _build_and_save_output(
+        self,
+        cluster_ids,
+        wind_speed_data_per_cluster,
+        method_name,
+        output_path=None,
+        verbose=True,):
+        """Build complete power curve output with metadata and optionally save.
+
+        Constructs per-cluster power curve dicts with wind profile metadata,
+        wraps them in a full output structure, and optionally saves to YAML.
+
+        Args:
+            cluster_ids (list): List of cluster IDs (0-indexed).
+            wind_speed_data_per_cluster (list): List of wind speed data lists,
+                one per cluster. Each inner list contains dicts with
+                wind_speed_m_s, success, performance, and optionally time_history.
+            method_name (str): Name of the method (e.g., 'Optimization-Based').
+            output_path (str, optional): Path to save the output YAML file.
+            verbose (bool): Whether to print progress.
+
+        Returns:
+            dict: Complete power curve data in awesIO format.
+        """
+        # Extract wind speeds from first cluster's data
+        wind_speeds = [entry['wind_speed_m_s'] for entry in wind_speed_data_per_cluster[0]]
+
+        # Build per-cluster power curve dicts
+        power_curves = []
+        for cluster_id, wind_speed_data in zip(cluster_ids, wind_speed_data_per_cluster):
+            clusters = self.wind_resource.get('clusters', [])
+            cluster_data = next((c for c in clusters if c.get('id') == cluster_id), None)
+            if cluster_data is None:
+                raise ValueError(
+                    f"Cluster ID {cluster_id} not found in wind resource data."
+                )
+            v_normalized = cluster_data.get(
+                'v_normalized',
+                [0.0] * len(cluster_data.get('u_normalized', [])),
+            )
+            power_curves.append({
+                'profile_id': cluster_id,
+                'probability_weight': float(cluster_data.get('frequency', 1.0 / self.n_clusters)),
+                'wind_profile': {
+                    'u_normalized': [float(u) for u in cluster_data.get('u_normalized', [])],
+                    'v_normalized': [float(v) for v in v_normalized],
+                },
+                'wind_speed_data': wind_speed_data,
+            })
+
+        # Determine cut-in and cut-out from first cluster
+        cycle_powers = [entry['performance']['power']['average_cycle_power_w']
+                        for entry in wind_speed_data_per_cluster[0]]
+        cut_in_ws = self._find_cut_in_wind_speed(wind_speeds, cycle_powers)
+        cut_out_ws = wind_speeds[-1]
+
+        # Calculate nominal power (max across all clusters)
+        nominal_power = max(
+            max(entry['performance']['power']['average_cycle_power_w'] for entry in wsd)
+            for wsd in wind_speed_data_per_cluster
+        )
+
+        # Prepare output in awesIO power_curves_schema format
+        altitudes = self.wind_resource.get('altitudes', [])
+        output = {
+            'metadata': {
+                'name': f'Ground-Gen Power Curves ({method_name})',
+                'description': 'Power curves for pumping ground-gen AWE system',
+                'note': f'Power curve data generated from QSM {method_name.lower()}. Wind speeds at {self.reference_height:.0f}m reference height.',
+                'awesIO_version': '0.1.0',
+                'schema': 'power_curves_schema.yml',
+                'time_created': datetime.now().isoformat(),
+                'model_config': {
+                    'wing_area_m2': float(self.sys_props.kite_projected_area),
+                    'nominal_power_w': float(nominal_power),
+                    'nominal_tether_force_n': float(self.sys_props.tether_force_max_limit),
+                    'cut_in_wind_speed_m_s': float(cut_in_ws),
+                    'cut_out_wind_speed_m_s': float(cut_out_ws),
+                    'operating_altitude_m': float(self.operating_altitude),
+                    'tether_length_operational_m': float(self.avg_tether_length),
+                },
+                'wind_resource': {
+                    'n_clusters': self.n_clusters,
+                    'n_profiles_calculated': len(cluster_ids),
+                    'profile_ids_calculated': list(cluster_ids),
+                    'reference_height_m': float(self.reference_height),
+                },
+            },
+            'altitudes_m': [float(a) for a in altitudes],
+            'reference_wind_speeds_m_s': [float(ws) for ws in wind_speeds],
+            'power_curves': power_curves,
+        }
+
+        # Save to file if path provided
+        if output_path is not None:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            class IndentedDumper(yaml.Dumper):
+                def increase_indent(self, flow=False, indentless=False):
+                    return super(IndentedDumper, self).increase_indent(flow, indentless=False)
+
+            with open(output_path, 'w') as f:
+                yaml.dump(output, f, Dumper=IndentedDumper,
+                          default_flow_style=False, sort_keys=False,
+                          indent=2, width=1000)
+
+            if verbose:
+                print(f"\nPower curves saved to {output_path}")
+
+        return output
+
+    def print_summary(self):
+        """Print a summary of the system configuration."""
+        print("System Configuration:")
+        print(f"  Kite projected area: {self.sys_props.kite_projected_area:.1f} m²")
+        print(f"  Kite mass: {self.sys_props.kite_mass:.1f} kg")
+        print(f"  Max tether force: {self.sys_props.tether_force_max_limit:.0f} N")
+        print(f"  Min tether force: {self.sys_props.tether_force_min_limit:.0f} N")
+        print(f"  Tether diameter: {self.sys_props.tether_diameter * 1000:.1f} mm")
+        print(f"  Max reeling speed: {self.sys_props.reeling_speed_max_limit:.1f} m/s")
+        print("\nOperating Parameters:")
+        print(f"  Reference height: {self.reference_height:.0f} m")
+        print(f"  Operating altitude: {self.operating_altitude:.1f} m")
+        print(f"  Average tether length: {self.avg_tether_length:.1f} m")
+        print(f"  Elevation angle: {np.degrees(self.elevation_angle):.1f}°")
+        print(f"  Number of wind clusters: {self.n_clusters}")
+
+    def _build_wind_speed_entry(self, wind_speed, kpi):
+        """Build a wind speed result entry dict from a KPI dict.
+
+        Args:
+            wind_speed (float): Reference wind speed [m/s].
+            kpi (dict): Performance KPI dict from the optimizer or cycle.
+
+        Returns:
+            dict: Wind speed entry with performance data and optional time history.
+        """
+        def _safe_float(val):
+            if val is None:
+                return float('nan')
+            return float(val)
+
+        time_history = None
+        if ('kinematics' in kpi and kpi['kinematics']
+                and 'steady_states' in kpi and kpi['steady_states']):
+            if 'time' in kpi and kpi['time']:
+                time_list = list(kpi['time'])
+            else:
+                n_pts = len(kpi['kinematics'])
+                time_list = list(np.linspace(0, kpi['duration']['cycle'], n_pts))
+            time_history = self._extract_time_history(
+                time_list, kpi['kinematics'], kpi['steady_states']
+            )
+
+        entry = {
+            'wind_speed_m_s': float(wind_speed),
+            'success': bool(kpi.get('sim_successful', True)),
+            'performance': {
+                'power': {
+                    'average_cycle_power_w': _safe_float(kpi['average_power']['cycle']),
+                    'average_reel_out_power_w': _safe_float(kpi['average_power']['out']),
+                    'average_reel_in_power_w': _safe_float(kpi['average_power']['in']),
+                },
+                'timing': {
+                    'reel_out_time_s': _safe_float(kpi['duration']['out']),
+                    'reel_in_time_s': (_safe_float(kpi['duration']['in'])
+                                       + _safe_float(kpi['duration'].get('trans', 0.0))),
+                    'cycle_time_s': _safe_float(kpi['duration']['cycle']),
+                },
+            },
+        }
+        if time_history is not None:
+            entry['time_history'] = time_history
+
+        return entry
+
     def _extract_time_history(self, time_list, kinematics, steady_states):
         """Extract time history data from kinematics and steady state objects.
 
@@ -936,7 +1021,7 @@ class PowerCurveConstructor2:
             power_full.append(float(ss.power_ground))
             reel_speed_full.append(float(ss.reeling_speed))
             tether_length_full.append(float(kin.straight_tether_length))
-            elevation_angle_full.append(float(kin.elevation_angle))
+            elevation_angle_full.append(float(np.degrees(kin.elevation_angle)))
 
         # Downsample to ~2 second intervals
         indices = self._downsample_indices(time_full, interval_s=2.0)
@@ -948,7 +1033,7 @@ class PowerCurveConstructor2:
             'power_w': [power_full[i] for i in indices],
             'reel_speed_m_s': [reel_speed_full[i] for i in indices],
             'tether_length_m': [tether_length_full[i] for i in indices],
-            'elevation_angle_rad': [elevation_angle_full[i] for i in indices],
+            'elevation_angle_deg': [elevation_angle_full[i] for i in indices],
         }
 
     @staticmethod
