@@ -4,7 +4,7 @@ metadata:
   note: Power curve data generated from QSM direct. Wind speeds at 200m reference height.
   awesIO_version: 0.1.0
   schema: power_curves_schema.yml
-  time_created: '2026-02-25T14:21:28.472591'
+  time_created: '2026-02-25T14:24:22.317264'
   model_config:
     wing_area_m2: 19.75
     nominal_power_w: 5268.250091379277

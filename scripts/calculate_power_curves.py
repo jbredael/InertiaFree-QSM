@@ -18,7 +18,7 @@ import numpy as np
 SRC_DIR = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(SRC_DIR))
 
-from inertiafree_qsm import PowerCurveConstructor2
+from inertiafree_qsm import PowerCurveConstructor
 
 # Define file paths
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -34,7 +34,7 @@ OUTPUT_PATH_OPTIMIZED_SINGLE_POINT = PROJECT_ROOT / "results" / "power_curve_sin
 if __name__ == "__main__":
 
     # Create power curve constructor
-    constructor = PowerCurveConstructor2(
+    constructor = PowerCurveConstructor(
         system_config_path=SYSTEM_CONFIG_PATH,
         wind_resource_path=WIND_RESOURCE_PATH,
         simulation_settings_path=SIMULATION_SETTINGS_PATH,

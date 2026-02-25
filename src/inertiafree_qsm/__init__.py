@@ -34,7 +34,7 @@ from .config_loader import (
 )
 
 # Power curve constructor (always available for direct simulation)
-from .power_curve_constructor2 import PowerCurveConstructor2
+from .power_curve_constructor import PowerCurveConstructor
 
 __version__ = "0.1.0"
 
@@ -64,6 +64,5 @@ __all__ = [
     "load_wind_resource",
     "load_simulation_settings",
     # Power curve constructor
-    "PowerCurveConstructor2",
-    "OPTIMIZER_AVAILABLE",
+    "PowerCurveConstructor",
 ]
