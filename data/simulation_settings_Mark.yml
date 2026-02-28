@@ -46,11 +46,11 @@ optimization:
   # SLSQP optimizer configuration
   optimizer:
     # Maximum number of iterations per wind speed point
-    max_iterations: 20
+    max_iterations: 30
     # Function tolerance for convergence
-    ftol: 1.0e-3
+    ftol: 1.0e-6
     # Finite difference step size for gradient estimation
-    eps: 1.0e-4
+    eps: 1.0e-6
     # Optimizer starting point: [force_out_N, force_in_N, elevation_deg,
     #   tether_length_diff_m, min_tether_length_m]
     x0: [5000, 500, 30.0, 120, 150]
@@ -60,7 +60,7 @@ optimization:
   # Optimizer bounds (where not derived from system properties)
   bounds:
     # Elevation angle bounds [degrees]
-    elevation_angle_min: 20.0
+    elevation_angle_min: 15.0
     elevation_angle_max: 60.0
     # Tether length bounds as fractions of max_tether_length
     tether_length_diff_fraction_min: 0.3
@@ -77,12 +77,12 @@ cycle:
   # Elevation angle during traction phase [degrees]
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
-  elevation_angle_traction: 30.0
+  elevation_angle_traction: 20.0
 
   # Maximum tether length (start of retraction phase) [m]
   # If not specified here, will use max_tether_length_m from system config
   # Set this to override the system config value
-  tether_length_start_retraction: 500.0
+  tether_length_start_retraction: 300
 
   # Minimum tether length (end of retraction phase) [m]
   tether_length_end_retraction: 200
@@ -101,13 +101,13 @@ retraction:
   # Using a force appropriate for the system (~10-15% of max)
   control: ['tether_force_ground', 5000]
   # Time step for simulation [s]
-  time_step: 0.25
+  time_step: 0.5
 
 transition:
   # Control setting for transition phase
   control: ['reeling_speed', 0.0]
   # Time step for simulation [s]
-  time_step: 0.25
+  time_step: 0.5
 
 traction:
   # Control setting for traction phase
@@ -116,9 +116,9 @@ traction:
   # Time step for simulation [s]
   time_step: 0.25
   # Azimuth angle [degrees]
-  azimuth_angle: 13.0
+  azimuth_angle: 15.0
   # Course angle [degrees]
-  course_angle: 100.0
+  course_angle: 110.0
 
 # ============================================================================
 # STEADY STATE SOLVER SETTINGS

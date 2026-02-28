@@ -14,10 +14,10 @@ components:
     version: 1.0
     aerodynamics:
       simple_aero_model: # Parameters for simple models
-        lift_coefficient_reel_out: 0.9
-        drag_coefficient_reel_out: 0.2
-        lift_coefficient_reel_in: 0.17 # 0.20
-        drag_coefficient_reel_in: 0.1
+        lift_coefficient_reel_out: 0.7
+        drag_coefficient_reel_out: 0.16
+        lift_coefficient_reel_in: 0.22 
+        drag_coefficient_reel_in: 0.11
     structure:
       projected_surface_area_m2: 19.75
       mass_kg: 12.0
@@ -41,7 +41,7 @@ components:
     aerodynamics:
       drag_coefficient: 1.1
     structure:
-      length_m: 300.0
+      length_m: 500.0
       diameter_m: 0.004
       density_kg_m3: 724.0
       max_tether_force_n: 5000

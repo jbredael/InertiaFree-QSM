@@ -224,12 +224,12 @@ def load_simulation_settings(file_path):
 
     # Build bounds array: force rows left as nan (filled from system props),
     # elevation in radians, tether lengths as fractions * reference length.
-    elev_min = deg_to_rad(opt_bounds_cfg.get('elevation_angle_min', 25.0))
-    elev_max = deg_to_rad(opt_bounds_cfg.get('elevation_angle_max', 60.0))
-    diff_min = float(opt_bounds_cfg.get('tether_length_diff_fraction_min', 0.1)) * reference_tether_length
-    diff_max = float(opt_bounds_cfg.get('tether_length_diff_fraction_max', 0.8)) * reference_tether_length
-    min_min = float(opt_bounds_cfg.get('min_tether_length_fraction_min', 0.2)) * reference_tether_length
-    min_max = float(opt_bounds_cfg.get('min_tether_length_fraction_max', 0.8)) * reference_tether_length
+    elev_min = deg_to_rad(opt_bounds_cfg.get('elevation_angle_min'))
+    elev_max = deg_to_rad(opt_bounds_cfg.get('elevation_angle_max'))
+    diff_min = float(opt_bounds_cfg.get('tether_length_diff_fraction_min')) * reference_tether_length
+    diff_max = float(opt_bounds_cfg.get('tether_length_diff_fraction_max')) * reference_tether_length
+    min_min = float(opt_bounds_cfg.get('min_tether_length_fraction_min')) * reference_tether_length
+    min_max = float(opt_bounds_cfg.get('min_tether_length_fraction_max')) * reference_tether_length
 
     optimization = {
         'wind_speeds': {
