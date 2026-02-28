@@ -94,6 +94,7 @@ def load_system_config(file_path, validate_file=False):
         'reeling_speed_min_limit': 0.0,
         'reeling_speed_max_limit': drum.get('max_tether_speed_m_s'),
         'tether_drag_coefficient': tether_aero.get('drag_coefficient'),
+        'max_tether_length': tether_structure.get('length_m'),
     }
 
     return sys_props
@@ -132,16 +133,23 @@ def load_wind_resource(file_path, validate_file=True):
     return wind_resource
 
 
-def load_simulation_settings(file_path):
+def load_simulation_settings(file_path, sys_props, verbose=False):
     """Load all simulation settings from YAML file.
 
     All angles in the config file are expected to be in degrees and will be
     converted to radians internally. Optimizer x0 elevation is also converted.
-    Tether length bounds expressed as fractions are converted to metres using
-    ``cycle.tether_length_start_retraction`` as the reference length.
+    Tether length settings in the cycle section are expressed as fractions of
+    the maximum tether length from the system configuration. Optimizer bounds
+    for start and end tether lengths are also fractions.
+
+    When ``tether_length_start_retraction`` is ``null`` in the YAML file, it
+    defaults to 1.0 (the full tether length from the system configuration).
 
     Args:
         file_path (str): Path to the simulation settings YAML file.
+        sys_props (dict): System properties dictionary (from ``load_system_config``).
+            Must contain ``'max_tether_length'``.
+        verbose (bool): If True, print all loaded settings.
 
     Returns:
         dict: Complete simulation settings dictionary including keys
@@ -159,22 +167,31 @@ def load_simulation_settings(file_path):
     def deg_to_rad(angle_deg):
         return float(angle_deg) * np.pi / 180.0
 
+    # --- reference tether length from system config -------------------------
+    max_tether_length = float(sys_props['max_tether_length'])
+
     # --- cycle settings -----------------------------------------------------
     cycle_config = config.get('cycle', {})
     retraction_config = config.get('retraction', {})
     transition_config = config.get('transition', {})
     traction_config = config.get('traction', {})
 
-    reference_tether_length = float(cycle_config.get('tether_length_start_retraction'))
+    # Tether lengths are fractions of max_tether_length; null → 1.0
+    start_fraction_raw = cycle_config.get('tether_length_start_retraction')
+    start_fraction = float(start_fraction_raw) if start_fraction_raw is not None else 1.0
+
+    end_fraction_raw = cycle_config.get('tether_length_end_retraction')
+    end_fraction = float(end_fraction_raw) if end_fraction_raw is not None else 0.5
+
+    tetherLengthStartRetraction = start_fraction * max_tether_length
+    tetherLengthEndRetraction = end_fraction * max_tether_length
 
     cycle = {
         'elevation_angle_traction': deg_to_rad(
             cycle_config.get('elevation_angle_traction')
         ),
-        'tether_length_start_retraction': reference_tether_length,
-        'tether_length_end_retraction': float(
-            cycle_config.get('tether_length_end_retraction')
-        ),
+        'tether_length_start_retraction': tetherLengthStartRetraction,
+        'tether_length_end_retraction': tetherLengthEndRetraction,
     }
 
     retraction = {
@@ -223,13 +240,13 @@ def load_simulation_settings(file_path):
     x0_list[2] = deg_to_rad(x0_list[2])
 
     # Build bounds array: force rows left as nan (filled from system props),
-    # elevation in radians, tether lengths as fractions * reference length.
+    # elevation in radians, tether lengths as fractions * max tether length.
     elev_min = deg_to_rad(opt_bounds_cfg.get('elevation_angle_min'))
     elev_max = deg_to_rad(opt_bounds_cfg.get('elevation_angle_max'))
-    diff_min = float(opt_bounds_cfg.get('tether_length_diff_fraction_min')) * reference_tether_length
-    diff_max = float(opt_bounds_cfg.get('tether_length_diff_fraction_max')) * reference_tether_length
-    min_min = float(opt_bounds_cfg.get('min_tether_length_fraction_min')) * reference_tether_length
-    min_max = float(opt_bounds_cfg.get('min_tether_length_fraction_max')) * reference_tether_length
+    start_min = float(opt_bounds_cfg.get('tether_length_start_fraction_min')) * max_tether_length
+    start_max = float(opt_bounds_cfg.get('tether_length_start_fraction_max')) * max_tether_length
+    end_min = float(opt_bounds_cfg.get('tether_length_end_fraction_min')) * max_tether_length
+    end_max = float(opt_bounds_cfg.get('tether_length_end_fraction_max')) * max_tether_length
 
     optimization = {
         'wind_speeds': {
@@ -252,8 +269,8 @@ def load_simulation_settings(file_path):
             [np.nan, np.nan],
             [np.nan, np.nan],
             [elev_min, elev_max],
-            [diff_min, diff_max],
-            [min_min, min_max],
+            [start_min, start_max],
+            [end_min, end_max],
         ]),
     }
 
@@ -266,4 +283,97 @@ def load_simulation_settings(file_path):
         'optimization': optimization,
     }
 
+    if verbose:
+        _print_simulation_settings(settings, max_tether_length,
+                                   start_fraction, end_fraction,
+                                   opt_bounds_cfg)
+
     return settings
+
+
+def _print_simulation_settings(settings, maxTetherLength, startFraction,
+                               endFraction, optBoundsCfg):
+    """Print loaded simulation settings.
+
+    Args:
+        settings (dict): Parsed simulation settings.
+        maxTetherLength (float): Maximum tether length from system config [m].
+        startFraction (float): Start-of-retraction tether length fraction [-].
+        endFraction (float): End-of-retraction tether length fraction [-].
+        optBoundsCfg (dict): Raw optimiser bounds section from the YAML file.
+    """
+    cycle = settings['cycle']
+    retraction = settings['retraction']
+    transition = settings['transition']
+    traction = settings['traction']
+    direct = settings['direct_simulation']
+    opt = settings['optimization']
+
+    print("\nSimulation Settings")
+    print("=" * 60)
+
+    # -- Cycle ---------------------------------------------------------------
+    print("\n  Cycle:")
+    print(f"    Max tether length (system config)   : {maxTetherLength:.1f} m")
+    print(f"    Tether length start retraction       : {startFraction:.2f}  "
+          f"({cycle['tether_length_start_retraction']:.1f} m)")
+    print(f"    Tether length end retraction         : {endFraction:.2f}  "
+          f"({cycle['tether_length_end_retraction']:.1f} m)")
+    print(f"    Elevation angle traction             : "
+          f"{np.degrees(cycle['elevation_angle_traction']):.1f} deg")
+
+    # -- Phase controls ------------------------------------------------------
+    print("\n  Retraction:")
+    print(f"    Control  : {retraction['control']}")
+    print(f"    Time step: {retraction['time_step']} s")
+
+    print("\n  Transition:")
+    print(f"    Control  : {transition['control']}")
+    print(f"    Time step: {transition['time_step']} s")
+
+    print("\n  Traction:")
+    print(f"    Control      : {traction['control']}")
+    print(f"    Time step    : {traction['time_step']} s")
+    print(f"    Azimuth angle : {np.degrees(traction['azimuth_angle']):.1f} deg")
+    print(f"    Course angle  : {np.degrees(traction['course_angle']):.1f} deg")
+
+    # -- Direct simulation ---------------------------------------------------
+    print("\n  Direct simulation wind speeds:")
+    dw = direct['wind_speeds']
+    print(f"    Cut-in : {dw['cut_in']:.1f} m/s")
+    print(f"    Cut-out: {dw['cut_out']:.1f} m/s")
+    print(f"    Step   : {dw['step']:.1f} m/s")
+
+    # -- Optimisation --------------------------------------------------------
+    print("\n  Optimisation:")
+    ow = opt['wind_speeds']
+    print(f"    Wind speeds  : cut-in={ow['cut_in']}, cut-out={ow['cut_out']}, "
+          f"n_points={ow['n_points']}")
+    fr = ow['fine_resolution']
+    print(f"    Fine res     : {fr['n_points_near_cutout']} pts, "
+          f"range={fr['range_m_s']:.1f} m/s")
+    op = opt['optimizer']
+    print(f"    Max iter     : {op['max_iterations']}")
+    print(f"    ftol / eps   : {op['ftol']:.1e} / {op['eps']:.1e}")
+    print(f"    x0           : {op['x0']}")
+    print(f"    scaling      : {op['scaling']}")
+
+    bounds = opt['bounds']
+    print("\n    Optimiser bounds (absolute values used internally):")
+    print(f"      Tether force out [N]       : [{bounds[0,0]:.1f}, {bounds[0,1]:.1f}]  "
+          f"(from system props)")
+    print(f"      Tether force in  [N]       : [{bounds[1,0]:.1f}, {bounds[1,1]:.1f}]  "
+          f"(from system props)")
+    print(f"      Elevation angle  [deg]     : "
+          f"[{np.degrees(bounds[2,0]):.1f}, {np.degrees(bounds[2,1]):.1f}]")
+
+    startFracMin = float(optBoundsCfg.get('tether_length_start_fraction_min', 0))
+    startFracMax = float(optBoundsCfg.get('tether_length_start_fraction_max', 0))
+    endFracMin = float(optBoundsCfg.get('tether_length_end_fraction_min', 0))
+    endFracMax = float(optBoundsCfg.get('tether_length_end_fraction_max', 0))
+    print(f"      Start tether length  [m]   : [{bounds[3,0]:.1f}, {bounds[3,1]:.1f}]  "
+          f"(fractions: [{startFracMin}, {startFracMax}])")
+    print(f"      End tether length    [m]   : [{bounds[4,0]:.1f}, {bounds[4,1]:.1f}]  "
+          f"(fractions: [{endFracMin}, {endFracMax}])")
+
+    print("=" * 60)

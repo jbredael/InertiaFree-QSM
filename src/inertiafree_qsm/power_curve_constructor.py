@@ -79,7 +79,9 @@ class PowerCurveConstructor:
         # Load configurations (validation is internal to loader functions)
         self.sys_props_dict = load_system_config(self.system_config_path, validate_file=validate_file)
         self.wind_resource = load_wind_resource(self.wind_resource_path, validate_file=validate_file)
-        self.simulation_settings = load_simulation_settings(self.simulation_settings_path)
+        self.simulation_settings = load_simulation_settings(
+            self.simulation_settings_path, self.sys_props_dict, verbose=True
+        )
 
         # Create system properties object
         self.sys_props = SystemProperties(self.sys_props_dict)

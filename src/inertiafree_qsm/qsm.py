@@ -386,35 +386,10 @@ class SystemProperties(SysPropsFixedAeroCoeffs):
         """
         Args:
             props (dict): System properties collected in a dictionary.
-
         """
-        # Kite properties.
-        self.kite_projected_area = 16.7  # [m^2]
-        self.kite_mass = 20.  # [kg]
-
-        # Tether properties.
-        self.tether_density = 724.  # [kg/m^3]
-        self.tether_diameter = 0.004  # [m]
-
-        # Aerodynamic coefficients of kite and tether.
-        self.kite_lift_coefficient_powered = .8  # [-]
-        self.kite_drag_coefficient_powered = .2  # [-]
-        self.kite_lift_coefficient_depowered = .34  # [-]
-        self.kite_drag_coefficient_depowered = .15  # [-]
-        self.tether_drag_coefficient = 1.1  # [-]
-
-        # Relevant operational limits.
-        self.reeling_speed_min_limit = 0.
-        self.reeling_speed_max_limit = 8.
-        self.tether_force_min_limit = 1200.
-        self.tether_force_max_limit = 3200.
-
         # Procedure to set attributes using input dictionary.
         for key, val in props.items():
-            if hasattr(self, key):
-                self.__setattr__(key, val)
-            else:
-                print("Unexpected property provided: {}.".format(key))
+            setattr(self, key, val)
 
         # Calculated properties of (airborne) tether.
         self.tether_length = None  # [m]
@@ -463,36 +438,9 @@ class SysPropsAeroCurves(SysPropsFixedAeroCoeffs):
             props (dict): System properties collected in a dictionary.
 
         """
-        # Kite properties.
-        self.kite_projected_area = 16.7  # [m^2]
-        self.kite_mass = 20.  # [kg]
-
-        # Tether properties.
-        self.tether_density = 724.  # [kg/m^3]
-        self.tether_diameter = 0.004  # [m]
-
-        # Difference between powered and depowered state.
-        self.pitch_powered = 5 * np.pi/180.  # [rad]
-        self.pitch_depowered = -5 * np.pi/180.  # [rad]
-
-        # Aerodynamic coefficients of kite and tether.
-        self.angles_of_attack_curve = np.linspace(0, 25, 26) * np.pi/180.
-        self.kite_lift_coefficients_curve_parameters = np.array([0.1, 2.5, 10*np.pi/180., 8*np.pi/180.])*1.15
-        self.kite_drag_coefficients_curve_parameters = np.array([0.1108, 1.3822, -1.384])/2
-        self.tether_drag_coefficient = 1.1  # [-]
-
-        # Relevant operational limits.
-        self.reeling_speed_min_limit = 0.
-        self.reeling_speed_max_limit = 8.
-        self.tether_force_min_limit = 1200.
-        self.tether_force_max_limit = 3200.
-
         # Procedure to set attributes using input dictionary.
         for key, val in props.items():
-            if hasattr(self, key):
-                self.__setattr__(key, val)
-            else:
-                print("Unexpected property provided: {}.".format(key))
+            setattr(self, key, val)
 
         # Calculated properties of (airborne) tether.
         self.tether_length = None  # [m]
