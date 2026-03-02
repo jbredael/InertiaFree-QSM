@@ -27,13 +27,13 @@ optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s] (set to null for auto-estimation)
-    cut_in: 8
+    cut_in: 6
     # Maximum wind speed [m/s] (set to null for auto-estimation)
     cut_out: 20.0
     # Number of points to calculate (determines spacing)
     n_points: 4
 
-    # Fine resolution settings near cut-out wind speed
+    # Fine resolution settings near cut-out wind speed when not using auto-estimation
     # These add extra points near the cut-out to capture system behavior
     # at operational limits more accurately
     fine_resolution:

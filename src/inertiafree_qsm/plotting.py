@@ -261,7 +261,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     tetherLength = np.array(timeHistory.get('tether_length_m', []))
     elevationAngleDeg = np.array(timeHistory.get('elevation_angle_deg', []))
 
-    fig, axes = plt.subplots(3, 2, figsize=(16, 12))
+    fig, axes = plt.subplots(4, 2, figsize=(16, 16))
     title = (
         f'Detailed Cycle Analysis - Wind Speed: {wind_speed} m/s '
         f'at {referenceHeight}m{profileLabel}'
@@ -344,19 +344,53 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.axvline(x=reelOutTime, color='blue', linestyle=':', alpha=0.5)
     ax.legend(fontsize=9)
 
-    # Performance summary text box
-    summaryText = (
-        f"Performance Summary:\n"
-        f"Cycle Power: {power['average_cycle_power_w']/1000:.2f} kW\n"
-        f"Reel-Out Power: {power['average_reel_out_power_w']/1000:.2f} kW\n"
-        f"Reel-In Power: {power['average_reel_in_power_w']/1000:.2f} kW\n"
-        f"Cycle Time: {timing['cycle_time_s']:.2f} s\n"
-        f"Reel-Out Time: {timing['reel_out_time_s']:.2f} s\n"
-        f"Reel-In Time: {timing['reel_in_time_s']:.2f} s"
+    # 2-D trajectory (side view): horizontal distance vs altitude
+    elevationAngleRad = np.deg2rad(elevationAngleDeg)
+    horizontalDist = tetherLength * np.cos(elevationAngleRad)
+    phaseTransitionIdx = np.searchsorted(time, reelOutTime)
+
+    ax = axes[3, 0]
+    ax.plot(
+        horizontalDist[:phaseTransitionIdx + 1],
+        altitude[:phaseTransitionIdx + 1],
+        linewidth=2, color='steelblue', label='Reel-out',
     )
-    fig.text(0.99, 0.01, summaryText, fontsize=9, verticalalignment='bottom',
-             horizontalalignment='right',
-             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    ax.plot(
+        horizontalDist[phaseTransitionIdx:],
+        altitude[phaseTransitionIdx:],
+        linewidth=2, color='orangered', label='Reel-in', linestyle='--',
+    )
+    # Mark start/end and phase-transition points
+    ax.plot(horizontalDist[0], altitude[0], 'go', markersize=8, zorder=5,
+            label='Start')
+    ax.plot(horizontalDist[phaseTransitionIdx], altitude[phaseTransitionIdx],
+            'b^', markersize=8, zorder=5, label='Phase transition')
+    ax.plot(horizontalDist[-1], altitude[-1], 'rs', markersize=8, zorder=5,
+            label='End')
+    ax.set_xlabel('Horizontal Distance (m)')
+    ax.set_ylabel('Altitude (m)')
+    ax.set_title('Kite Trajectory (Side View)', fontweight='bold')
+    ax.set_aspect('equal', adjustable='datalim')
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=9)
+
+    # Performance summary in the last axes cell
+    axSummary = axes[3, 1]
+    axSummary.axis('off')
+    summaryText = (
+        f"Performance Summary\n"
+        f"{'─' * 28}\n"
+        f"Cycle Power:      {power['average_cycle_power_w']/1000:.2f} kW\n"
+        f"Reel-Out Power:   {power['average_reel_out_power_w']/1000:.2f} kW\n"
+        f"Reel-In Power:    {power['average_reel_in_power_w']/1000:.2f} kW\n"
+        f"Cycle Time:       {timing['cycle_time_s']:.2f} s\n"
+        f"Reel-Out Time:    {timing['reel_out_time_s']:.2f} s\n"
+        f"Reel-In Time:     {timing['reel_in_time_s']:.2f} s"
+    )
+    axSummary.text(0.05, 0.95, summaryText, fontsize=10,
+                   verticalalignment='top', horizontalalignment='left',
+                   transform=axSummary.transAxes, fontfamily='monospace',
+                   bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
     plt.tight_layout()
 
