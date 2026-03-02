@@ -27,9 +27,9 @@ optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s] (set to null for auto-estimation)
-    cut_in: 6
+    cut_in: null
     # Maximum wind speed [m/s] (set to null for auto-estimation)
-    cut_out: 20.0
+    cut_out: null
     # Number of points to calculate (determines spacing)
     n_points: 4
 
@@ -48,25 +48,25 @@ optimization:
     # Maximum number of iterations per wind speed point
     max_iterations: 30
     # Function tolerance for convergence
-    ftol: 1.0e-6
+    ftol: 1.0e-4
     # Finite difference step size for gradient estimation
-    eps: 1.0e-6
+    eps: 1.0e-3
     # Optimizer starting point: [force_out_N, force_in_N, elevation_deg,
     #   tether_length_start_m, tether_length_end_m]
-    x0: [5000, 500, 30.0, 270, 150]
+    x0: [5000, 300, 30.0, 270, 150]
     # Variable scaling factors (maps variables to similar search ranges)
-    scaling: [1.0e-4, 1.0e-4, 1.0, 1.0e-3, 1.0e-3]
+    scaling: [1.0e-4, 1.0e-4, 0.1, 1.0e-3, 1.0e-3]
 
   # Optimizer bounds (where not derived from system properties)
   bounds:
     # Elevation angle bounds [degrees]
     elevation_angle_min: 20.0
-    elevation_angle_max: 60.0
+    elevation_angle_max: 80.0
     # Tether length bounds as fractions of max_tether_length
-    tether_length_start_fraction_min: 0.9
+    tether_length_start_fraction_min: 0.7
     tether_length_start_fraction_max: 1.0
     tether_length_end_fraction_min: 0.4
-    tether_length_end_fraction_max: 0.89
+    tether_length_end_fraction_max: 0.6
 
 # ============================================================================
 # CYCLE CONFIGURATION

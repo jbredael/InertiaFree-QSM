@@ -175,6 +175,11 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
     retraction_config = config.get('retraction', {})
     transition_config = config.get('transition', {})
     traction_config = config.get('traction', {})
+    ss_config = config.get('steady_state', {})
+    phase_solver_config = config.get('phase_solver', {})
+    cw_config = config.get('crosswind_pattern', {})
+    lissajous_config = cw_config.get('lissajous', {})
+    max_time_points = int(phase_solver_config.get('max_time_points', 5000))
 
     # Tether lengths are fractions of max_tether_length; null → 1.0
     start_fraction_raw = cycle_config.get('tether_length_start_retraction')
@@ -192,6 +197,9 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
         ),
         'tether_length_start_retraction': tetherLengthStartRetraction,
         'tether_length_end_retraction': tetherLengthEndRetraction,
+        'include_transition_energy': bool(cycle_config.get('include_transition_energy', True)),
+        'n_traction_points': int(cw_config.get('n_traction_points', 6)),
+        'n_pattern_eval_points': int(cw_config.get('n_pattern_eval_points', 100)),
     }
 
     retraction = {
@@ -199,6 +207,7 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
             retraction_config.get('control', ('tether_force_ground',))
         ),
         'time_step': float(retraction_config.get('time_step')),
+        'max_time_points': max_time_points,
     }
 
     transition = {
@@ -206,6 +215,7 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
             transition_config.get('control', ('reeling_speed',))
         ),
         'time_step': float(transition_config.get('time_step')),
+        'max_time_points': max_time_points,
     }
 
     traction = {
@@ -215,6 +225,9 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
         'time_step': float(traction_config.get('time_step')),
         'azimuth_angle': deg_to_rad(traction_config.get('azimuth_angle')),
         'course_angle': deg_to_rad(traction_config.get('course_angle')),
+        'max_time_points': max_time_points,
+        'lissajous_elevation_amplitude': float(lissajous_config.get('elevation_amplitude', 4.0)),
+        'lissajous_azimuth_amplitude': float(lissajous_config.get('azimuth_amplitude', 20.0)),
     }
 
     # --- direct simulation settings -----------------------------------------
@@ -274,11 +287,17 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
         ]),
     }
 
+    steady_state = {
+        'max_iterations': int(ss_config.get('max_iterations', 250)),
+        'convergence_tolerance': float(ss_config.get('convergence_tolerance', 1e-6)),
+    }
+
     settings = {
         'cycle': cycle,
         'retraction': retraction,
         'transition': transition,
         'traction': traction,
+        'steady_state': steady_state,
         'direct_simulation': direct_simulation,
         'optimization': optimization,
     }

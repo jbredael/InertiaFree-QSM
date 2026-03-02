@@ -622,7 +622,6 @@ class PowerCurveConstructor:
         # Configure optimization sequence
         cycle_sim_settings_phase1 = deepcopy(self.simulation_settings)
         cycle_sim_settings_phase1['cycle']['traction_phase'] = TractionPhase
-        cycle_sim_settings_phase1['cycle']['include_transition_energy'] = False
 
         cycle_sim_settings_phase2 = deepcopy(cycle_sim_settings_phase1)
         cycle_sim_settings_phase2['cycle']['traction_phase'] = TractionPhaseHybrid
@@ -714,7 +713,6 @@ class PowerCurveConstructor:
 
         cycle_sim_settings = deepcopy(self.simulation_settings)
         cycle_sim_settings['cycle']['traction_phase'] = TractionPhaseHybrid
-        cycle_sim_settings['cycle']['include_transition_energy'] = False
 
         opt_settings = self.simulation_settings['optimization']
         opt_config = {
@@ -852,9 +850,10 @@ class PowerCurveConstructor:
 
         cycle = Cycle(settings, impose_operational_limits=True)
 
+        steady_state_config = self.simulation_settings.get('steady_state', {})
         try:
             error_in_phase, average_power = cycle.run_simulation(
-                self.sys_props, env_state, print_summary=False
+                self.sys_props, env_state, steady_state_config, print_summary=False
             )
 
             traction = getattr(cycle, 'traction_phase', None)

@@ -1203,7 +1203,7 @@ class Phase(TimeSeries):
 
         # Monitoring settings.
         self.enable_limit_violation_error = True
-        self.max_time_points = 5000
+        self.max_time_points = phase_settings.get('max_time_points', 5000)
 
         # Operational properties of the phase.
         self.average_reeling_factor = None
@@ -1753,6 +1753,10 @@ class TractionPhase(Phase):
         # should show what value is sensible.
         self.course_angle = phase_settings.get('course_angle', 110. * np.pi / 180.)
 
+        # Lissajous pattern amplitudes for crosswind pattern estimation.
+        self.lissajous_elevation_amplitude = phase_settings.get('lissajous_elevation_amplitude', 4.0)
+        self.lissajous_azimuth_amplitude = phase_settings.get('lissajous_azimuth_amplitude', 20.0)
+
         # Properties of initial state and final position.
         self.tether_length_start = 240.
         self.tether_length_end = 385.
@@ -1823,8 +1827,8 @@ class TractionPhaseHybrid(TractionPhase):
         # State of kite along the cross-wind pattern.
         self.n_crosswind_patterns = 0.
 
-    def run_simulation(self, system_properties, environment_state, steady_state_config={}, timer_start=0., n_patterns=6):
-        # TODO: check what n_patterns needs to be
+    def run_simulation(self, system_properties, environment_state, steady_state_config={}, timer_start=0.,
+                       n_patterns=6, n_pattern_eval_points=100):
         super().run_simulation(system_properties, environment_state, steady_state_config, timer_start)
 
         tether_lengths = np.linspace(self.tether_length_start_aim, self.tether_length_end, n_patterns)
@@ -1841,11 +1845,14 @@ class TractionPhaseHybrid(TractionPhase):
                 'elevation_angle_ref': elev,
                 'control': self.control_settings,
                 'time_step': .5,
+                'lissajous_elevation_amplitude': self.lissajous_elevation_amplitude,
+                'lissajous_azimuth_amplitude': self.lissajous_azimuth_amplitude,
             }
             pattern = EvaluatePattern(pattern_settings)
             pattern.enable_limit_violation_error = False
             pattern_duration = pattern.calc_performance_along_pattern(system_properties, environment_state,
-                                                                              steady_state_config=steady_state_config)
+                                                                       n_points=n_pattern_eval_points,
+                                                                       steady_state_config=steady_state_config)
             pattern_durations.append(pattern_duration)
             reeling_speeds.append(rs)
 
@@ -1855,11 +1862,10 @@ class TractionPhaseHybrid(TractionPhase):
 
 
 class LissajousPattern:
-    def __init__(self):
+    def __init__(self, elevation_amplitude_deg=4.0, azimuth_amplitude_deg=20.0):
         # Lissajous curve properties for figure 8.
-        self.elevation_max = 4 * np.pi / 180  # [rad] sets max (relative) elevation angle: positive value -> flying up
-        # at edges
-        self.azimuth_max = 20 * np.pi / 180  # [rad] sets max azimuth angle
+        self.elevation_max = elevation_amplitude_deg * np.pi / 180  # [rad]
+        self.azimuth_max = azimuth_amplitude_deg * np.pi / 180  # [rad]
 
         # Calculated property.
         self.curve_length_unit_sphere = self.calc_curve_length_unit_sphere()
@@ -2035,7 +2041,10 @@ class EvaluatePattern(Phase):  # Determine performance along cross wind pattern 
 
         # Monitoring settings.
         self.enable_limit_violation_error = True
-        self.pattern = LissajousPattern()
+        self.pattern = LissajousPattern(
+            elevation_amplitude_deg=settings.get('lissajous_elevation_amplitude', 4.0),
+            azimuth_amplitude_deg=settings.get('lissajous_azimuth_amplitude', 20.0),
+        )
 
     def calc_performance_along_pattern(self, system_properties, environment_state, n_points=100, steady_state_config={}, print_details=False):
         self.time, self.kinematics, self.steady_states = [0.], [], []
@@ -2188,6 +2197,8 @@ class Cycle(TimeSeries):
 
         self.follow_wind = cycle_settings.get('follow_wind', False)
         self.include_transition_energy = cycle_settings.get('include_transition_energy', True)
+        self.n_traction_points = cycle_settings.get('n_traction_points', 6)
+        self.n_pattern_eval_points = cycle_settings.get('n_pattern_eval_points', 100)
 
         self.duty_cycle = None
         self.pumping_efficiency = None
@@ -2280,7 +2291,12 @@ class Cycle(TimeSeries):
         trac.finalize_start_and_end_kite_obj()
 
         try:
-            trac.run_simulation(system_properties, env_trac, steady_state_config, last_time)
+            if trac.__class__.__name__ == "TractionPhaseHybrid":
+                trac.run_simulation(system_properties, env_trac, steady_state_config, last_time,
+                                    n_patterns=self.n_traction_points,
+                                    n_pattern_eval_points=self.n_pattern_eval_points)
+            else:
+                trac.run_simulation(system_properties, env_trac, steady_state_config, last_time)
         except PhaseError as e:
             if e.code not in [1, 2]:  # Simulation does not seem to reach end criteria.
                 raise

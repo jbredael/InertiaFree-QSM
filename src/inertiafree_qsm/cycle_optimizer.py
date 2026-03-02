@@ -495,13 +495,13 @@ class OptimizerCycle(Optimizer):
             x_real_scale = x
         res = self.eval_performance_indicators(x_real_scale, **kwargs)
 
-        # # Prepare the simulation by updating simulation parameters.
-        # env_state = self.environment_state
-        # env_state.calculate(100.)
-        # power_wind_100m = .5 * env_state.air_density * env_state.wind_speed ** 3
+        # Prepare the simulation by updating simulation parameters.
+        env_state = self.environment_state
+        env_state.calculate(100.)
+        power_wind_100m = .5 * env_state.air_density * env_state.wind_speed ** 3
 
         # Determine optimization objective and constraints.
-        obj = -res['average_power']['cycle']#/power_wind_100m/self.system_properties.kite_projected_area
+        obj = -res['average_power']['cycle']/power_wind_100m/self.system_properties.kite_projected_area
 
         # When speed limits are active during the optimization (see determine_new_steady_state method of Phase
         # class in qsm.py), the setpoint reel-out/reel-in forces are overruled. For special cases, the respective
@@ -548,8 +548,11 @@ class OptimizerCycle(Optimizer):
         self.cycle_settings['traction']['control'] = ('tether_force_ground', tether_force_traction)
 
         cycle = Cycle(self.cycle_settings)
+        ss_config = self.cycle_settings.get('steady_state', {})
         iterative_procedure_config = {
             'enable_steady_state_errors': not relax_errors,
+            'max_iterations': ss_config.get('max_iterations', 250),
+            'convergence_tolerance': ss_config.get('convergence_tolerance', 1e-6),
         }
         cycle.run_simulation(self.system_properties, self.environment_state, iterative_procedure_config,
                              not relax_errors)
