@@ -1,71 +1,13 @@
-from pyoptsparse import Optimization, SLSQP
 from scipy import optimize as op
 import numpy as np
 import matplotlib.pyplot as plt
 
 from .qsm import Cycle
 from .utils import flatten_dict
-from . import plotting
 
 
 class OptimizerError(Exception):
     pass
-
-
-def read_slsqp_output_file(print_details=True):
-    """Read relevant information from pyOpt's output file for the SLSQP algorithm."""
-    i_iter = 0
-    with open('SLSQP.out') as f:
-        for line in f:
-            if line[:11] == "     ITER =":
-                i_iter += 1
-                x_iter = []
-                while True:
-                    line = next(f)
-                    xi = line.strip()
-                    if not xi:
-                        break
-                    elif line[:38] == "        NUMBER OF FUNC-CALLS:  NFUNC =":
-                        nfunc_line = line
-                        ngrad_line = next(f)
-                        break
-                    else:
-                        x_iter.append(float(xi))
-                if print_details:
-                    print("Iter {}: x=".format(i_iter) + str(x_iter))
-            elif line[:38] == "        NUMBER OF FUNC-CALLS:  NFUNC =":
-                nfunc_line = line
-                ngrad_line = next(f)
-                break
-
-    nit = i_iter
-    nfev = nfunc_line.split()[5]
-    njev = ngrad_line.split()[5]
-
-    return nit, nfev, njev
-
-
-def convert_optimization_result(op_sol, nit, nfev, njev, print_details, iprint):
-    """Write pyOpt's optimization results to the same format as the output of SciPy's minimize function."""
-    op_res = {
-        'x': [v.value for v in op_sol._variables.values()],
-        'success': op_sol.opt_inform['value'] == 0,
-        'message': op_sol.opt_inform['text'],
-        'fun': op_sol._objectives[0].value,
-        'nit': nit,
-        'nfev': nfev,
-        'njev': njev,
-    }
-    if print_details:
-        print("{}    (Exit mode {})".format(op_res['message'], op_sol.opt_inform['value']))
-        print("            Current function value: {}".format(op_res['fun']))
-        if iprint:
-            print("            Iterations: {}".format(nit))
-            print("            Function evaluations: {}".format(nfev))
-            print("            Gradient evaluations: {}".format(njev))
-
-    return op_res
-
 
 class Optimizer:
     """Class collecting useful functionalities for solving an optimization problem and evaluating the results using
@@ -81,19 +23,13 @@ class Optimizer:
         self.system_properties = system_properties
         self.environment_state = environment_state
 
-        # Optimization configuration.
-        self.use_library = 'scipy'  # Either 'pyopt' or 'scipy' can be opted. pyOpt is in general faster, however more
-        # cumbersome to install.
-        self.use_parallel_processing = False  # Only compatible with pyOpt: used for determining the gradient. Script
-        # should be run using: mpiexec -n 4 python script.py, when using parallel processing. Parallel processing does
-        # not speed up solving the problem when only a limited number of processors are available.
-
         self.scaling_x = scaling_x  # Scaling the optimization variables will affect the optimization. In general, a
         # similar search range is preferred for each variable.
         self.x0_real_scale = x0_real_scale  # Optimization starting point.
         self.bounds_real_scale = bounds_real_scale  # Optimization variables bounds defining the search space.
         self.reduce_x = reduce_x  # Reduce the search space by providing a tuple with id's of x to keep. Set to None for
         # utilizing the full search space.
+
         if isinstance(reduce_ineq_cons, int):
             self.reduce_ineq_cons = np.arange(reduce_ineq_cons)  # Reduces the number of inequality constraints used for
             # solving the problem.
@@ -195,8 +131,7 @@ class Optimizer:
             return self.ineq_cons
 
     def callback_fun_scipy(self, x):
-        """Function called when using Scipy for every optimization iteration (does not include function calls for
-        determining the gradient)."""
+        """Called by SciPy every iteration (excludes gradient evaluation calls)."""
         if np.isnan(x).any():
             raise OptimizerError("Optimization vector contains nan's.")
         self.x_progress.append(x.copy())
@@ -217,68 +152,26 @@ class Optimizer:
             bounds = bounds[self.reduce_x]
 
         print_details = True
-        if self.use_library == 'scipy':
-            con = {
-                'type': 'ineq',  # g_i(x) >= 0
-                'fun': self.cons_fun,
-            }
-            cons = []
-            for i in self.reduce_ineq_cons:
-                cons.append(con.copy())
-                cons[-1]['args'] = (i, *args)
 
-            options = {
-                'disp': print_details,
-                'maxiter': maxiter,
-                'ftol': self.ftol,
-                'eps': self.eps,
-                'iprint': iprint,
-            }
-            self.op_res = dict(op.minimize(self.obj_fun, starting_point, args=args, bounds=bounds, method='SLSQP',
-                                           options=options, callback=self.callback_fun_scipy, constraints=cons))
-        elif self.use_library == 'pyopt':
-            op_problem = Optimization('Pumping cycle power', self.eval_fun_pyopt)
-            op_problem.addObj('f')
+        con = {
+            'type': 'ineq',  # g_i(x) >= 0
+            'fun': self.cons_fun,
+        }
+        cons = []
+        for i in self.reduce_ineq_cons:
+            cons.append(con.copy())
+            cons[-1]['args'] = (i, *args)
 
-            if self.reduce_x is None:
-                x_range = range(len(self.x0))
-            else:
-                x_range = self.reduce_x
-            for i_x, xi0, b in zip(x_range, starting_point, bounds):
-                op_problem.addVar('x{}'.format(i_x), 'c', lower=b[0], upper=b[1], value=xi0)
-
-            for i_c in self.reduce_ineq_cons:
-                op_problem.addCon('g{}'.format(i_c), 'i')
-
-            if self.use_parallel_processing:
-                sens_mode = 'pgc'
-            else:
-                sens_mode = ''
-
-            # grad = Gradient(op_problem, sens_type='FD', sens_mode=sens_mode, sens_step=eps)
-            # f0, g0, _ = self.eval_fun_pyopt(starting_point)
-            # grad_fun = lambda f, g: grad.getGrad(starting_point, {}, [f], g)
-            # dff0, dgg0 = grad_fun(f0, g0)
-            # if np.any(dff0 == 0.):
-            #     print("!!! Gradient contains zero component !!!")
-
-            optimizer = SLSQP()
-            optimizer.setOption('IPRINT', iprint)  # -1 - None, 0 - Screen, 1 - File
-            optimizer.setOption('MAXIT', maxiter)
-            optimizer.setOption('ACC', self.ftol)
-
-            optimizer(op_problem, sens_type='FD', sens_mode=sens_mode, sens_step=self.eps, *args)
-            op_sol = op_problem.solution(0)
-
-            if iprint == 1:
-                nit, nfev, njev = read_slsqp_output_file(print_details)
-            else:
-                nit, nfev, njev = 0, 0, 0
-
-            self.op_res = convert_optimization_result(op_sol, nit, nfev, njev, print_details, iprint)
-        else:
-            raise ValueError("Invalid library provided.")
-
+        options = {
+            'disp': print_details,
+            'maxiter': maxiter,
+            'ftol': self.ftol,
+            'eps': self.eps,
+            'iprint': iprint,
+        }
+        self.op_res = dict(op.minimize(self.obj_fun, starting_point, args=args, bounds=bounds, method='SLSQP',
+                                        options=options, callback=self.callback_fun_scipy, constraints=cons))
+        
         if self.reduce_x is None:
             res_x = self.op_res['x']
         else:
@@ -330,6 +223,8 @@ class Optimizer:
 
         ax[-1, 0].set_xlabel('Iteration [-]')
         ax[-1, 1].set_xlabel('Iteration [-]')
+        plt.tight_layout()
+        plt.show()
 
     def check_gradient(self, x_real_scale=None):
         """Evaluate forward finite difference gradient of objective function at given point. Logarithmic sensitivities
@@ -427,6 +322,8 @@ class Optimizer:
 
 class OptimizerCycle(Optimizer):
     """Tether force controlled cycle optimizer. Zero reeling speed is used as setpoint for transition phase."""
+
+    # Set default optimization variable labels, starting point, scaling, and bounds. The optimization variable order is:
     OPT_VARIABLE_LABELS = [
         "Reel-out\nforce [N]",
         "Reel-in\nforce [N]",
@@ -484,6 +381,110 @@ class OptimizerCycle(Optimizer):
             print("Overruled cycle setting: " + ", ".join(overruled_keys) + ".")
         self.cycle_settings = cycle_settings
 
+    def callback_fun_scipy(self, x):
+        """Track iteration progress and print all optimization variable values."""
+        super().callback_fun_scipy(x)
+        iter_num = len(self.x_progress)
+        # Reconstruct full 5-variable vector (fixed variables keep their x0 value)
+        x_full_scaled = self.x0.copy()
+        x_full_scaled[self.reduce_x] = x
+        x_full_real = x_full_scaled / self.scaling_x
+        parts = []
+        for var_idx, val in enumerate(x_full_real):
+            label = self.OPT_VARIABLE_LABELS[var_idx].replace('\n', ' ')
+            fixed = var_idx not in self.reduce_x
+            suffix = ' (fixed)' if fixed else ''
+            if var_idx == 2:  # elevation angle → degrees
+                parts.append(f"{label}: {np.degrees(val):.2f} deg{suffix}")
+            else:
+                parts.append(f"{label}: {val:.4g}{suffix}")
+        print(f"  iter {iter_num:3d} | " + " | ".join(parts))
+
+    def plot_opt_evolution(self, output_path=None, show_plot=False):
+        """Plot the optimization variable evolution with real-scale values and proper units.
+
+        Args:
+            output_path (str or Path, optional): If given, save the figure as PDF.
+            show_plot (bool): Whether to display the figure interactively.
+        """
+        if not self.x_progress:
+            return
+
+        n_vars = len(self.x_progress[0])
+        fig, ax = plt.subplots(n_vars + 1, 2, figsize=(12, 3 * (n_vars + 1)), sharex=True)
+        fig.suptitle(
+            f'Optimization Evolution  –  v = {self.environment_state.wind_speed:.1f} m/s',
+            fontweight='bold', fontsize=13,
+        )
+
+        scaling = self.scaling_x[self.reduce_x]  # shape (n_vars,)
+        x0_reduced = self.x0[self.reduce_x]
+
+        for i, var_idx in enumerate(self.reduce_x):
+            label = self.OPT_VARIABLE_LABELS[var_idx].replace('\n', ' ')
+
+            # Unscale to real-scale values
+            vals = [x[i] / scaling[i] for x in self.x_progress]
+            if var_idx == 2:  # elevation angle: convert rad → deg in label and values
+                vals = [v * 180.0 / np.pi for v in vals]
+                ylabel = label.replace('[rad]', '[deg]')
+            else:
+                ylabel = label
+
+            ax[i, 0].plot(vals, linewidth=1.5)
+            ax[i, 0].grid(True)
+            ax[i, 0].set_ylabel(ylabel, fontsize=8)
+            ax[i, 0].ticklabel_format(axis='y', useOffset=False, style='plain')
+
+            # Step sizes (unscaled)
+            tmp = [x0_reduced] + list(self.x_progress)
+            steps = [(b[i] - a[i]) / scaling[i] for a, b in zip(tmp[:-1], tmp[1:])]
+            if var_idx == 2:
+                steps = [s * 180.0 / np.pi for s in steps]
+            ax[i, 1].plot(steps, linewidth=1.2)
+            ax[i, 1].axhline(0, color='k', linewidth=0.6, alpha=0.4)
+            ax[i, 1].grid(True)
+            ax[i, 1].set_ylabel(f'Δ {ylabel}', fontsize=8)
+            ax[i, 1].ticklabel_format(axis='y', useOffset=False, style='plain')
+
+        # Objective
+        obj_res = [self.obj_fun(x) for x in self.x_progress]
+        ax[-1, 0].plot(obj_res, linewidth=1.5)
+        ax[-1, 0].grid()
+        ax[-1, 0].set_ylabel('Objective [-]', fontsize=8)
+
+        # Constraints
+        cons_res = [self.cons_fun(x, -1)[self.reduce_ineq_cons] for x in self.x_progress]
+        cons_lines = ax[-1, 1].plot(cons_res)
+        active_cons = [any(c < -1e-6 for c in res) for res in cons_res]
+        ax[-1, 1].fill_between(
+            range(len(active_cons)), 0, 1, where=active_cons, alpha=0.4,
+            transform=ax[-1, 1].get_xaxis_transform(),
+        )
+        ax[-1, 1].axhline(0, color='k', linewidth=0.8, alpha=0.4)
+        ax[-1, 1].legend(
+            cons_lines, [f'constraint {j}' for j in range(len(cons_lines))],
+            bbox_to_anchor=(1.04, 1), loc='upper left', fontsize=8,
+        )
+        ax[-1, 1].grid()
+        ax[-1, 1].set_ylabel('Constraint [-]', fontsize=8)
+
+        ax[-1, 0].set_xlabel('Iteration [-]')
+        ax[-1, 1].set_xlabel('Iteration [-]')
+        plt.tight_layout()
+
+        if output_path is not None:
+            from pathlib import Path as _Path
+            out = _Path(output_path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(out, bbox_inches='tight')
+            print(f"  Saved optimization evolution plot → {out}")
+
+        if show_plot:
+            plt.show()
+        else:
+            plt.close(fig)
+
     def eval_fun(self, x, scale_x=True, **kwargs):
         """Method calculating the objective and constraint functions from the eval_performance_indicators method output.
         """
@@ -494,13 +495,13 @@ class OptimizerCycle(Optimizer):
             x_real_scale = x
         res = self.eval_performance_indicators(x_real_scale, **kwargs)
 
-        # Prepare the simulation by updating simulation parameters.
-        env_state = self.environment_state
-        env_state.calculate(100.)
-        power_wind_100m = .5 * env_state.air_density * env_state.wind_speed ** 3
+        # # Prepare the simulation by updating simulation parameters.
+        # env_state = self.environment_state
+        # env_state.calculate(100.)
+        # power_wind_100m = .5 * env_state.air_density * env_state.wind_speed ** 3
 
         # Determine optimization objective and constraints.
-        obj = -res['average_power']['cycle']/power_wind_100m/self.system_properties.kite_projected_area
+        obj = -res['average_power']['cycle']#/power_wind_100m/self.system_properties.kite_projected_area
 
         # When speed limits are active during the optimization (see determine_new_steady_state method of Phase
         # class in qsm.py), the setpoint reel-out/reel-in forces are overruled. For special cases, the respective
@@ -534,13 +535,13 @@ class OptimizerCycle(Optimizer):
         """Method running the simulation and returning the performance indicators needed to calculate the objective and
         constraint functions."""
         # Map the optimization vector to the separate variables.
-        tether_force_traction, tether_force_retraction, elevation_angle_traction, tether_length_diff, \
-        tether_length_min = x_real_scale
+        tether_force_traction, tether_force_retraction, elevation_angle_traction, tether_length_start, \
+        tether_length_end = x_real_scale
 
         # Configure the cycle settings and run simulation.
         self.cycle_settings['cycle']['elevation_angle_traction'] = elevation_angle_traction
-        self.cycle_settings['cycle']['tether_length_start_retraction'] = tether_length_min + tether_length_diff
-        self.cycle_settings['cycle']['tether_length_end_retraction'] = tether_length_min
+        self.cycle_settings['cycle']['tether_length_start_retraction'] = tether_length_start
+        self.cycle_settings['cycle']['tether_length_end_retraction'] = tether_length_end
 
         self.cycle_settings['retraction']['control'] = ('tether_force_ground', tether_force_retraction)
         self.cycle_settings['transition']['control'] = ('reeling_speed', 0.)
@@ -558,6 +559,8 @@ class OptimizerCycle(Optimizer):
             phase_switch_points = [cycle.transition_phase.time[0], cycle.traction_phase.time[0]]
             cycle.time_plot(['straight_tether_length', 'reeling_speed', 'tether_force_ground', 'power_ground'],
                             plot_markers=phase_switch_points)
+            plt.tight_layout()
+            plt.show()
 
         res = {
             'average_power': {

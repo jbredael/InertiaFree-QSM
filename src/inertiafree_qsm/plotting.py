@@ -239,9 +239,10 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
         print(f"Wind speed {wind_speed} m/s not found in data")
         return None
 
+    sim_warning = None
     if not wsData['success']:
-        print(f"Simulation failed for wind speed {wind_speed} m/s")
-        return None
+        sim_warning = f"Warning: simulation reported success=False for {wind_speed} m/s"
+        print(sim_warning)
 
     performance = wsData['performance']
     power = performance['power']
@@ -261,11 +262,13 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     elevationAngleDeg = np.array(timeHistory.get('elevation_angle_deg', []))
 
     fig, axes = plt.subplots(3, 2, figsize=(16, 12))
-    fig.suptitle(
+    title = (
         f'Detailed Cycle Analysis - Wind Speed: {wind_speed} m/s '
-        f'at {referenceHeight}m{profileLabel}',
-        fontsize=16, fontweight='bold',
+        f'at {referenceHeight}m{profileLabel}'
     )
+    if sim_warning:
+        title += '\n(simulation converged with relaxed errors)'
+    fig.suptitle(title, fontsize=16, fontweight='bold')
 
     reelOutTime = timing['reel_out_time_s']
 
@@ -367,79 +370,3 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     return fig, axes
 
-
-# ---------------------------------------------------------------------------
-# Optimizer sensitivity / efficiency indicators plot
-# ---------------------------------------------------------------------------
-
-def plot_sensitivity_efficiency_indicators(optimizer, i_x=0):
-    """Sweep the search range of one optimization variable and plot efficiency indicators.
-
-    Args:
-        optimizer (Optimizer): Optimizer instance with evaluated results.
-        i_x (int): Index of the optimization variable to sweep. Defaults to 0.
-
-    Returns:
-        tuple: (fig, ax) matplotlib figure and axes.
-    """
-    ref_point_label = "x_ref"
-
-    if optimizer.x_opt_real_scale is not None:
-        xRealScale = optimizer.x_opt_real_scale
-    else:
-        xRealScale = optimizer.x0_real_scale
-
-    xRef = xRealScale[i_x]
-    powerCycleRef = optimizer.eval_performance_indicators(
-        xRealScale, scale_x=False)['average_power']['cycle']
-    powerOutRef = optimizer.eval_performance_indicators(
-        xRealScale, scale_x=False)['average_power']['out']
-    xlabel = optimizer.OPT_VARIABLE_LABELS[i_x]
-
-    lb, ub = optimizer.bounds_real_scale[i_x]
-    xiSweep = np.linspace(lb, ub, 100)
-    powerCycleNorm, powerOutNorm, g, activeG, dutyCycle, pumpingEff = (
-        [], [], [], [], [], [])
-
-    for xi in xiSweep:
-        xFull = list(xRealScale)
-        xFull[i_x] = xi
-
-        try:
-            resEval = optimizer.eval_fun(xFull, scale_x=False)
-            kpis = optimizer.eval_performance_indicators(xFull, scale_x=False)
-            powerCycleNorm.append(kpis['average_power']['cycle'] / powerCycleRef)
-            if kpis['average_power']['out']:
-                powerOutNorm.append(kpis['average_power']['out'] / powerOutRef)
-            else:
-                powerOutNorm.append(None)
-            cons = resEval[1][optimizer.reduce_ineq_cons]
-            g.append(resEval[1])
-            activeG.append(any([c < -1e-6 for c in cons]))
-            dutyCycle.append(kpis['duty_cycle'])
-            pumpingEff.append(kpis['pumping_efficiency'])
-        except Exception:
-            powerCycleNorm.append(None)
-            powerOutNorm.append(None)
-            dutyCycle.append(None)
-            pumpingEff.append(None)
-            g.append(None)
-            activeG.append(False)
-
-    fig, ax = plt.subplots()
-    ax.plot(xiSweep, powerCycleNorm, '--', label='normalized cycle power')
-    ax.plot(xiSweep, powerOutNorm, '--', label='normalized traction power')
-    ax.plot(xiSweep, dutyCycle, label='duty cycle')
-    ax.plot(xiSweep, pumpingEff, label='pumping efficiency')
-
-    ax.plot(xRef, 1, 'x', label=ref_point_label, markersize=12)
-    ax.fill_between(xiSweep, 0, 1, where=activeG, alpha=0.4,
-                    transform=ax.get_xaxis_transform())
-    ax.set_xlabel(xlabel.replace('\n', ' '))
-    ax.set_ylabel("Response [-]")
-    ax.grid()
-    ax.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
-    ax.set_title("v={:.1f}m/s".format(optimizer.environment_state.wind_speed))
-    plt.subplots_adjust(right=0.7)
-
-    return fig, ax

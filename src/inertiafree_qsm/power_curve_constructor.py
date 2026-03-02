@@ -14,6 +14,7 @@ from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import yaml
 
@@ -336,13 +337,18 @@ class PowerCurveConstructor:
 
         return vw_last, beta
 
-    def run_optimization(self, wind_speed, power_optimizer, x0):
+    def run_optimization(self, wind_speed, power_optimizer, x0, show_plot=False,
+                         save_plot_dir=None):
         """Run single optimization for given wind speed.
 
         Args:
             wind_speed (float): Wind speed at reference height [m/s].
             power_optimizer (OptimizerCycle): Optimizer instance.
             x0 (array): Starting point for optimization.
+            show_plot (bool): If True, show the cycle trajectory/time plots at
+                the optimal point.
+            save_plot_dir (Path or str, optional): Directory in which to save the
+                optimization evolution PDF after each wind speed.
 
         Returns:
             tuple: (x_opt, sim_successful)
@@ -356,13 +362,21 @@ class PowerCurveConstructor:
         self.x_opts.append(x_opt)
         self.optimization_details.append(power_optimizer.op_res)
 
-        try:
-            cons, kpis = power_optimizer.eval_point()
-            sim_successful = True
-        except (SteadyStateError, OperationalLimitViolation, PhaseError) as e:
-            print(f"Error occurred while evaluating optimal point: {e}")
-            cons, kpis = power_optimizer.eval_point(relax_errors=True)
-            sim_successful = False
+        # Always evaluate with relaxed errors for consistency: the optimizer
+        # itself uses relax_errors=True throughout, so the optimal point is
+        # only guaranteed to be valid under those same relaxed conditions.
+        # sim_successful reflects whether the optimizer converged, not whether
+        # the re-evaluation passes strict steady-state checks.
+        cons, kpis = power_optimizer.eval_point(relax_errors=True, plot_result=show_plot)
+        sim_successful = bool(power_optimizer.op_res.get('success', False))
+
+        if save_plot_dir is not None or show_plot:
+            opt_evo_path = None
+            if save_plot_dir is not None:
+                opt_evo_path = (
+                    Path(save_plot_dir) / f'opt_evolution_v{wind_speed:.1f}ms.pdf'
+                )
+            power_optimizer.plot_opt_evolution(output_path=opt_evo_path, show_plot=show_plot)
 
         self.constraints.append(cons)
         kpis['sim_successful'] = sim_successful
@@ -370,7 +384,8 @@ class PowerCurveConstructor:
 
         return x_opt, sim_successful
 
-    def run_predefined_sequence(self, optimization_sequence, x0_start, wind_speeds):
+    def run_predefined_sequence(self, optimization_sequence, x0_start, wind_speeds,
+                                save_plot_dir=None):
         """Run sequential optimizations with warm starts.
 
         Args:
@@ -378,6 +393,8 @@ class PowerCurveConstructor:
                 optimizer configurations.
             x0_start (array): Initial starting point.
             wind_speeds (array): Wind speeds to evaluate [m/s].
+            save_plot_dir (Path or str, optional): Directory to save per-wind-speed
+                optimization evolution PDFs.
         """
         self.wind_speeds = wind_speeds
 
@@ -402,11 +419,13 @@ class PowerCurveConstructor:
 
             print(f"[{i}] Processing v={vw:.2f} m/s")
             try:
-                x_opt, sim_successful = self.run_optimization(vw, power_optimizer, x0_next)
+                x_opt, sim_successful = self.run_optimization(
+                    vw, power_optimizer, x0_next, save_plot_dir=save_plot_dir
+                )
             except (OperationalLimitViolation, SteadyStateError, PhaseError):
                 try:  # Retry for slightly different wind speed
                     x_opt, sim_successful = self.run_optimization(
-                        vw + 1e-2, power_optimizer, x0_next
+                        vw + 1e-2, power_optimizer, x0_next, save_plot_dir=save_plot_dir
                     )
                     self.wind_speeds[i] = vw + 1e-2
                 except (OperationalLimitViolation, SteadyStateError, PhaseError):
@@ -453,7 +472,7 @@ class PowerCurveConstructor:
         if method == 'direct':
             entry = self._run_single_simulation_direct(wind_speed, env_state)
         elif method == 'optimization':
-            entry = self._run_single_simulation_optimized(wind_speed, env_state)
+            entry = self._run_single_simulation_optimized(wind_speed, env_state, show_plot=show_plot)
         else:
             raise ValueError(
                 f"Unknown method '{method}'. Use 'direct' or 'optimization'."
@@ -485,7 +504,8 @@ class PowerCurveConstructor:
         verbose=True,
         show_plot=False,
         save_plot=False,
-        validate_file=False,):
+        validate_file=False,
+        opt_plots_dir=None,):
         """Generate optimized power curves for one or more wind profile clusters.
 
         This method performs sequential optimization to find optimal cycle parameters
@@ -501,10 +521,12 @@ class PowerCurveConstructor:
             verbose (bool): Whether to print progress.
             show_plot (bool): If True, display the power curve plot after generation.
                 Defaults to False.
-            save_plot (bool): If True, save the power curve plot as a PNG alongside
+            save_plot (bool): If True, save the power curve plot as a PDF alongside
                 the YAML output. Requires ``output_path``. Defaults to False.
             validate_file (bool): If True, validate the saved YAML against the
                 awesIO schema. Defaults to False.
+            opt_plots_dir (str or Path, optional): Directory to save per-wind-speed
+                optimization evolution PDFs. If None, no plots are saved.
 
         Returns:
             dict: Power curve data in awesIO format.
@@ -554,7 +576,7 @@ class PowerCurveConstructor:
         wind_speed_data_per_cluster = []
         for cluster_id in cluster_ids:
             wind_speed_data = self._calculate_power_curve_optimized(
-                cluster_id, wind_speeds, verbose
+                cluster_id, wind_speeds, verbose, save_plot_dir=opt_plots_dir
             )
             wind_speed_data_per_cluster.append(wind_speed_data)
 
@@ -574,13 +596,16 @@ class PowerCurveConstructor:
 
         return output
 
-    def _calculate_power_curve_optimized(self, cluster_id, wind_speeds, verbose):
+    def _calculate_power_curve_optimized(self, cluster_id, wind_speeds, verbose,
+                                          save_plot_dir=None):
         """Calculate optimized power curve for a single wind cluster.
 
         Args:
             cluster_id (int): The cluster ID (1-indexed).
             wind_speeds (array-like): Wind speeds to evaluate [m/s].
             verbose (bool): Whether to print progress messages.
+            save_plot_dir (Path or str, optional): Directory to save per-wind-speed
+                optimization evolution PDFs.
 
         Returns:
             list: Wind speed data entries for this cluster.
@@ -625,7 +650,7 @@ class PowerCurveConstructor:
             self.sys_props,
             env_state,
             optimizer_config=opt_config_phase1,
-            reduce_x=np.array([0, 1, 2, 3]),
+            reduce_x=np.array([0, 1, 2, 3, 4]),
         )
 
         op_cycle_phase2 = OptimizerCycle(
@@ -633,7 +658,7 @@ class PowerCurveConstructor:
             self.sys_props,
             env_state,
             optimizer_config=opt_config,
-            reduce_x=np.array([0, 1, 2, 3]),
+            reduce_x=np.array([0, 1, 2, 3, 4]),
         )
 
         optimization_sequence = {
@@ -656,7 +681,10 @@ class PowerCurveConstructor:
         if verbose:
             print(f"Running optimizations for cluster {cluster_id}...")
 
-        self.run_predefined_sequence(optimization_sequence, x0_start, wind_speeds)
+        self.run_predefined_sequence(
+            optimization_sequence, x0_start, wind_speeds,
+            save_plot_dir=save_plot_dir,
+        )
 
         # Build wind speed data entries from optimization KPIs
         wind_speed_data = [
@@ -666,16 +694,24 @@ class PowerCurveConstructor:
 
         return wind_speed_data
 
-    def _run_single_simulation_optimized(self, wind_speed, env_state):
+    def _run_single_simulation_optimized(self, wind_speed, env_state, show_plot=False):
         """Run a single optimized cycle simulation for one wind speed.
 
         Args:
             wind_speed (float): Reference wind speed [m/s].
             env_state (NormalisedWindTable1D): Environment state object.
+            show_plot (bool): If True, show optimization evolution and cycle plots.
 
         Returns:
             dict: Wind speed entry with performance data and optional time history.
         """
+        # Reset per-run state to avoid cross-contamination.
+        self.x_opts = []
+        self.x0_list = []
+        self.optimization_details = []
+        self.constraints = []
+        self.performance_indicators = []
+
         cycle_sim_settings = deepcopy(self.simulation_settings)
         cycle_sim_settings['cycle']['traction_phase'] = TractionPhaseHybrid
         cycle_sim_settings['cycle']['include_transition_energy'] = False
@@ -694,11 +730,11 @@ class PowerCurveConstructor:
             self.sys_props,
             env_state,
             optimizer_config=opt_config,
-            reduce_x=np.array([0, 1, 2, 3]),
+            reduce_x=np.array([0, 1, 2, 3, 4]),
         )
 
         x0 = np.array(opt_settings['optimizer']['x0'].copy())
-        self.run_optimization(wind_speed, power_optimizer, x0)
+        self.run_optimization(wind_speed, power_optimizer, x0, show_plot=show_plot)
 
         kpi = self.performance_indicators[-1]
         return self._build_wind_speed_entry(wind_speed, kpi)

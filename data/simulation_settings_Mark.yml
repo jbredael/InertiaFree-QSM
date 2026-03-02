@@ -31,7 +31,7 @@ optimization:
     # Maximum wind speed [m/s] (set to null for auto-estimation)
     cut_out: 20.0
     # Number of points to calculate (determines spacing)
-    n_points: 6
+    n_points: 4
 
     # Fine resolution settings near cut-out wind speed
     # These add extra points near the cut-out to capture system behavior
@@ -60,13 +60,13 @@ optimization:
   # Optimizer bounds (where not derived from system properties)
   bounds:
     # Elevation angle bounds [degrees]
-    elevation_angle_min: 15.0
+    elevation_angle_min: 20.0
     elevation_angle_max: 60.0
     # Tether length bounds as fractions of max_tether_length
-    tether_length_start_fraction_min: 0.5
+    tether_length_start_fraction_min: 0.9
     tether_length_start_fraction_max: 1.0
-    tether_length_end_fraction_min: 0.2
-    tether_length_end_fraction_max: 0.5
+    tether_length_end_fraction_min: 0.4
+    tether_length_end_fraction_max: 0.89
 
 # ============================================================================
 # CYCLE CONFIGURATION
@@ -77,14 +77,14 @@ cycle:
   # Elevation angle during traction phase [degrees]
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
-  elevation_angle_traction: 30.0
+  elevation_angle_traction: 20.0
 
   # Tether length at start of retraction as fraction of max tether length [-]
   # (null = 1.0, uses full tether length from system config)
   tether_length_start_retraction: null
 
   # Tether length at end of retraction as fraction of max tether length [-]
-  tether_length_end_retraction: 0.4
+  tether_length_end_retraction: 0.5
 
   # Include transition phase energy in cycle energy calculation
   include_transition_energy: true
