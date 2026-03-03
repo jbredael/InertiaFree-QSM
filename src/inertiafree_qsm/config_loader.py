@@ -199,9 +199,9 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
         ),
         'tether_length_start_retraction': tetherLengthStartRetraction,
         'tether_length_end_retraction': tetherLengthEndRetraction,
-        'include_transition_energy': bool(cycle_config.get('include_transition_energy', True)),
-        'n_traction_points': int(cw_config.get('n_traction_points', 6)),
-        'n_pattern_eval_points': int(cw_config.get('n_pattern_eval_points', 100)),
+        'include_transition_energy': bool(cycle_config.get('include_transition_energy',)),
+        'n_traction_points': int(cw_config.get('n_traction_points')),
+        'n_pattern_eval_points': int(cw_config.get('n_pattern_eval_points')),
     }
 
     retraction = {
@@ -228,18 +228,23 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
         'azimuth_angle': deg_to_rad(traction_config.get('azimuth_angle')),
         'course_angle': deg_to_rad(traction_config.get('course_angle')),
         'max_time_points': max_time_points,
-        'lissajous_elevation_amplitude': float(lissajous_config.get('elevation_amplitude', 4.0)),
-        'lissajous_azimuth_amplitude': float(lissajous_config.get('azimuth_amplitude', 20.0)),
+        'lissajous_elevation_amplitude': float(lissajous_config.get('elevation_amplitude')),
+        'lissajous_azimuth_amplitude': float(lissajous_config.get('azimuth_amplitude')),
     }
 
     # --- direct simulation settings -----------------------------------------
     direct_config = config.get('direct_simulation', {})
     direct_wind = direct_config.get('wind_speeds', {})
+    direct_fine = direct_wind.get('fine_resolution', {})
     direct_simulation = {
         'wind_speeds': {
-            'cut_in': float(direct_wind.get('cut_in')),
-            'cut_out': float(direct_wind.get('cut_out')),
-            'step': float(direct_wind.get('step')),
+            'cut_in': direct_wind.get('cut_in'),
+            'cut_out': direct_wind.get('cut_out'),
+            'n_points': int(direct_wind.get('n_points', 30)),
+            'fine_resolution': {
+                'n_points_near_cutout': int(direct_fine.get('n_points_near_cutout', 0)),
+                'range_m_s': float(direct_fine.get('range_m_s', 2.0)),
+            },
         },
     }
 
@@ -363,11 +368,13 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
     print(f"    Course angle  : {np.degrees(traction['course_angle']):.1f} deg")
 
     # -- Direct simulation ---------------------------------------------------
-    print("\n  Direct simulation wind speeds:")
+    print("\n  Direct simulation:")
     dw = direct['wind_speeds']
-    print(f"    Cut-in : {dw['cut_in']:.1f} m/s")
-    print(f"    Cut-out: {dw['cut_out']:.1f} m/s")
-    print(f"    Step   : {dw['step']:.1f} m/s")
+    print(f"    Wind speeds  : cut-in={dw['cut_in']}, cut-out={dw['cut_out']}, "
+          f"n_points={dw['n_points']}")
+    dfr = dw['fine_resolution']
+    print(f"    Fine res     : {dfr['n_points_near_cutout']} pts, "
+          f"range={dfr['range_m_s']:.1f} m/s")
 
     # -- Optimisation --------------------------------------------------------
     print("\n  Optimisation:")

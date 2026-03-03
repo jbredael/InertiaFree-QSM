@@ -10,12 +10,22 @@
 direct_simulation:
   # Wind speed range for power curve calculation
   wind_speeds:
-    # Minimum wind speed [m/s]
-    cut_in: 4.0
-    # Maximum wind speed [m/s]
-    cut_out: 25
-    # Step size between wind speeds [m/s]
-    step: 0.5
+    # Minimum wind speed [m/s] (set to null for auto-estimation)
+    cut_in: null
+    # Maximum wind speed [m/s] (set to null for auto-estimation)
+    cut_out: null
+    # Number of points to calculate (determines spacing)
+    n_points: 30
+
+    # Fine resolution settings near cut-out wind speed
+    # These add extra points near the cut-out to capture system behavior
+    # at operational limits more accurately
+    fine_resolution:
+      # Number of fine points to add near cut-out (set to 0 to disable)
+      n_points_near_cutout: 0
+      # How far back from cut-out to start fine resolution [m/s]
+      # Fine points will span from (cut_out - range_m_s) to (cut_out - 0.05)
+      range_m_s: 2.0
 
 # ============================================================================
 # OPTIMIZATION SETTINGS
@@ -29,16 +39,16 @@ optimization:
     # Minimum wind speed [m/s] (set to null for auto-estimation)
     cut_in: null
     # Maximum wind speed [m/s] (set to null for auto-estimation)
-    cut_out: null
+    cut_out: 20.0
     # Number of points to calculate (determines spacing)
-    n_points: 4
+    n_points: 5
 
     # Fine resolution settings near cut-out wind speed when not using auto-estimation
     # These add extra points near the cut-out to capture system behavior
     # at operational limits more accurately
     fine_resolution:
       # Number of fine points to add near cut-out (set to 0 to disable)
-      n_points_near_cutout: 5
+      n_points_near_cutout: 0
       # How far back from cut-out to start fine resolution [m/s]
       # Fine points will span from (cut_out - range_m_s) to (cut_out - 0.05)
       range_m_s: 2.0
@@ -65,8 +75,8 @@ optimization:
     # Tether length bounds as fractions of max_tether_length
     tether_length_start_fraction_min: 0.7
     tether_length_start_fraction_max: 1.0
-    tether_length_end_fraction_min: 0.4
-    tether_length_end_fraction_max: 0.6
+    tether_length_end_fraction_min: 0.3
+    tether_length_end_fraction_max: 0.5
 
   # Optimizer inequality constraints
   # All four constraints are of the form g_i(x) >= 0 (SLSQP convention).

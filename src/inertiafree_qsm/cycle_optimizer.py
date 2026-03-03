@@ -53,8 +53,8 @@ class CycleOptimizer:
         "Reel-out\nforce [N]",
         "Reel-in\nforce [N]",
         "Elevation\nangle [rad]",
-        "Reel-in tether\nlength [m]",
-        "Minimum tether\nlength [m]",
+        "End Reel-out tether\nlength [m]",
+        "Start Reel-out tether\nlength [m]",
     ]
 
     def __init__(
@@ -346,70 +346,70 @@ class CycleOptimizer:
         else:
             plt.close(fig)
 
-    def perform_local_sensitivity_analysis(self):
-        """Sweep each variable individually and plot objective/constraints.
+    # def perform_local_sensitivity_analysis(self):
+    #     """Sweep each variable individually and plot objective/constraints.
 
-        Produces one subplot per optimization variable showing how the
-        objective and constraint functions vary across the variable's bounds.
-        """
-        red_x = self.reduce_x
-        n_plots = len(red_x)
-        bounds = self.bounds_real_scale[red_x]
+    #     Produces one subplot per optimization variable showing how the
+    #     objective and constraint functions vary across the variable's bounds.
+    #     """
+    #     red_x = self.reduce_x
+    #     n_plots = len(red_x)
+    #     bounds = self.bounds_real_scale[red_x]
 
-        x_ref_real_scale = (
-            self.x_opt_real_scale
-            if self.x_opt_real_scale is not None
-            else self.x0_real_scale
-        )
-        f_ref, cons_ref = self.eval_fun(x_ref_real_scale, scale_x=False)
+    #     x_ref_real_scale = (
+    #         self.x_opt_real_scale
+    #         if self.x_opt_real_scale is not None
+    #         else self.x0_real_scale
+    #     )
+    #     f_ref, cons_ref = self.eval_fun(x_ref_real_scale, scale_x=False)
 
-        fig, ax = plt.subplots(n_plots)
-        if n_plots == 1:
-            ax = [ax]
-        fig.subplots_adjust(hspace=0.3)
+    #     fig, ax = plt.subplots(n_plots)
+    #     if n_plots == 1:
+    #         ax = [ax]
+    #     fig.subplots_adjust(hspace=0.3)
 
-        for i, b in enumerate(bounds):
-            lb, ub = b
-            xi_sweep = np.linspace(lb, ub, 50)
-            f, g, active_g = [], [], []
-            for xi in xi_sweep:
-                x_full = list(x_ref_real_scale)
-                x_full[red_x[i]] = xi
-                try:
-                    res_eval = self.eval_fun(x_full, scale_x=False)
-                    f.append(res_eval[0])
-                    cons = res_eval[1][self.reduce_ineq_cons]
-                    g.append(res_eval[1])
-                    active_g.append(any(c < -1e-6 for c in cons))
-                except Exception:
-                    f.append(None)
-                    g.append(None)
-                    active_g.append(False)
+    #     for i, b in enumerate(bounds):
+    #         lb, ub = b
+    #         xi_sweep = np.linspace(lb, ub, 50)
+    #         f, g, active_g = [], [], []
+    #         for xi in xi_sweep:
+    #             x_full = list(x_ref_real_scale)
+    #             x_full[red_x[i]] = xi
+    #             try:
+    #                 res_eval = self.eval_fun(x_full, scale_x=False)
+    #                 f.append(res_eval[0])
+    #                 cons = res_eval[1][self.reduce_ineq_cons]
+    #                 g.append(res_eval[1])
+    #                 active_g.append(any(c < -1e-6 for c in cons))
+    #             except Exception:
+    #                 f.append(None)
+    #                 g.append(None)
+    #                 active_g.append(False)
 
-            ax[i].plot(xi_sweep, f, "--", label="objective")
-            x_ref = x_ref_real_scale[red_x[i]]
-            ax[i].plot(x_ref, f_ref, "x", label="x_ref", markersize=12)
+    #         ax[i].plot(xi_sweep, f, "--", label="objective")
+    #         x_ref = x_ref_real_scale[red_x[i]]
+    #         ax[i].plot(x_ref, f_ref, "x", label="x_ref", markersize=12)
 
-            for i_cons in self.reduce_ineq_cons:
-                cons_line = ax[i].plot(
-                    xi_sweep,
-                    [c[i_cons] if c is not None else None for c in g],
-                    label=f"constraint {i_cons}",
-                )
-                clr = cons_line[0].get_color()
-                ax[i].plot(x_ref, cons_ref[i_cons], "s", markerfacecolor="None", color=clr)
+    #         for i_cons in self.reduce_ineq_cons:
+    #             cons_line = ax[i].plot(
+    #                 xi_sweep,
+    #                 [c[i_cons] if c is not None else None for c in g],
+    #                 label=f"constraint {i_cons}",
+    #             )
+    #             clr = cons_line[0].get_color()
+    #             ax[i].plot(x_ref, cons_ref[i_cons], "s", markerfacecolor="None", color=clr)
 
-            ax[i].fill_between(
-                xi_sweep, 0, 1, where=active_g, alpha=0.4, transform=ax[i].get_xaxis_transform()
-            )
-            ax[i].set_xlabel(self.OPT_VARIABLE_LABELS[red_x[i]])
-            ax[i].set_ylabel("Response [-]")
-            ax[i].grid()
+    #         ax[i].fill_between(
+    #             xi_sweep, 0, 1, where=active_g, alpha=0.4, transform=ax[i].get_xaxis_transform()
+    #         )
+    #         ax[i].set_xlabel(self.OPT_VARIABLE_LABELS[red_x[i]])
+    #         ax[i].set_ylabel("Response [-]")
+    #         ax[i].grid()
 
-        ax[0].legend(bbox_to_anchor=(1.04, 1), loc="upper left")
-        ax[0].set_title(f"v={self.environment_state.wind_speed:.1f}m/s")
-        plt.subplots_adjust(right=0.7)
-        plt.show()
+    #     ax[0].legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+    #     ax[0].set_title(f"v={self.environment_state.wind_speed:.1f}m/s")
+    #     plt.subplots_adjust(right=0.7)
+    #     plt.show()
 
     # -------------------------------------------------------------------------
     # Objective and constraint evaluation
@@ -458,7 +458,7 @@ class CycleOptimizer:
         min_cw = (
             self.cycle_settings.get("optimization", {})
             .get("constraints", {})
-            .get("min_crosswind_patterns", 1)
+            .get("min_crosswind_patterns")
         )
         n_cw = res["n_crosswind_patterns"]
         c3 = (n_cw - min_cw) if n_cw is not None else 0.0
@@ -466,7 +466,7 @@ class CycleOptimizer:
         ineq_cons = np.array([c0, c1, c2, c3])
         return obj, ineq_cons
 
-    def eval_performance_indicators(self, x_real_scale, plot_result=False, relax_errors=True):
+    def eval_performance_indicators(self, x_real_scale, plot_result=False, relax_errors=False):
         """Run the cycle simulation and extract KPIs.
 
         Args:
@@ -505,8 +505,8 @@ class CycleOptimizer:
         ss_config = self.cycle_settings.get("steady_state", {})
         iterative_config = {
             "enable_steady_state_errors": not relax_errors,
-            "max_iterations": ss_config.get("max_iterations", 250),
-            "convergence_tolerance": ss_config.get("convergence_tolerance", 1e-6),
+            "max_iterations": ss_config.get("max_iterations"),
+            "convergence_tolerance": ss_config.get("convergence_tolerance"),
         }
         cycle.run_simulation(
             self.system_properties,
