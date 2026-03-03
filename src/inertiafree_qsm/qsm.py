@@ -297,69 +297,9 @@ class WindTable2D(EnvAtmosphericPressure):
         plt.grid(True)
 
 
-class SysPropsFixedAeroCoeffs:
-    """Base system properties class - setting the properties of the airborne components. For this class, the aerodynamic
-    characteristics are assumed constant. Only the tether mass is varying with the tether length.
-
-    Attributes:
-        kite_projected_area (float): Projected area of the kite [m^2] - not to be confused with flat area.
-        kite_mass (float): Point mass of the kite [kg] - including KCU.
-        tether_density (float): Material density of the tether [kg/m^3].
-        tether_diameter (float): Diameter of the tether [m].
-        tether_length (float): Airborne tether length [m].
-        tether_mass (float): Airborne tether mass [kg].
-        aerodynamic_force_coefficient (float): Resultant aerodynamic force coefficient of kite and tether
-            combination [-].
-        lift_to_drag (float): Lift-to-drag ratio of kite and tether combination [-].
-
-    """
-    def __init__(self, kite_projected_area, kite_mass, tether_density, tether_diameter, aerodynamic_force_coefficient,
-                 lift_to_drag):
-        """
-        Args:
-            kite_projected_area (float): Value for `kite_projected_area` attribute.
-            kite_mass (float): Value for `kite_mass` attribute.
-            tether_density (float): Value for `tether_density` attribute.
-            tether_diameter (float): Value for `tether_diameter` attribute.
-            aerodynamic_force_coefficient (float): Value for `aerodynamic_force_coefficient` attribute.
-            lift_to_drag (float): Value for `lift_to_drag` attribute.
-
-        """
-        # Kite properties.
-        self.kite_projected_area = kite_projected_area
-        self.kite_mass = kite_mass
-
-        # Tether properties.
-        self.tether_density = tether_density
-        self.tether_diameter = tether_diameter
-
-        # Calculated properties of (airborne) tether.
-        self.tether_length = None
-        self.tether_mass = None
-
-        # Aerodynamic characteristics of kite and tether combination.
-        self.aerodynamic_force_coefficient = aerodynamic_force_coefficient
-        self.lift_to_drag = lift_to_drag
-
-    def update(self, tether_length):  #, kite_powered):
-        """Update the system properties for the given tether length.
-
-        Args:
-            tether_length (float): Updated airborne tether length [m].
-            kite_powered (bool): Switch between powered and de-powered state of the kite.
-
-        """
-        self.tether_length = tether_length
-        self.calculate_tether_mass()
-
-    def calculate_tether_mass(self):
-        """Calculate the tether mass."""
-        self.tether_mass = self.tether_density * 0.25 * np.pi * self.tether_diameter ** 2 * self.tether_length
-
-
-class SystemProperties(SysPropsFixedAeroCoeffs):
-    """System properties class introducing binary aerodynamic characteristics: a powered and de-powered state of the
-    kite. Inherits from `SysPropsFixedAeroCoeffs`.
+class SystemProperties:
+    """System properties class defining the properties of the airborne components and introducing binary
+    aerodynamic characteristics: a powered and de-powered state of the kite.
 
     Attributes:
         kite_projected_area (float): Projected area of the kite [m^2] - not to be confused with flat area.
@@ -431,13 +371,15 @@ class SystemProperties(SysPropsFixedAeroCoeffs):
         self.calculate_aerodynamic_properties(kite_powered)
 
 
-class SysPropsAeroCurves(SysPropsFixedAeroCoeffs):
+class SysPropsAeroCurves:
+    """System properties class with aerodynamic coefficient curves as function of angle of attack.
+    
+    Note: This class is currently not used in simulations but kept for potential future use.
+    
+    Args:
+        props (dict): System properties collected in a dictionary.
+    """
     def __init__(self, props):
-        """
-        Args:
-            props (dict): System properties collected in a dictionary.
-
-        """
         # Procedure to set attributes using input dictionary.
         for key, val in props.items():
             setattr(self, key, val)
@@ -684,7 +626,7 @@ class SteadyState:
         """Iterative procedure for finding the kinematic ratio yielding the steady state of the kite.
 
         Args:
-            system_properties (`SysPropsFixedAeroCoeffs` or child): Collection of system properties.
+            system_properties (`SystemProperties`): Collection of system properties.
             environment_state (`Environment` or child): Specification of environment.
             basic_kinematics (`KiteKinematics`): Basic kinematic properties required for finding the steady state.
             print_details (bool, optional): Prints procedure details to screen if True.
@@ -1046,99 +988,6 @@ class TimeSeries:
         if markers_plotted:
             plt.legend()
 
-    def trajectory_plot3d(self, fig_num=None, animation=True, plot_kwargs={'linestyle': '-'}, gradient_color=None,
-                          plot_point_type=None):
-        """Animation of the 3D trajectory of the kite.
-
-        Args:
-            fig_num (int, optional): Number of figure used for the plot, if None a new figure is created.
-            animation (bool, optional): Make animation of the plot by changing the view angle.
-            plot_kwargs (dict, optional): Line plot keyword arguments.
-            plot_point_type (int, optional): If not None, only plot points for which the phase identifier corresponds to
-                the given integer.
-
-        """
-        from mpl_toolkits.mplot3d import axes3d
-        from mpl_toolkits.mplot3d.art3d import Line3DCollection
-        from matplotlib.colors import ListedColormap
-        from itertools import cycle
-        fig = plt.figure(fig_num)
-        ax = fig.gca(projection='3d')
-
-        if plot_point_type is not None:
-            point_types = getattr(self, 'phase_id', np.zeros(self.n_time_points))
-            x_traj, y_traj, z_traj = zip(*[(kp.x, kp.y, kp.z) for kp, pt in
-                                           zip(self.kinematics, point_types) if pt == plot_point_type])
-        else:
-            x_traj, y_traj, z_traj = zip(*[(kp.x, kp.y, kp.z) for kp in self.kinematics])
-
-        if gradient_color is not None:
-            vals = gradient_color[1]
-            vals_range = (vals.min(), vals.max())
-            points = np.array([x_traj, y_traj, z_traj]).T.reshape(-1, 1, 3)
-            segments = np.concatenate([points[:-1], points[1:]], axis=1)
-
-            if gradient_color[0] in ['Phase id [-]', 'Pattern id [-]']:
-                cmap = plt.get_cmap('Dark2', vals_range[1]+1-vals_range[0])
-                norm = plt.Normalize(vals_range[0]-.5, vals_range[1]+.5)
-                ticks = np.arange(vals_range[0], vals_range[1]+1.)
-            # elif gradient_color[0] == 'Power [kW]':
-            else:
-                cmap_basis = plt.get_cmap('coolwarm')
-
-                if vals_range[0] < 0. < vals_range[1]:
-                    positive_fraction = vals_range[1]/(vals_range[1]-vals_range[0])
-                    clrs_negative_values = cmap_basis(np.linspace(0., .5, int(256*(1-positive_fraction))))
-                    clrs_positive_values = cmap_basis(np.linspace(.5, 1., int(256*positive_fraction)))
-                    cmap = ListedColormap(np.vstack((clrs_negative_values, clrs_positive_values)))
-                elif vals_range[0] >= 0.:
-                    clrs = cmap_basis(np.linspace(.5+vals_range[0]/vals_range[1], 1., 256))
-                    cmap = ListedColormap(clrs)
-                else:
-                    clrs = cmap_basis(np.linspace(0., .5-vals_range[1]/vals_range[0], 256))
-                    cmap = ListedColormap(clrs)
-                norm = None
-                ticks = None  #[-15., 0., 45.]
-            lc = Line3DCollection(segments, cmap=cmap, norm=norm)
-            lc.set_array(vals)
-            lc.set_linewidth(2)
-            ax.add_collection3d(lc)
-            cbar = fig.colorbar(lc, ax=ax, shrink=.4, aspect=10., pad=0., ticks=ticks)
-            cbar.set_label(gradient_color[0])
-        else:
-            plt.plot(x_traj, y_traj, z_traj, **plot_kwargs)
-
-        ax.set_xlabel('x [m]')
-        ax.set_ylabel('y [m]')
-        ax.set_zlabel('z [m]')
-        plt.grid(True)
-
-        # for coords, fun in zip((x_traj, y_traj, z_traj), (ax.set_xlim, ax.set_ylim, ax.set_zlim)):
-        #     coords_range = (1.1*min(coords), 1.1*max(coords))
-        #     if coords_range[0] > 0.:
-        #         fun([0., coords_range[1]])
-        #     elif coords_range[1] < 0.:
-        #         fun([coords_range[0], 0.])
-        #     else:
-        #         fun(coords_range)
-
-        ax.set_xlim([0, 500])
-        ax.set_ylim([-250, 250])
-        ax.set_zlim([0, 500])
-        # ax.set_aspect('equal')  # Looks a bit silly.
-
-        if animation:
-            # Rotate the axes and update plot.
-            for angle in cycle(range(0, 360)):
-                ax.view_init(30, angle)
-                plt.draw()
-                plt.pause(.05)
-                if ax != plt.gca():  # Stop loop after closing figure.
-                    break
-        else:
-            ax.view_init(41, 50)
-
-
 class Phase(TimeSeries):
     """The solution to the quasi-steady motion simulation conform a particular control strategy. Inherits from
     `TimeSeries`.
@@ -1451,11 +1300,6 @@ class RetractionPhase(Phase):
 
         # Binary kite aerodynamic state.
         self.kite_powered = False
-
-        # Properties of initial state and final position.
-        self.tether_length_start = 385.
-        self.tether_length_end = 240.
-        self.elevation_angle_start = 30.*np.pi/180.
 
         self.fix_tether_length = False  # Should be False for realistic simulation.
 
@@ -2349,56 +2193,3 @@ class Cycle(TimeSeries):
         self.retraction_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
         self.transition_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
         self.traction_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
-
-
-if __name__ == "__main__":
-    # Expected performance summary:
-    #   Total cycle: 87.4 seconds in which 51903J energy produced.
-    #   Mean cycle power: 593.7W
-    #   Retraction power: -5326.4W
-    #   Transition power: 3832.6W
-    #   Traction power: 4285.0W
-
-    # Create environment object.
-    env_state = Environment(wind_speed=10, air_density=1.225)
-
-    # Create system properties object.
-    sys_props = {
-        'kite_projected_area': 18,  # [m^2]
-        'kite_mass': 20,  # [kg]
-        'tether_density': 724,  # [kg/m^3]
-        'tether_diameter': 0.004,  # [m]
-        'tether_force_min_limit': 1200,
-    }
-    sys_props = SystemProperties(sys_props)
-
-    # Create pumping cycle simulation object, run simulation, and plot results.
-    settings = {
-        'cycle': {
-            'traction_phase': TractionPhase,
-        },
-        'retraction': {
-            'control': ('tether_force_ground', 1200),
-        },
-        'transition': {
-            'control': ('reeling_speed', 0.),
-            'time_step': .05,
-        },
-        'traction': {
-            'control': ('reeling_speed', 3000),
-            'time_step': .05,
-        },
-    }
-
-    cycle = Cycle(settings)
-    cycle.run_simulation(sys_props, env_state, print_summary=True)
-    cycle.time_plot(('reeling_speed', 'power_ground', 'apparent_wind_speed', 'tether_force_ground'),
-                    ('Reeling speed [m/s]', 'Power [W]', 'Apparent wind speed [m/s]', 'Tether force [N]'))
-    cycle.time_plot(('straight_tether_length', 'elevation_angle', 'azimuth_angle', 'course_angle'),
-                    ('Radius [m]', 'Elevation [deg]', 'Azimuth [deg]', 'Course [deg]'),
-                    (None, 180./np.pi, 180./np.pi, 180./np.pi))
-    cycle.time_plot(('straight_tether_length', 'reeling_speed', 'x', 'y', 'z'),
-                    ('r [m]', r'$\dot{\mathrm{r}}$ [m/s]', 'x [m]', 'y [m]', 'z [m]'))
-    cycle.trajectory_plot()
-    # cycle.trajectory_plot3d()
-    plt.show()

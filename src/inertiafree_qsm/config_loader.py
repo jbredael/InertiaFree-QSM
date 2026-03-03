@@ -95,6 +95,7 @@ def load_system_config(file_path, validate_file=False):
         'reeling_speed_max_limit': drum.get('max_tether_speed_m_s'),
         'tether_drag_coefficient': tether_aero.get('drag_coefficient'),
         'max_tether_length': tether_structure.get('length_m'),
+        'max_generator_power': ground_station.get('generator', {}).get('max_power_w'),
     }
 
     return sys_props
