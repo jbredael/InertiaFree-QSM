@@ -41,7 +41,7 @@ components:
     aerodynamics:
       drag_coefficient: 1.1
     structure:
-      length_m: 300.0
+      length_m: 500.0
       diameter_m: 0.006
       density_kg_m3: 724.0
       max_tether_force_n: 8200.0

@@ -1,61 +1,590 @@
-from scipy import optimize as op
-import numpy as np
+"""Cycle optimizer for AWE pumping cycle power optimization.
+
+This module provides SLSQP-based optimization for pumping cycle parameters
+to maximize power output while respecting operational constraints.
+"""
+
+from pathlib import Path
+
 import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.gridspec import GridSpec
+from scipy import optimize as op
 
 from .qsm import Cycle
 from .utils import flatten_dict
 
 
 class OptimizerError(Exception):
+    """Raised when the optimization encounters an invalid state."""
+
     pass
 
-class Optimizer:
-    """Class collecting useful functionalities for solving an optimization problem and evaluating the results using
-    different settings and, thereby, enabling assessing the effect of these settings."""
-    def __init__(self, x0_real_scale, bounds_real_scale, scaling_x, reduce_x, reduce_ineq_cons,
-                 system_properties, environment_state, optimizer_config):
-        assert isinstance(x0_real_scale, np.ndarray)
-        assert isinstance(bounds_real_scale, np.ndarray)
-        assert isinstance(scaling_x, np.ndarray)
-        assert isinstance(reduce_x, np.ndarray)
 
-        # Simulation side conditions.
+class CycleOptimizer:
+    """Tether force controlled cycle optimizer using SLSQP.
+
+    Optimizes pumping cycle parameters to maximize average power output while
+    respecting physical constraints. Zero reeling speed is used as setpoint
+    for the transition phase.
+
+    The optimization variables are:
+        - x[0]: Reel-out (traction) tether force [N]
+        - x[1]: Reel-in (retraction) tether force [N]
+        - x[2]: Elevation angle during traction [rad]
+        - x[3]: Tether length at start of retraction [m]
+        - x[4]: Tether length at end of retraction [m]
+
+    Args:
+        cycle_settings (dict): Cycle simulation settings.
+        system_properties (SystemProperties): System properties object.
+        environment_state: Environment / wind profile object.
+        optimizer_config (dict): Dictionary with keys ``'x0'`` (np.ndarray),
+            ``'scaling'`` (np.ndarray), ``'bounds'`` (5x2 array), ``'ftol'``,
+            and ``'eps'``.
+        reduce_x (np.ndarray, optional): Indices of optimization variables to
+            include. Defaults to None (all variables).
+        reduce_ineq_cons (int or np.ndarray, optional): Inequality constraint
+            indices to enforce. Defaults to None (all four constraints).
+    """
+
+    # Optimization variable labels for plotting.
+    OPT_VARIABLE_LABELS = [
+        "Reel-out\nforce [N]",
+        "Reel-in\nforce [N]",
+        "Elevation\nangle [rad]",
+        "Reel-in tether\nlength [m]",
+        "Minimum tether\nlength [m]",
+    ]
+
+    def __init__(
+        self,
+        cycle_settings,
+        system_properties,
+        environment_state,
+        optimizer_config,
+        reduce_x=None,
+        reduce_ineq_cons=None,
+    ):
+        """Initialize the cycle optimizer."""
+        # System and environment references.
         self.system_properties = system_properties
         self.environment_state = environment_state
 
-        self.scaling_x = scaling_x  # Scaling the optimization variables will affect the optimization. In general, a
-        # similar search range is preferred for each variable.
-        self.x0_real_scale = x0_real_scale  # Optimization starting point.
-        self.bounds_real_scale = bounds_real_scale  # Optimization variables bounds defining the search space.
-        self.reduce_x = reduce_x  # Reduce the search space by providing a tuple with id's of x to keep. Set to None for
-        # utilizing the full search space.
+        # Build optimization vector configuration from optimizer_config.
+        self.x0_real_scale = np.array(optimizer_config["x0"], dtype=float)
+        self.scaling_x = np.array(optimizer_config["scaling"], dtype=float)
+        self.bounds_real_scale = np.array(optimizer_config["bounds"], dtype=float)
 
-        if isinstance(reduce_ineq_cons, int):
-            self.reduce_ineq_cons = np.arange(reduce_ineq_cons)  # Reduces the number of inequality constraints used for
-            # solving the problem.
+        assert isinstance(self.x0_real_scale, np.ndarray)
+        assert isinstance(self.scaling_x, np.ndarray)
+        assert isinstance(self.bounds_real_scale, np.ndarray)
+
+        # Variable and constraint reduction.
+        if reduce_x is None:
+            self.reduce_x = np.arange(len(self.x0_real_scale))
+        else:
+            assert isinstance(reduce_x, np.ndarray)
+            self.reduce_x = reduce_x
+
+        if reduce_ineq_cons is None:
+            self.reduce_ineq_cons = np.arange(4)
+        elif isinstance(reduce_ineq_cons, int):
+            self.reduce_ineq_cons = np.arange(reduce_ineq_cons)
         else:
             self.reduce_ineq_cons = reduce_ineq_cons
 
-        # Solver tolerances (sourced from optimizer config / YAML).
-        self.ftol = optimizer_config['ftol']  # Function tolerance for convergence.
-        self.eps = optimizer_config['eps']    # Finite difference step size for gradient estimation.
+        # Solver tolerances.
+        self.ftol = optimizer_config["ftol"]
+        self.eps = optimizer_config["eps"]
 
-        # Settings inferred from the optimization configuration.
-        self.x0 = None  # Scaled starting point.
-        self.x_opt_real_scale = None  # Optimal solution for the optimization vector.
+        # Scaled starting point (set during optimize()).
+        self.x0 = None
+        # Optimal solution in real scale.
+        self.x_opt_real_scale = None
 
-        # Optimization operational attributes.
-        self.x_last = None  # Optimization vector used for the latest evaluation function call.
-        self.obj = None  # Value of the objective/cost function of the latest evaluation function call.
-        self.ineq_cons = None  # Values of the inequality constraint functions of the latest evaluation function call.
-        self.x_progress = []  # Evaluated optimization vectors of every conducted optimization iteration - only tracked
-        # when using Scipy.
+        # Operational attributes for caching objective/constraint evaluations.
+        self.x_last = None
+        self.obj = None
+        self.ineq_cons = None
+        self.x_progress = []
 
-        # Optimization result.
-        self.op_res = None  # Result dictionary of optimization function.
+        # Optimization result dictionary.
+        self.op_res = None
 
-    def clear_result_attributes(self):
-        """Clear the inferred optimization settings and results before re-running the optimization."""
+        # Store cycle settings, printing any keys that will be overruled.
+        cycle_settings.setdefault("cycle", {})
+        cycle_keys = list(flatten_dict(cycle_settings))
+        overruled_keys = [
+            k
+            for k in [
+                "cycle.elevation_angle_traction",
+                "cycle.tether_length_start_retraction",
+                "cycle.tether_length_end_retraction",
+                "retraction.control",
+                "transition.control",
+                "traction.control",
+            ]
+            if k in cycle_keys
+        ]
+        if overruled_keys:
+            print("Overruled cycle setting: " + ", ".join(overruled_keys) + ".")
+        self.cycle_settings = cycle_settings
+
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
+
+    def optimize(self, maxiter=30, iprint=-1):
+        """Run the SLSQP optimization.
+
+        Args:
+            maxiter (int): Maximum number of optimizer iterations.
+            iprint (int): SLSQP print level (-1 = silent, 0 = final, 1 = iter).
+
+        Returns:
+            np.ndarray: Optimal solution in real (unscaled) units.
+        """
+        self._clear_result_attributes()
+
+        # Build scaled starting point and bounds.
+        self.x0 = self.x0_real_scale * self.scaling_x
+        bounds = self.bounds_real_scale.copy()
+        bounds[:, 0] *= self.scaling_x
+        bounds[:, 1] *= self.scaling_x
+
+        starting_point = self.x0[self.reduce_x]
+        bounds = bounds[self.reduce_x]
+
+        # Build constraint list.
+        cons = [
+            {"type": "ineq", "fun": self._cons_fun, "args": (i,)}
+            for i in self.reduce_ineq_cons
+        ]
+
+        options = {
+            "disp": True,
+            "maxiter": maxiter,
+            "ftol": self.ftol,
+            "eps": self.eps,
+            "iprint": iprint,
+        }
+
+        self.op_res = dict(
+            op.minimize(
+                self._obj_fun,
+                starting_point,
+                bounds=bounds,
+                method="SLSQP",
+                options=options,
+                callback=self._callback_fun,
+                constraints=cons,
+            )
+        )
+
+        # Reconstruct full solution vector and descale.
+        res_x = self.x0.copy()
+        res_x[self.reduce_x] = self.op_res["x"]
+        self.x_opt_real_scale = res_x / self.scaling_x
+
+        return self.x_opt_real_scale
+
+    def eval_point(self, x_real_scale=None, plot_result=False, relax_errors=False):
+        """Evaluate simulation at a given point.
+
+        Uses either the provided vector, the optimal solution, or the starting
+        point (in that order of precedence).
+
+        Args:
+            x_real_scale (np.ndarray, optional): Optimization vector.
+            plot_result (bool): Whether to plot the cycle trajectory.
+            relax_errors (bool): Whether to suppress steady-state errors.
+
+        Returns:
+            tuple: (constraint_values, performance_indicators).
+        """
+        if x_real_scale is None:
+            x_real_scale = (
+                self.x_opt_real_scale
+                if self.x_opt_real_scale is not None
+                else self.x0_real_scale
+            )
+        kpis = self.eval_performance_indicators(x_real_scale, plot_result, relax_errors)
+        cons = self.eval_fun(x_real_scale, scale_x=False, relax_errors=relax_errors)[1]
+        return cons, kpis
+
+    def check_gradient(self, x_real_scale=None, step_size=1e-6):
+        """Compute forward finite-difference gradient at a point.
+
+        Args:
+            x_real_scale (np.ndarray, optional): Point at which to evaluate.
+            step_size (float): Finite difference step.
+
+        Returns:
+            tuple: (gradient, logarithmic_sensitivities).
+        """
+        self.x0 = self.x0_real_scale * self.scaling_x
+
+        if x_real_scale is None:
+            x_real_scale = (
+                self.x_opt_real_scale
+                if self.x_opt_real_scale is not None
+                else self.x0_real_scale
+            )
+        x_ref = x_real_scale * self.scaling_x
+
+        obj_ref = self._obj_fun(x_ref)
+        gradient, log_sens = [], []
+        for i, xi in enumerate(x_ref):
+            x_pert = x_ref.copy()
+            x_pert[i] += step_size
+            grad = (self._obj_fun(x_pert) - obj_ref) / step_size
+            gradient.append(grad)
+            log_sens.append(xi / obj_ref * grad)
+
+        return gradient, log_sens
+
+    # -------------------------------------------------------------------------
+    # Plotting
+    # -------------------------------------------------------------------------
+
+    def plot_opt_evolution(self, output_path=None, show_plot=False):
+        """Plot the evolution of optimization variables.
+
+        Each variable is shown in a single panel with dual y-axes (scaled and
+        real values). The bottom row shows objective and constraint functions.
+
+        Args:
+            output_path (str or Path, optional): Save figure as PDF.
+            show_plot (bool): Display figure interactively.
+        """
+        if not self.x_progress:
+            return
+
+        n_vars = len(self.x_progress[0])
+        n_rows = n_vars + 1
+        fig = plt.figure(figsize=(9, 3 * n_rows))
+        gs = GridSpec(n_rows, 2, figure=fig, hspace=0.45, wspace=0.35)
+        fig.suptitle(
+            f"Optimization Evolution  –  v = {self.environment_state.wind_speed:.1f} m/s",
+            fontweight="bold",
+            fontsize=13,
+        )
+
+        scaling = self.scaling_x[self.reduce_x]
+        iters = range(len(self.x_progress))
+
+        for i, var_idx in enumerate(self.reduce_x):
+            label = self.OPT_VARIABLE_LABELS[var_idx].replace("\n", " ")
+
+            ax_l = fig.add_subplot(gs[i, :])
+            ax_r = ax_l.twinx()
+
+            scaled_vals = [x[i] for x in self.x_progress]
+            real_factor = (1.0 / scaling[i]) * (
+                180.0 / np.pi if var_idx == 2 else 1.0
+            )
+            label_real = label.replace("[rad]", "[deg]") if var_idx == 2 else label
+
+            ax_l.plot(iters, scaled_vals, color="C0", linewidth=1.5)
+
+            ax_l.set_ylabel("scaled [-]", fontsize=8, color="C0")
+            ax_r.set_ylabel(label_real, fontsize=8, color="C1")
+            ax_l.tick_params(axis="y", labelcolor="C0", labelsize=7)
+            ax_r.tick_params(axis="y", labelcolor="C1", labelsize=7)
+            ax_l.ticklabel_format(axis="y", useOffset=False, style="plain")
+            ax_r.ticklabel_format(axis="y", useOffset=False, style="plain")
+
+            lo, hi = ax_l.get_ylim()
+            ax_r.set_ylim(lo * real_factor, hi * real_factor)
+
+            ax_l.set_title(label, fontsize=8, loc="left")
+            ax_l.grid(True, alpha=0.4)
+
+        # Objective panel.
+        ax_obj = fig.add_subplot(gs[n_vars, 0])
+        obj_res = [self._obj_fun(x) for x in self.x_progress]
+        ax_obj.plot(iters, obj_res, linewidth=1.5)
+        ax_obj.grid(True, alpha=0.4)
+        ax_obj.set_ylabel("Objective [-]", fontsize=8)
+        ax_obj.set_xlabel("Iteration [-]")
+
+        # Constraints panel.
+        ax_cons = fig.add_subplot(gs[n_vars, 1])
+        cons_res = [self._cons_fun(x, -1)[self.reduce_ineq_cons] for x in self.x_progress]
+        cons_lines = ax_cons.plot(cons_res)
+        active_cons = [any(c < -1e-6 for c in res) for res in cons_res]
+        ax_cons.fill_between(
+            iters,
+            0,
+            1,
+            where=active_cons,
+            alpha=0.4,
+            transform=ax_cons.get_xaxis_transform(),
+        )
+        ax_cons.axhline(0, color="k", linewidth=0.8, alpha=0.4)
+        ax_cons.legend(
+            cons_lines,
+            [f"constraint {j}" for j in range(len(cons_lines))],
+            fontsize=7,
+            loc="upper right",
+        )
+        ax_cons.grid(True, alpha=0.4)
+        ax_cons.set_ylabel("Constraint [-]", fontsize=8)
+        ax_cons.set_xlabel("Iteration [-]")
+
+        plt.tight_layout()
+
+        if output_path is not None:
+            out = Path(output_path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(out, bbox_inches="tight")
+            print(f"  Saved optimization evolution plot → {out}")
+
+        if show_plot:
+            plt.show()
+        else:
+            plt.close(fig)
+
+    def perform_local_sensitivity_analysis(self):
+        """Sweep each variable individually and plot objective/constraints.
+
+        Produces one subplot per optimization variable showing how the
+        objective and constraint functions vary across the variable's bounds.
+        """
+        red_x = self.reduce_x
+        n_plots = len(red_x)
+        bounds = self.bounds_real_scale[red_x]
+
+        x_ref_real_scale = (
+            self.x_opt_real_scale
+            if self.x_opt_real_scale is not None
+            else self.x0_real_scale
+        )
+        f_ref, cons_ref = self.eval_fun(x_ref_real_scale, scale_x=False)
+
+        fig, ax = plt.subplots(n_plots)
+        if n_plots == 1:
+            ax = [ax]
+        fig.subplots_adjust(hspace=0.3)
+
+        for i, b in enumerate(bounds):
+            lb, ub = b
+            xi_sweep = np.linspace(lb, ub, 50)
+            f, g, active_g = [], [], []
+            for xi in xi_sweep:
+                x_full = list(x_ref_real_scale)
+                x_full[red_x[i]] = xi
+                try:
+                    res_eval = self.eval_fun(x_full, scale_x=False)
+                    f.append(res_eval[0])
+                    cons = res_eval[1][self.reduce_ineq_cons]
+                    g.append(res_eval[1])
+                    active_g.append(any(c < -1e-6 for c in cons))
+                except Exception:
+                    f.append(None)
+                    g.append(None)
+                    active_g.append(False)
+
+            ax[i].plot(xi_sweep, f, "--", label="objective")
+            x_ref = x_ref_real_scale[red_x[i]]
+            ax[i].plot(x_ref, f_ref, "x", label="x_ref", markersize=12)
+
+            for i_cons in self.reduce_ineq_cons:
+                cons_line = ax[i].plot(
+                    xi_sweep,
+                    [c[i_cons] if c is not None else None for c in g],
+                    label=f"constraint {i_cons}",
+                )
+                clr = cons_line[0].get_color()
+                ax[i].plot(x_ref, cons_ref[i_cons], "s", markerfacecolor="None", color=clr)
+
+            ax[i].fill_between(
+                xi_sweep, 0, 1, where=active_g, alpha=0.4, transform=ax[i].get_xaxis_transform()
+            )
+            ax[i].set_xlabel(self.OPT_VARIABLE_LABELS[red_x[i]])
+            ax[i].set_ylabel("Response [-]")
+            ax[i].grid()
+
+        ax[0].legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        ax[0].set_title(f"v={self.environment_state.wind_speed:.1f}m/s")
+        plt.subplots_adjust(right=0.7)
+        plt.show()
+
+    # -------------------------------------------------------------------------
+    # Objective and constraint evaluation
+    # -------------------------------------------------------------------------
+
+    def eval_fun(self, x, scale_x=True, **kwargs):
+        """Compute objective and constraint functions.
+
+        Args:
+            x (np.ndarray): Optimization vector (scaled or real).
+            scale_x (bool): Whether x is in scaled units.
+            **kwargs: Passed to eval_performance_indicators.
+
+        Returns:
+            tuple: (objective, constraint_array).
+        """
+        x_real = x / self.scaling_x if scale_x else np.asarray(x)
+        res = self.eval_performance_indicators(x_real, **kwargs)
+
+        # Reference wind power at 100 m altitude.
+        env = self.environment_state
+        env.calculate(100.0)
+        power_wind_100m = 0.5 * env.air_density * env.wind_speed**3
+
+        # Objective: negative normalized power (minimization).
+        obj = (
+            -res["average_power"]["cycle"]
+            / power_wind_100m
+            / self.system_properties.kite_projected_area
+        )
+
+        # Constraint 0: reel-out force setpoint tracking.
+        min_force_out = res["min_tether_force"]["out"]
+        if min_force_out == np.inf:
+            min_force_out = 0.0
+        c0 = (min_force_out - x_real[0]) * 1e-2 + 1e-6
+
+        # Constraint 1: reel-in force setpoint tracking.
+        c1 = (res["max_tether_force"]["in"] - x_real[1]) * 1e-2 + 1e-6
+
+        # Constraint 2: peak tether force within limit.
+        force_max = self.system_properties.tether_force_max_limit
+        c2 = -(res["max_tether_force"]["out"] - force_max) / force_max + 1e-6
+
+        # Constraint 3: minimum crosswind patterns.
+        min_cw = (
+            self.cycle_settings.get("optimization", {})
+            .get("constraints", {})
+            .get("min_crosswind_patterns", 1)
+        )
+        n_cw = res["n_crosswind_patterns"]
+        c3 = (n_cw - min_cw) if n_cw is not None else 0.0
+
+        ineq_cons = np.array([c0, c1, c2, c3])
+        return obj, ineq_cons
+
+    def eval_performance_indicators(self, x_real_scale, plot_result=False, relax_errors=True):
+        """Run the cycle simulation and extract KPIs.
+
+        Args:
+            x_real_scale (np.ndarray): Optimization vector in real units.
+            plot_result (bool): Whether to plot the cycle trajectory.
+            relax_errors (bool): Whether to suppress steady-state errors.
+
+        Returns:
+            dict: Performance indicators including power, forces, durations.
+        """
+        (
+            tether_force_traction,
+            tether_force_retraction,
+            elevation_angle,
+            tether_length_start,
+            tether_length_end,
+        ) = x_real_scale
+
+        # Update cycle settings with current optimization variables.
+        self.cycle_settings["cycle"]["elevation_angle_traction"] = elevation_angle
+        self.cycle_settings["cycle"]["tether_length_start_retraction"] = tether_length_start
+        self.cycle_settings["cycle"]["tether_length_end_retraction"] = tether_length_end
+
+        self.cycle_settings["retraction"]["control"] = (
+            "tether_force_ground",
+            tether_force_retraction,
+        )
+        self.cycle_settings["transition"]["control"] = ("reeling_speed", 0.0)
+        self.cycle_settings["traction"]["control"] = (
+            "tether_force_ground",
+            tether_force_traction,
+        )
+
+        # Run cycle simulation.
+        cycle = Cycle(self.cycle_settings)
+        ss_config = self.cycle_settings.get("steady_state", {})
+        iterative_config = {
+            "enable_steady_state_errors": not relax_errors,
+            "max_iterations": ss_config.get("max_iterations", 250),
+            "convergence_tolerance": ss_config.get("convergence_tolerance", 1e-6),
+        }
+        cycle.run_simulation(
+            self.system_properties,
+            self.environment_state,
+            iterative_config,
+            not relax_errors,
+        )
+
+        if plot_result:
+            cycle.trajectory_plot(steady_state_markers=True)
+            phase_switch = [
+                cycle.transition_phase.time[0],
+                cycle.traction_phase.time[0],
+            ]
+            cycle.time_plot(
+                [
+                    "straight_tether_length",
+                    "reeling_speed",
+                    "tether_force_ground",
+                    "power_ground",
+                ],
+                plot_markers=phase_switch,
+            )
+            plt.tight_layout()
+            plt.show()
+
+        return {
+            "average_power": {
+                "cycle": cycle.average_power,
+                "in": cycle.retraction_phase.average_power,
+                "trans": cycle.transition_phase.average_power,
+                "out": cycle.traction_phase.average_power,
+            },
+            "min_tether_force": {
+                "in": cycle.retraction_phase.min_tether_force,
+                "trans": cycle.transition_phase.min_tether_force,
+                "out": cycle.traction_phase.min_tether_force,
+            },
+            "max_tether_force": {
+                "in": cycle.retraction_phase.max_tether_force,
+                "trans": cycle.transition_phase.max_tether_force,
+                "out": cycle.traction_phase.max_tether_force,
+            },
+            "min_reeling_speed": {
+                "in": cycle.retraction_phase.min_reeling_speed,
+                "out": cycle.traction_phase.min_reeling_speed,
+            },
+            "max_reeling_speed": {
+                "in": cycle.retraction_phase.max_reeling_speed,
+                "out": cycle.traction_phase.max_reeling_speed,
+            },
+            "n_crosswind_patterns": getattr(
+                cycle.traction_phase, "n_crosswind_patterns", None
+            ),
+            "min_height": min(
+                cycle.traction_phase.kinematics[0].z,
+                cycle.traction_phase.kinematics[-1].z,
+            ),
+            "max_elevation_angle": cycle.transition_phase.kinematics[0].elevation_angle,
+            "duration": {
+                "cycle": cycle.duration,
+                "in": cycle.retraction_phase.duration,
+                "trans": cycle.transition_phase.duration,
+                "out": cycle.traction_phase.duration,
+            },
+            "duty_cycle": cycle.duty_cycle,
+            "pumping_efficiency": cycle.pumping_efficiency,
+            "kinematics": cycle.kinematics,
+            "steady_states": cycle.steady_states,
+            "time": cycle.time,
+        }
+
+    # -------------------------------------------------------------------------
+    # Internal helpers
+    # -------------------------------------------------------------------------
+
+    def _clear_result_attributes(self):
+        """Reset state before a new optimization run."""
         self.x0 = None
         self.x_last = None
         self.obj = None
@@ -64,556 +593,54 @@ class Optimizer:
         self.x_opt_real_scale = None
         self.op_res = None
 
-    def eval_point(self, plot_result=False, relax_errors=False, x_real_scale=None):
-        """Evaluate simulation results using the provided optimization vector. Uses either the optimization vector
-        provided as argument, the optimal vector, or the starting point for the simulation."""
-        if x_real_scale is None:
-            if self.x_opt_real_scale is not None:
-                x_real_scale = self.x_opt_real_scale
-            else:
-                x_real_scale = self.x0_real_scale
-        kpis = self.eval_performance_indicators(x_real_scale, plot_result, relax_errors)
-        cons = self.eval_fun(x_real_scale, False, relax_errors=relax_errors)[1]
-        return cons, kpis
+    def _obj_fun(self, x):
+        """Objective function wrapper for scipy.optimize.
 
-    def eval_fun_pyopt(self, x, *args):
-        """PyOpt's implementation of SLSQP can produce NaN's in the optimization vector or contain values that violate
-        the bounds."""
-        if np.isnan(x).any():
-            raise OptimizerError("Optimization vector contains NaN's.")
-
-        if self.reduce_x is not None:
-            x_full = self.x0.copy()
-            x_full[self.reduce_x] = x
-        else:
-            x_full = x
-
-        bounds_adhered = (x_full - self.bounds_real_scale[:, 0]*self.scaling_x >= -1e6).all() and \
-                         (x_full - self.bounds_real_scale[:, 1]*self.scaling_x <= 1e6).all()
-        if not bounds_adhered:
-            raise OptimizerError("Optimization bounds violated.")
-
-        obj, ineq_cons = self.eval_fun(x_full, *args)
-
-        return obj, [-c for c in ineq_cons], 0
-
-    def obj_fun(self, x, *args):
-        """Scipy's implementation of SLSQP uses separate functions for the objective and constraints. Since the
-        objective and constraints result from the same simulation, a work around is provided to prevent running the same
-        simulation twice."""
-        if self.reduce_x is not None:
-            x_full = self.x0.copy()
-            x_full[self.reduce_x] = x
-        else:
-            x_full = x
+        Caches simulation results to avoid redundant evaluations when scipy
+        calls objective and constraints with the same vector.
+        """
+        x_full = self.x0.copy()
+        x_full[self.reduce_x] = x
         if not np.array_equal(x_full, self.x_last):
-            self.obj, self.ineq_cons = self.eval_fun(x_full, *args)
+            self.obj, self.ineq_cons = self.eval_fun(x_full)
             self.x_last = x_full.copy()
-
         return self.obj
 
-    def cons_fun(self, x, return_i=-1, *args):
-        """Scipy's implementation of SLSQP uses separate functions for the objective and every constraint. Since the
-        objective and constraints result from the same simulation, a work around is provided to prevent running the same
-        simulation twice."""
-        if self.reduce_x is not None:
-            x_full = self.x0.copy()
-            x_full[self.reduce_x] = x
-        else:
-            x_full = x
-        if not np.array_equal(x_full, self.x_last):
-            self.obj, self.ineq_cons = self.eval_fun(x_full, *args)
-            self.x_last = x_full.copy()
-
-        if return_i > -1:
-            return self.ineq_cons[return_i]
-        else:
-            return self.ineq_cons
-
-    def callback_fun_scipy(self, x):
-        """Called by SciPy every iteration (excludes gradient evaluation calls)."""
-        if np.isnan(x).any():
-            raise OptimizerError("Optimization vector contains nan's.")
-        self.x_progress.append(x.copy())
-
-    def optimize(self, *args, maxiter=30, iprint=-1):
-        """Perform optimization."""
-        self.clear_result_attributes()
-        # Construct scaled starting point and bounds
-        self.x0 = self.x0_real_scale*self.scaling_x
-        bounds = self.bounds_real_scale.copy()
-        bounds[:, 0] = bounds[:, 0]*self.scaling_x
-        bounds[:, 1] = bounds[:, 1]*self.scaling_x
-
-        if self.reduce_x is None:
-            starting_point = self.x0
-        else:
-            starting_point = self.x0[self.reduce_x]
-            bounds = bounds[self.reduce_x]
-
-        print_details = True
-
-        con = {
-            'type': 'ineq',  # g_i(x) >= 0
-            'fun': self.cons_fun,
-        }
-        cons = []
-        for i in self.reduce_ineq_cons:
-            cons.append(con.copy())
-            cons[-1]['args'] = (i, *args)
-
-        options = {
-            'disp': print_details,
-            'maxiter': maxiter,
-            'ftol': self.ftol,
-            'eps': self.eps,
-            'iprint': iprint,
-        }
-        self.op_res = dict(op.minimize(self.obj_fun, starting_point, args=args, bounds=bounds, method='SLSQP',
-                                        options=options, callback=self.callback_fun_scipy, constraints=cons))
-        
-        if self.reduce_x is None:
-            res_x = self.op_res['x']
-        else:
-            res_x = self.x0.copy()
-            res_x[self.reduce_x] = self.op_res['x']
-        self.x_opt_real_scale = res_x/self.scaling_x
-
-        return self.x_opt_real_scale
-
-    def plot_opt_evolution(self):
-        """Method can be called after finishing optimizing using Scipy to plot how the optimization evolved and arrived
-        at the final solution."""
-        fig, ax = plt.subplots(len(self.x_progress[0])+1, 2, sharex=True)
-        for i in range(len(self.x_progress[0])):
-            # Plot optimization variables.
-            ax[i, 0].plot([x[i] for x in self.x_progress])
-            ax[i, 0].grid(True)
-            ax[i, 0].set_ylabel('x[{}]'.format(i))
-
-            # Plot step size.
-            tmp = [self.x0]+self.x_progress
-            step_sizes = [b[i] - a[i] for a, b in zip(tmp[:-1], tmp[1:])]
-
-            ax[i, 1].plot(step_sizes)
-            ax[i, 1].grid(True)
-            ax[i, 1].set_ylabel('dx[{}]'.format(i))
-
-        # Plot objective.
-        obj_res = [self.obj_fun(x) for x in self.x_progress]
-        ax[-1, 0].plot([res for res in obj_res])
-        ax[-1, 0].grid()
-        ax[-1, 0].set_ylabel('Objective [-]')
-
-        # Plot constraints.
-        cons_res = [self.cons_fun(x, -1)[self.reduce_ineq_cons] for x in self.x_progress]
-        cons_lines = ax[-1, 1].plot([res for res in cons_res])
-
-        # add shade when one of the constraints is violated
-        active_cons = [any([c < -1e-6 for c in res]) for res in cons_res]
-        ax[-1, 1].fill_between(range(len(active_cons)), 0, 1, where=active_cons, alpha=0.4,
-                               transform=ax[-1, 1].get_xaxis_transform())
-
-        ax[-1, 1].legend(cons_lines, ["constraint {}".format(i) for i in range(len(cons_lines))],
-                         bbox_to_anchor=(1.04, 1), loc="upper left")
-        plt.subplots_adjust(right=0.7)
-
-        ax[-1, 1].grid()
-        ax[-1, 1].set_ylabel('Constraint [-]')
-
-        ax[-1, 0].set_xlabel('Iteration [-]')
-        ax[-1, 1].set_xlabel('Iteration [-]')
-        plt.tight_layout()
-        plt.show()
-
-    def check_gradient(self, x_real_scale=None):
-        """Evaluate forward finite difference gradient of objective function at given point. Logarithmic sensitivities
-        are evaluated to assess how influential each parameter is at the evaluated point."""
-        self.x0 = self.x0_real_scale*self.scaling_x
-        step_size = 1e-6
-
-        # Evaluate the gradient at the point set by either the optimization vector provided as argument, the optimal
-        # vector, or the starting point for the simulation.
-        if x_real_scale is None:
-            if self.x_opt_real_scale is not None:
-                x_real_scale = self.x_opt_real_scale
-            else:
-                x_real_scale = self.x0_real_scale
-        if self.scaling_x is not None:
-            x_ref = x_real_scale*self.scaling_x
-        else:
-            x_ref = x_real_scale
-
-        obj_ref = self.obj_fun(x_ref)
-        ffd_gradient, log_sensitivities = [], []
-        for i, xi_ref in enumerate(x_ref):
-            x_ref_perturbed = x_ref.copy()
-            x_ref_perturbed[i] += step_size
-            grad = (self.obj_fun(x_ref_perturbed) - obj_ref) / step_size
-            ffd_gradient.append(grad)
-            log_sensitivities.append(xi_ref/obj_ref*grad)
-
-        return ffd_gradient, log_sensitivities
-
-    def perform_local_sensitivity_analysis(self):
-        """Sweep search range of one of the variables at the time and calculate objective and constraint functions.
-        Plot the results of each sweep in a separate panel."""
-        ref_point_label = "x_ref"
-        if self.reduce_x is None:
-            red_x = np.arange(len(self.x0_real_scale))
-        else:
-            red_x = self.reduce_x
-        n_plots = len(red_x)
-        bounds = self.bounds_real_scale[red_x]
-
-        # Perform the sensitivity analysis around the intersection point set by either the optimization vector provided
-        # as argument, the optimal vector, or the starting point for the simulation.
-        if self.x_opt_real_scale is not None:
-            x_ref_real_scale = self.x_opt_real_scale
-        else:
-            x_ref_real_scale = self.x0_real_scale
-        f_ref, cons_ref = self.eval_fun(x_ref_real_scale, scale_x=False)
-
-        fig, ax = plt.subplots(n_plots)
-        if n_plots == 1:
-            ax = [ax]
-        fig.subplots_adjust(hspace=.3)
-
-        for i, b in enumerate(bounds):
-            # Determine objective and constraint functions along given variable.
-            lb, ub = b
-            xi_sweep = np.linspace(lb, ub, 50)
-            f, g, active_g = [], [], []
-            for xi in xi_sweep:
-                x_full = list(x_ref_real_scale)
-                x_full[red_x[i]] = xi
-
-                try:
-                    res_eval = self.eval_fun(x_full, scale_x=False)
-                    f.append(res_eval[0])
-                    cons = res_eval[1][self.reduce_ineq_cons]
-                    g.append(res_eval[1])
-                    active_g.append(any([c < -1e-6 for c in cons]))
-                except:
-                    f.append(None), g.append(None), active_g.append(False)
-
-            # Plot objective function and marker at the reference point.
-            ax[i].plot(xi_sweep, f, '--', label='objective')
-            x_ref = x_ref_real_scale[red_x[i]]
-            ax[i].plot(x_ref, f_ref, 'x', label=ref_point_label, markersize=12)
-
-            # Plot constraint functions.
-            for i_cons in self.reduce_ineq_cons:
-                cons_line = ax[i].plot(xi_sweep, [c[i_cons] if c is not None else None for c in g],
-                                       label='constraint {}'.format(i_cons))
-                clr = cons_line[0].get_color()
-                ax[i].plot(x_ref, cons_ref[i_cons], 's', markerfacecolor='None', color=clr)
-
-            # Mark ranges where constraint is active with a background color.
-            ax[i].fill_between(xi_sweep, 0, 1, where=active_g, alpha=0.4, transform=ax[i].get_xaxis_transform())
-
-            ax[i].set_xlabel(self.OPT_VARIABLE_LABELS[red_x[i]])
-            ax[i].set_ylabel("Response [-]")
-            ax[i].grid()
-
-        ax[0].legend(bbox_to_anchor=(1.04, 1), loc="upper left")
-        ax[0].set_title("v={:.1f}m/s".format(self.environment_state.wind_speed))
-        plt.subplots_adjust(right=0.7)
-
-class OptimizerCycle(Optimizer):
-    """Tether force controlled cycle optimizer. Zero reeling speed is used as setpoint for transition phase."""
-
-    # Set default optimization variable labels, starting point, scaling, and bounds. The optimization variable order is:
-    OPT_VARIABLE_LABELS = [
-        "Reel-out\nforce [N]",
-        "Reel-in\nforce [N]",
-        "Elevation\nangle [rad]",
-        "Reel-in tether\nlength [m]",
-        "Minimum tether\nlength [m]"
-    ]
-    X0_REAL_SCALE_DEFAULT = np.array([np.nan, np.nan, np.nan, np.nan, np.nan])
-    SCALING_X_DEFAULT = np.array([np.nan, np.nan, np.nan, np.nan, np.nan])
-    BOUNDS_REAL_SCALE_DEFAULT = np.array([
-        [np.nan, np.nan],
-        [np.nan, np.nan],
-        [np.nan, np.nan],
-        [np.nan, np.nan],
-        [np.nan, np.nan],
-    ])
-
-    def __init__(self, cycle_settings, system_properties, environment_state,
-                 optimizer_config, reduce_x=None, reduce_ineq_cons=None):
-        """Initialize the cycle optimizer.
+    def _cons_fun(self, x, return_i=-1):
+        """Constraint function wrapper for scipy.optimize.
 
         Args:
-            cycle_settings (dict): Cycle simulation settings.
-            system_properties (SystemProperties): System properties object.
-            environment_state: Environment / wind profile object.
-            optimizer_config (dict): Dictionary with keys ``'x0'``
-                (np.ndarray), ``'scaling'`` (np.ndarray), and a sibling
-                ``'bounds'`` array of shape (5, 2). Typically obtained from
-                ``simulation_settings['optimization']``.
-            reduce_x (np.ndarray, optional): Indices of optimization variables
-                to include. Defaults to None (all variables).
-            reduce_ineq_cons (int or np.ndarray, optional): Inequality
-                constraint indices to enforce. Defaults to None (all four).
+            x (np.ndarray): Optimization vector (reduced, scaled).
+            return_i (int): Index of single constraint to return, or -1 for all.
+
+        Returns:
+            float or np.ndarray: Constraint value(s).
         """
-        # Initiate attributes of parent class.
-        x0 = np.array(optimizer_config['x0'], dtype=float)
-        scaling = np.array(optimizer_config['scaling'], dtype=float)
-        bounds = np.array(optimizer_config['bounds'], dtype=float)
-        bounds[0, :] = [system_properties.tether_force_min_limit, system_properties.tether_force_max_limit]
-        bounds[1, :] = [system_properties.tether_force_min_limit, system_properties.tether_force_max_limit]
-        if reduce_ineq_cons is None:
-            reduce_ineq_cons = np.arange(4)
-        super().__init__(x0, bounds, scaling,
-                         reduce_x, reduce_ineq_cons, system_properties, environment_state, optimizer_config)
+        x_full = self.x0.copy()
+        x_full[self.reduce_x] = x
+        if not np.array_equal(x_full, self.x_last):
+            self.obj, self.ineq_cons = self.eval_fun(x_full)
+            self.x_last = x_full.copy()
+        return self.ineq_cons[return_i] if return_i > -1 else self.ineq_cons
 
-        # Set cycle settings after printing the settings that may be overruled by the optimization.
-        cycle_settings.setdefault('cycle', {})
-        cycle_keys = list(flatten_dict(cycle_settings))
-        overruled_keys = []
-        for k in ['cycle.elevation_angle_traction', 'cycle.tether_length_start_retraction',
-                  'cycle.tether_length_end_retraction', 'retraction.control', 'transition.control', 'traction.control']:
-            if k in cycle_keys:
-                overruled_keys.append(k)
-        if overruled_keys:
-            print("Overruled cycle setting: " + ", ".join(overruled_keys) + ".")
-        self.cycle_settings = cycle_settings
+    def _callback_fun(self, x):
+        """Callback invoked by scipy at each iteration."""
+        if np.isnan(x).any():
+            raise OptimizerError("Optimization vector contains NaN's.")
+        self.x_progress.append(x.copy())
 
-    def callback_fun_scipy(self, x):
-        """Track iteration progress and print all optimization variable values."""
-        super().callback_fun_scipy(x)
+        # Print iteration summary.
         iter_num = len(self.x_progress)
-        # Reconstruct full 5-variable vector (fixed variables keep their x0 value)
         x_full_scaled = self.x0.copy()
         x_full_scaled[self.reduce_x] = x
         x_full_real = x_full_scaled / self.scaling_x
         parts = []
-        for var_idx, val in enumerate(x_full_real):
-            label = self.OPT_VARIABLE_LABELS[var_idx].replace('\n', ' ')
-            fixed = var_idx not in self.reduce_x
-            suffix = ' (fixed)' if fixed else ''
-            if var_idx == 2:  # elevation angle → degrees
+        for idx, val in enumerate(x_full_real):
+            label = self.OPT_VARIABLE_LABELS[idx].replace("\n", " ")
+            fixed = idx not in self.reduce_x
+            suffix = " (fixed)" if fixed else ""
+            if idx == 2:
                 parts.append(f"{label}: {np.degrees(val):.2f} deg{suffix}")
             else:
                 parts.append(f"{label}: {val:.4g}{suffix}")
         print(f"  iter {iter_num:3d} | " + " | ".join(parts))
-
-    def plot_opt_evolution(self, output_path=None, show_plot=False):
-        """Plot the optimization variable evolution with real-scale values and proper units.
-
-        Each variable is shown in a single panel: the left y-axis shows the
-        scaled value (what SLSQP operates on) and the right y-axis shows the
-        corresponding real physical value.  The bottom row shows the objective
-        (left) and constraint functions (right).
-
-        Args:
-            output_path (str or Path, optional): If given, save the figure as PDF.
-            show_plot (bool): Whether to display the figure interactively.
-        """
-        if not self.x_progress:
-            return
-
-        from matplotlib.gridspec import GridSpec
-
-        n_vars = len(self.x_progress[0])
-        n_rows = n_vars + 1
-        fig = plt.figure(figsize=(9, 3 * n_rows))
-        gs = GridSpec(n_rows, 2, figure=fig, hspace=0.45, wspace=0.35)
-        fig.suptitle(
-            f'Optimization Evolution  –  v = {self.environment_state.wind_speed:.1f} m/s',
-            fontweight='bold', fontsize=13,
-        )
-
-        scaling = self.scaling_x[self.reduce_x]  # shape (n_vars,)
-        iters = range(len(self.x_progress))
-
-        for i, var_idx in enumerate(self.reduce_x):
-            label = self.OPT_VARIABLE_LABELS[var_idx].replace('\n', ' ')
-
-            # One panel spanning both columns, dual y-axes (one line, two scales).
-            ax_l = fig.add_subplot(gs[i, :])
-            ax_r = ax_l.twinx()
-
-            scaled_vals = [x[i] for x in self.x_progress]
-            real_factor = (1.0 / scaling[i]) * (180.0 / np.pi if var_idx == 2 else 1.0)
-            label_real  = (label.replace('[rad]', '[deg]') if var_idx == 2 else label)
-
-            ax_l.plot(iters, scaled_vals, color='C0', linewidth=1.5)
-
-            # Mirror the left axis limits onto the right axis using the real-scale factor.
-            ax_l.set_ylabel('scaled [-]', fontsize=8, color='C0')
-            ax_r.set_ylabel(label_real,   fontsize=8, color='C1')
-            ax_l.tick_params(axis='y', labelcolor='C0', labelsize=7)
-            ax_r.tick_params(axis='y', labelcolor='C1', labelsize=7)
-            ax_l.ticklabel_format(axis='y', useOffset=False, style='plain')
-            ax_r.ticklabel_format(axis='y', useOffset=False, style='plain')
-
-            # Keep right axis in sync: same relative limits, different tick labels.
-            lo, hi = ax_l.get_ylim()
-            ax_r.set_ylim(lo * real_factor, hi * real_factor)
-
-            ax_l.set_title(label, fontsize=8, loc='left')
-            ax_l.grid(True, alpha=0.4)
-
-        # Bottom row: objective and constraints side by side.
-        ax_obj  = fig.add_subplot(gs[n_vars, 0])
-        ax_cons = fig.add_subplot(gs[n_vars, 1])
-
-        obj_res = [self.obj_fun(x) for x in self.x_progress]
-        ax_obj.plot(iters, obj_res, linewidth=1.5)
-        ax_obj.grid(True, alpha=0.4)
-        ax_obj.set_ylabel('Objective [-]', fontsize=8)
-        ax_obj.set_xlabel('Iteration [-]')
-
-        cons_res  = [self.cons_fun(x, -1)[self.reduce_ineq_cons] for x in self.x_progress]
-        cons_lines = ax_cons.plot(cons_res)
-        active_cons = [any(c < -1e-6 for c in res) for res in cons_res]
-        ax_cons.fill_between(
-            iters, 0, 1, where=active_cons, alpha=0.4,
-            transform=ax_cons.get_xaxis_transform(),
-        )
-        ax_cons.axhline(0, color='k', linewidth=0.8, alpha=0.4)
-        ax_cons.legend(
-            cons_lines, [f'constraint {j}' for j in range(len(cons_lines))],
-            fontsize=7, loc='upper right',
-        )
-        ax_cons.grid(True, alpha=0.4)
-        ax_cons.set_ylabel('Constraint [-]', fontsize=8)
-        ax_cons.set_xlabel('Iteration [-]')
-        plt.tight_layout()
-
-        if output_path is not None:
-            from pathlib import Path as _Path
-            out = _Path(output_path)
-            out.parent.mkdir(parents=True, exist_ok=True)
-            fig.savefig(out, bbox_inches='tight')
-            print(f"  Saved optimization evolution plot → {out}")
-
-        if show_plot:
-            plt.show()
-        else:
-            plt.close(fig)
-
-    def eval_fun(self, x, scale_x=True, **kwargs):
-        """Method calculating the objective and constraint functions from the eval_performance_indicators method output.
-        """
-        # Convert the optimization vector to real scale values and perform simulation.
-        if scale_x and self.scaling_x is not None:
-            x_real_scale = x/self.scaling_x
-        else:
-            x_real_scale = x
-        res = self.eval_performance_indicators(x_real_scale, **kwargs)
-
-        # Prepare the simulation by updating simulation parameters.
-        env_state = self.environment_state
-        env_state.calculate(100.)
-        power_wind_100m = .5 * env_state.air_density * env_state.wind_speed ** 3
-
-        # Determine optimization objective and constraints.
-        obj = -res['average_power']['cycle']/power_wind_100m/self.system_properties.kite_projected_area
-
-        # When speed limits are active during the optimization (see determine_new_steady_state method of Phase
-        # class in qsm.py), the setpoint reel-out/reel-in forces are overruled. For special cases, the respective
-        # optimization variables won't affect the simulation. The lower constraints avoid random steps between
-        # iterations and drives the variables towards an extremum value of the force during the respective phase.
-        if res['min_tether_force']['out'] == np.inf:
-            res['min_tether_force']['out'] = 0.
-        force_out_setpoint_min = (res['min_tether_force']['out'] - x_real_scale[0])*1e-2 + 1e-6
-        force_in_setpoint_max = (res['max_tether_force']['in'] - x_real_scale[1])*1e-2 + 1e-6
-
-        # The maximum reel-out tether force can be exceeded when the tether force control is overruled by the maximum
-        # reel-out speed limit and the imposed reel-out speed yields a tether force exceeding its set point. This
-        # scenario is prevented by the lower constraint.
-        force_max_limit = self.system_properties.tether_force_max_limit
-        max_force_violation_traction = res['max_tether_force']['out'] - force_max_limit
-        ineq_cons_traction_max_force = -max_force_violation_traction/force_max_limit + 1e-6
-
-        # Constraint on the number of cross-wind patterns. It is assumed that a realistic reel-out trajectory should
-        # include at least one crosswind pattern.
-        if res["n_crosswind_patterns"] is not None:
-            ineq_cons_cw_patterns = res["n_crosswind_patterns"] - 1
-        else:
-            ineq_cons_cw_patterns = 0.  # Constraint set to 0 does not affect the optimization.
-
-        ineq_cons = np.array([force_out_setpoint_min, force_in_setpoint_max, ineq_cons_traction_max_force,
-                              ineq_cons_cw_patterns])
-
-        return obj, ineq_cons
-
-    def eval_performance_indicators(self, x_real_scale, plot_result=False, relax_errors=True):
-        """Method running the simulation and returning the performance indicators needed to calculate the objective and
-        constraint functions."""
-        # Map the optimization vector to the separate variables.
-        tether_force_traction, tether_force_retraction, elevation_angle_traction, tether_length_start, \
-        tether_length_end = x_real_scale
-
-        # Configure the cycle settings and run simulation.
-        self.cycle_settings['cycle']['elevation_angle_traction'] = elevation_angle_traction
-        self.cycle_settings['cycle']['tether_length_start_retraction'] = tether_length_start
-        self.cycle_settings['cycle']['tether_length_end_retraction'] = tether_length_end
-
-        self.cycle_settings['retraction']['control'] = ('tether_force_ground', tether_force_retraction)
-        self.cycle_settings['transition']['control'] = ('reeling_speed', 0.)
-        self.cycle_settings['traction']['control'] = ('tether_force_ground', tether_force_traction)
-
-        cycle = Cycle(self.cycle_settings)
-        ss_config = self.cycle_settings.get('steady_state', {})
-        iterative_procedure_config = {
-            'enable_steady_state_errors': not relax_errors,
-            'max_iterations': ss_config.get('max_iterations', 250),
-            'convergence_tolerance': ss_config.get('convergence_tolerance', 1e-6),
-        }
-        cycle.run_simulation(self.system_properties, self.environment_state, iterative_procedure_config,
-                             not relax_errors)
-
-        if plot_result:  # Plot the simulation results.
-            cycle.trajectory_plot(steady_state_markers=True)
-            phase_switch_points = [cycle.transition_phase.time[0], cycle.traction_phase.time[0]]
-            cycle.time_plot(['straight_tether_length', 'reeling_speed', 'tether_force_ground', 'power_ground'],
-                            plot_markers=phase_switch_points)
-            plt.tight_layout()
-            plt.show()
-
-        res = {
-            'average_power': {
-                'cycle': cycle.average_power,
-                'in': cycle.retraction_phase.average_power,
-                'trans': cycle.transition_phase.average_power,
-                'out': cycle.traction_phase.average_power,
-            },
-            'min_tether_force': {
-                'in': cycle.retraction_phase.min_tether_force,
-                'trans': cycle.transition_phase.min_tether_force,
-                'out': cycle.traction_phase.min_tether_force,
-            },
-            'max_tether_force': {
-                'in': cycle.retraction_phase.max_tether_force,
-                'trans': cycle.transition_phase.max_tether_force,
-                'out': cycle.traction_phase.max_tether_force,
-            },
-            'min_reeling_speed': {
-                'in': cycle.retraction_phase.min_reeling_speed,
-                'out': cycle.traction_phase.min_reeling_speed,
-            },
-            'max_reeling_speed': {
-                'in': cycle.retraction_phase.max_reeling_speed,
-                'out': cycle.traction_phase.max_reeling_speed,
-            },
-            'n_crosswind_patterns': getattr(cycle.traction_phase, 'n_crosswind_patterns', None),
-            'min_height': min([cycle.traction_phase.kinematics[0].z, cycle.traction_phase.kinematics[-1].z]),
-            'max_elevation_angle': cycle.transition_phase.kinematics[0].elevation_angle,
-            'duration': {
-                'cycle': cycle.duration,
-                'in': cycle.retraction_phase.duration,
-                'trans': cycle.transition_phase.duration,
-                'out': cycle.traction_phase.duration,
-            },
-            'duty_cycle': cycle.duty_cycle,
-            'pumping_efficiency': cycle.pumping_efficiency,
-            'kinematics': cycle.kinematics,
-            'steady_states': cycle.steady_states,
-            'time': cycle.time,
-        }
-        return res

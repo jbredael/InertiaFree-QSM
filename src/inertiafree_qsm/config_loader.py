@@ -167,8 +167,10 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
     def deg_to_rad(angle_deg):
         return float(angle_deg) * np.pi / 180.0
 
-    # --- reference tether length from system config -------------------------
+    # --- reference tether length and force limits from system config --------
     max_tether_length = float(sys_props['max_tether_length'])
+    force_min_limit = float(sys_props['tether_force_min_limit'])
+    force_max_limit = float(sys_props['tether_force_max_limit'])
 
     # --- cycle settings -----------------------------------------------------
     cycle_config = config.get('cycle', {})
@@ -247,12 +249,13 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
     opt_fine = opt_wind.get('fine_resolution', {})
     opt_optimizer = opt_config.get('optimizer', {})
     opt_bounds_cfg = opt_config.get('bounds', {})
+    opt_constraints_cfg = opt_config.get('constraints', {})
 
     # Build x0 with elevation angle in radians
     x0_list = list(opt_optimizer.get('x0', []))
     x0_list[2] = deg_to_rad(x0_list[2])
 
-    # Build bounds array: force rows left as nan (filled from system props),
+    # Build bounds array: force bounds from system properties,
     # elevation in radians, tether lengths as fractions * max tether length.
     elev_min = deg_to_rad(opt_bounds_cfg.get('elevation_angle_min'))
     elev_max = deg_to_rad(opt_bounds_cfg.get('elevation_angle_max'))
@@ -279,12 +282,15 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
             'scaling': np.array(opt_optimizer.get('scaling', []), dtype=float),
         },
         'bounds': np.array([
-            [np.nan, np.nan],
-            [np.nan, np.nan],
+            [force_min_limit, force_max_limit],
+            [force_min_limit, force_max_limit],
             [elev_min, elev_max],
             [start_min, start_max],
             [end_min, end_max],
         ]),
+        'constraints': {
+            'min_crosswind_patterns': int(opt_constraints_cfg.get('min_crosswind_patterns', 1)),
+        },
     }
 
     steady_state = {

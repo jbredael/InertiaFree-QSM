@@ -36,7 +36,7 @@ from .qsm import (
     TractionPhase,
     TractionPhaseHybrid,
 )
-from .cycle_optimizer import OptimizerCycle
+from .cycle_optimizer import CycleOptimizer
 from . import plotting
 
 
@@ -343,7 +343,7 @@ class PowerCurveConstructor:
 
         Args:
             wind_speed (float): Wind speed at reference height [m/s].
-            power_optimizer (OptimizerCycle): Optimizer instance.
+            power_optimizer (CycleOptimizer): Optimizer instance.
             x0 (array): Starting point for optimization.
             show_plot (bool): If True, show the cycle trajectory/time plots at
                 the optimal point.
@@ -644,20 +644,18 @@ class PowerCurveConstructor:
         }
         opt_config_phase1['bounds'][2, 1] = 30 * np.pi / 180.0
 
-        op_cycle_phase1 = OptimizerCycle(
+        op_cycle_phase1 = CycleOptimizer(
             cycle_sim_settings_phase1,
             self.sys_props,
             env_state,
             optimizer_config=opt_config_phase1,
-            reduce_x=np.array([0, 1, 2, 3, 4]),
         )
 
-        op_cycle_phase2 = OptimizerCycle(
+        op_cycle_phase2 = CycleOptimizer(
             cycle_sim_settings_phase2,
             self.sys_props,
             env_state,
             optimizer_config=opt_config,
-            reduce_x=np.array([0, 1, 2, 3, 4]),
         )
 
         optimization_sequence = {
@@ -723,12 +721,11 @@ class PowerCurveConstructor:
             'eps': opt_settings['optimizer']['eps'],
         }
 
-        power_optimizer = OptimizerCycle(
+        power_optimizer = CycleOptimizer(
             cycle_sim_settings,
             self.sys_props,
             env_state,
             optimizer_config=opt_config,
-            reduce_x=np.array([0, 1, 2, 3, 4]),
         )
 
         x0 = np.array(opt_settings['optimizer']['x0'].copy())
