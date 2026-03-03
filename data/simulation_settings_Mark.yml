@@ -81,13 +81,13 @@ cycle:
 
   # Tether length at start of retraction as fraction of max tether length [-]
   # (null = 1.0, uses full tether length from system config)
-  tether_length_start_retraction: null
+  tether_length_start_retraction: 1.0
 
   # Tether length at end of retraction as fraction of max tether length [-]
   tether_length_end_retraction: 0.5
 
   # Include transition phase energy in cycle energy calculation
-  include_transition_energy: true
+  include_transition_energy: false
 
 # ============================================================================
 # PHASE SETTINGS
@@ -98,15 +98,15 @@ retraction:
   # Control setting: [control_parameter, setpoint_value]
   # Options: 'tether_force_ground', 'tether_force_kite', 'reeling_factor', 'reeling_speed'
   # Using a force appropriate for the system (~10-15% of max)
-  control: ['tether_force_ground', 5000]
+  control: ['tether_force_ground', 8200.0]
   # Time step for simulation [s]
-  time_step: 0.5
+  time_step: 0.25
 
 transition:
   # Control setting for transition phase
   control: ['reeling_speed', 0.0]
   # Time step for simulation [s]
-  time_step: 0.5
+  time_step: 0.25
 
 traction:
   # Control setting for traction phase

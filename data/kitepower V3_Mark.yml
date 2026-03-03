@@ -42,9 +42,9 @@ components:
       drag_coefficient: 1.1
     structure:
       length_m: 300.0
-      diameter_m: 0.004
+      diameter_m: 0.006
       density_kg_m3: 724.0
-      max_tether_force_n: 5000
+      max_tether_force_n: 8200.0
       conductive: false
       material:
         type: dyneema
@@ -59,7 +59,7 @@ components:
       max_tether_speed_m_s: 10.0
     generator:
       type: permanent_magnet_synchronous
-      max_power_kw: 15.0
+      max_power_kw: 40.0
       efficiency: 1
     storage:
       type: battery_bank

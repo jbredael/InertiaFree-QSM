@@ -403,6 +403,11 @@ class OptimizerCycle(Optimizer):
     def plot_opt_evolution(self, output_path=None, show_plot=False):
         """Plot the optimization variable evolution with real-scale values and proper units.
 
+        Each variable is shown in a single panel: the left y-axis shows the
+        scaled value (what SLSQP operates on) and the right y-axis shows the
+        corresponding real physical value.  The bottom row shows the objective
+        (left) and constraint functions (right).
+
         Args:
             output_path (str or Path, optional): If given, save the figure as PDF.
             show_plot (bool): Whether to display the figure interactively.
@@ -410,67 +415,73 @@ class OptimizerCycle(Optimizer):
         if not self.x_progress:
             return
 
+        from matplotlib.gridspec import GridSpec
+
         n_vars = len(self.x_progress[0])
-        fig, ax = plt.subplots(n_vars + 1, 2, figsize=(12, 3 * (n_vars + 1)), sharex=True)
+        n_rows = n_vars + 1
+        fig = plt.figure(figsize=(9, 3 * n_rows))
+        gs = GridSpec(n_rows, 2, figure=fig, hspace=0.45, wspace=0.35)
         fig.suptitle(
             f'Optimization Evolution  –  v = {self.environment_state.wind_speed:.1f} m/s',
             fontweight='bold', fontsize=13,
         )
 
         scaling = self.scaling_x[self.reduce_x]  # shape (n_vars,)
-        x0_reduced = self.x0[self.reduce_x]
+        iters = range(len(self.x_progress))
 
         for i, var_idx in enumerate(self.reduce_x):
             label = self.OPT_VARIABLE_LABELS[var_idx].replace('\n', ' ')
 
-            # Unscale to real-scale values
-            vals = [x[i] / scaling[i] for x in self.x_progress]
-            if var_idx == 2:  # elevation angle: convert rad → deg in label and values
-                vals = [v * 180.0 / np.pi for v in vals]
-                ylabel = label.replace('[rad]', '[deg]')
-            else:
-                ylabel = label
+            # One panel spanning both columns, dual y-axes (one line, two scales).
+            ax_l = fig.add_subplot(gs[i, :])
+            ax_r = ax_l.twinx()
 
-            ax[i, 0].plot(vals, linewidth=1.5)
-            ax[i, 0].grid(True)
-            ax[i, 0].set_ylabel(ylabel, fontsize=8)
-            ax[i, 0].ticklabel_format(axis='y', useOffset=False, style='plain')
+            scaled_vals = [x[i] for x in self.x_progress]
+            real_factor = (1.0 / scaling[i]) * (180.0 / np.pi if var_idx == 2 else 1.0)
+            label_real  = (label.replace('[rad]', '[deg]') if var_idx == 2 else label)
 
-            # Step sizes (unscaled)
-            tmp = [x0_reduced] + list(self.x_progress)
-            steps = [(b[i] - a[i]) / scaling[i] for a, b in zip(tmp[:-1], tmp[1:])]
-            if var_idx == 2:
-                steps = [s * 180.0 / np.pi for s in steps]
-            ax[i, 1].plot(steps, linewidth=1.2)
-            ax[i, 1].axhline(0, color='k', linewidth=0.6, alpha=0.4)
-            ax[i, 1].grid(True)
-            ax[i, 1].set_ylabel(f'Δ {ylabel}', fontsize=8)
-            ax[i, 1].ticklabel_format(axis='y', useOffset=False, style='plain')
+            ax_l.plot(iters, scaled_vals, color='C0', linewidth=1.5)
 
-        # Objective
+            # Mirror the left axis limits onto the right axis using the real-scale factor.
+            ax_l.set_ylabel('scaled [-]', fontsize=8, color='C0')
+            ax_r.set_ylabel(label_real,   fontsize=8, color='C1')
+            ax_l.tick_params(axis='y', labelcolor='C0', labelsize=7)
+            ax_r.tick_params(axis='y', labelcolor='C1', labelsize=7)
+            ax_l.ticklabel_format(axis='y', useOffset=False, style='plain')
+            ax_r.ticklabel_format(axis='y', useOffset=False, style='plain')
+
+            # Keep right axis in sync: same relative limits, different tick labels.
+            lo, hi = ax_l.get_ylim()
+            ax_r.set_ylim(lo * real_factor, hi * real_factor)
+
+            ax_l.set_title(label, fontsize=8, loc='left')
+            ax_l.grid(True, alpha=0.4)
+
+        # Bottom row: objective and constraints side by side.
+        ax_obj  = fig.add_subplot(gs[n_vars, 0])
+        ax_cons = fig.add_subplot(gs[n_vars, 1])
+
         obj_res = [self.obj_fun(x) for x in self.x_progress]
-        ax[-1, 0].plot(obj_res, linewidth=1.5)
-        ax[-1, 0].grid()
-        ax[-1, 0].set_ylabel('Objective [-]', fontsize=8)
+        ax_obj.plot(iters, obj_res, linewidth=1.5)
+        ax_obj.grid(True, alpha=0.4)
+        ax_obj.set_ylabel('Objective [-]', fontsize=8)
+        ax_obj.set_xlabel('Iteration [-]')
 
-        # Constraints
-        cons_res = [self.cons_fun(x, -1)[self.reduce_ineq_cons] for x in self.x_progress]
-        cons_lines = ax[-1, 1].plot(cons_res)
+        cons_res  = [self.cons_fun(x, -1)[self.reduce_ineq_cons] for x in self.x_progress]
+        cons_lines = ax_cons.plot(cons_res)
         active_cons = [any(c < -1e-6 for c in res) for res in cons_res]
-        ax[-1, 1].fill_between(
-            range(len(active_cons)), 0, 1, where=active_cons, alpha=0.4,
-            transform=ax[-1, 1].get_xaxis_transform(),
+        ax_cons.fill_between(
+            iters, 0, 1, where=active_cons, alpha=0.4,
+            transform=ax_cons.get_xaxis_transform(),
         )
-        ax[-1, 1].axhline(0, color='k', linewidth=0.8, alpha=0.4)
-        ax[-1, 1].legend(
+        ax_cons.axhline(0, color='k', linewidth=0.8, alpha=0.4)
+        ax_cons.legend(
             cons_lines, [f'constraint {j}' for j in range(len(cons_lines))],
-            bbox_to_anchor=(1.04, 1), loc='upper left', fontsize=8,
+            fontsize=7, loc='upper right',
         )
-        ax[-1, 1].grid()
-        ax[-1, 1].set_ylabel('Constraint [-]', fontsize=8)
-
-        ax[-1, 0].set_xlabel('Iteration [-]')
-        ax[-1, 1].set_xlabel('Iteration [-]')
+        ax_cons.grid(True, alpha=0.4)
+        ax_cons.set_ylabel('Constraint [-]', fontsize=8)
+        ax_cons.set_xlabel('Iteration [-]')
         plt.tight_layout()
 
         if output_path is not None:
