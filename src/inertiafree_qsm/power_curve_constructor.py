@@ -2,8 +2,8 @@
 """Power curve generation for AWE systems.
 
 This module provides functionality to generate power curves using either direct
-simulation or sequential optimization with warm starts. It includes automatic
-cut-in/cut-out estimation, constraint handling, and detailed diagnostics.
+simulation or sequential optimization with warm starts. It includes constraint
+handling and detailed diagnostics.
 
 All wind speeds are referenced at the height specified in the wind_resource.yml
 metadata (reference_height_m). The model uses the wind profile to derive wind
@@ -146,188 +146,19 @@ class PowerCurveConstructor:
 
         return env_state
 
-    def calc_tether_force_traction(self, env_state, straight_tether_length):
-        """Calculate tether force for minimum reel-out speed.
-
-        Args:
-            env_state: Environment state object.
-            straight_tether_length (float): Straight tether length [m].
-
-        Returns:
-            float: Tether force at ground [N].
-        """
-        theta_ro_ci = np.deg2rad(self.simulation_settings['cycle']['elevation_angle_traction'])
-        kinematics = KiteKinematics(
-            straight_tether_length,
-            self.phi_traction,
-            theta_ro_ci,
-            self.chi_traction,
-        )
-        env_state.calculate(kinematics.z)
-        self.sys_props.update(kinematics.straight_tether_length, True)
-        ss = SteadyState({'enable_steady_state_errors': True})
-        ss.control_settings = (
-            'reeling_speed',
-            self.sys_props.reeling_speed_min_limit,
-        )
-        ss.find_state(self.sys_props, env_state, kinematics)
-        return ss.tether_force_ground
-
-    def estimate_cut_in_wind_speed(self, env_state, v_start=3.0, v_max=10.0, dv=0.01):
-        """Estimate cut-in wind speed for feasible steady flight states.
-
-        Iteratively determine lowest wind speed for which, along the entire
-        reel-out path, feasible steady flight states with minimum reel-out
-        speed are found.
-
-        Args:
-            env_state: Environment state object.
-            v_start (float): Starting wind speed [m/s]. Should be below the actual
-                cut-in speed to allow upward search.
-            v_max (float): Maximum wind speed to check [m/s].
-            dv (float): Wind speed step size [m/s].
-
-        Returns:
-            tuple: (cut_in_wind_speed, critical_force)
-        """
-        l0 = self.tether_length_end  # Tether length at start of reel-out
-        l1 = self.tether_length_start  # Tether length at end of reel-out
-
-        v = v_start
-        while v < v_max:
-            env_state.set_reference_wind_speed(v)
-            try:
-                tether_force_start = self.calc_tether_force_traction(env_state, l0)
-                tether_force_end = self.calc_tether_force_traction(env_state, l1)
-
-                critical_force = min(tether_force_start, tether_force_end)
-
-                if (
-                    tether_force_start > self.sys_props.tether_force_min_limit
-                    and tether_force_end > self.sys_props.tether_force_min_limit
-                ):
-                    if v == v_start:
-                        # Starting speed already feasible, return it as lower bound
-                        print(f"  Note: Cut-in speed may be below {v_start:.1f} m/s")
-                        return v_start, critical_force
-                    return v, critical_force
-            except SteadyStateError:
-                pass
-
-            v += dv
-
-        return v_max, self.sys_props.tether_force_min_limit
-
-    def calc_n_crosswind_patterns(self, env_state, theta):
-        """Calculate number of crosswind manoeuvres flown.
-
-        Args:
-            env_state: Environment state object.
-            theta (float): Elevation angle [rad].
-
-        Returns:
-            float: Number of crosswind patterns.
-        """
-        trac = TractionPhaseHybrid(
-            {
-                'control': (
-                    'tether_force_ground',
-                    self.sys_props.tether_force_max_limit,
-                ),
-                'azimuth_angle': self.phi_traction,
-                'course_angle': self.chi_traction,
-            }
-        )
-        trac.enable_limit_violation_error = True
-
-        trac.tether_length_start = self.tether_length_end
-        trac.tether_length_start_aim = self.tether_length_end
-        trac.elevation_angle = TractionConstantElevation(theta)
-        trac.tether_length_end = self.tether_length_start
-        trac.finalize_start_and_end_kite_obj()
-        trac.run_simulation(
-            self.sys_props, env_state, {'enable_steady_state_errors': True}
-        )
-
-        return trac.n_crosswind_patterns
-
-    def estimate_max_wind_speed_at_elevation(
-        self, env_state, theta=60.0 * np.pi / 180.0, v_start=18.0, v_max=30.0, dv=0.1):
-        """Determine maximum wind speed allowing at least one crosswind pattern.
-
-        Args:
-            env_state: Environment state object.
-            theta (float): Elevation angle [rad].
-            v_start (float): Starting wind speed [m/s].
-            v_max (float): Maximum wind speed to check [m/s].
-            dv (float): Wind speed step size [m/s].
-
-        Returns:
-            float: Maximum feasible wind speed [m/s].
-        """
-        # Check if starting wind speed gives feasible solution
-        env_state.set_reference_wind_speed(v_start)
-        try:
-            n_cw_patterns = self.calc_n_crosswind_patterns(env_state, theta)
-        except SteadyStateError as e:
-            if e.code != 8:
-                raise ValueError(
-                    "No feasible solution found for first assessed cut-out wind speed."
-                )
-
-        # Increase wind speed until crosswind patterns drop below one
-        v = v_start + dv
-        while v < v_max:
-            env_state.set_reference_wind_speed(v)
-            try:
-                n_cw_patterns = self.calc_n_crosswind_patterns(env_state, theta)
-                if n_cw_patterns < 1.0:
-                    return v
-            except SteadyStateError as e:
-                if e.code != 8:  # Speed too low when e.code == 8
-                    return v
-
-            v += dv
-
-        raise ValueError("Iteration did not find feasible cut-out speed.")
-
-    def estimate_cut_out_wind_speed(self, env_state):
-        """Estimate cut-out wind speed by iterating elevation angle.
-
-        Elevation angle is increased with wind speed as a last means of
-        de-powering. This finds the wind speed at which elevation angle
-        reaches its upper limit.
-
-        Args:
-            env_state: Environment state object.
-
-        Returns:
-            tuple: (cut_out_wind_speed, elevation_angle)
-        """
-        beta = 60 * np.pi / 180.0
-        dbeta = 1 * np.pi / 180.0
-        vw_last = 0.0
-
-        while beta > 25 * np.pi / 180.0:
-            vw = self.estimate_max_wind_speed_at_elevation(env_state, beta)
-            if vw <= vw_last:
-                return vw_last, beta + dbeta
-            vw_last = vw
-            beta -= dbeta
-
-        return vw_last, beta
-
-
     def _generate_wind_speed_array(self, settings_key='optimization', cluster_id=None, verbose=False):
-        """Generate wind speed array with optional cut-in/cut-out estimation.
+        """Generate wind speed array from configuration settings.
 
         Args:
             settings_key (str): Key in simulation_settings to use ('optimization' or 'direct_simulation').
-            cluster_id (int, optional): Cluster ID for cut-in/cut-out estimation. If None, uses first cluster.
-            verbose (bool): Whether to print estimation messages.
+            cluster_id (int, optional): Not used (kept for compatibility).
+            verbose (bool): Whether to print messages.
 
         Returns:
             np.ndarray: Array of wind speeds [m/s].
+
+        Raises:
+            ValueError: If cut_in or cut_out wind speeds are not specified in configuration.
         """
         settings = self.simulation_settings[settings_key]
         vw_cut_in = settings['wind_speeds']['cut_in']
@@ -336,21 +167,11 @@ class PowerCurveConstructor:
         fine_n_points_near_cutout = settings['wind_speeds']['fine_resolution']['n_points_near_cutout']
         fine_range_m_s = settings['wind_speeds']['fine_resolution']['range_m_s']
 
-        # Estimate cut-in/cut-out if needed
-        if vw_cut_in is None or vw_cut_out is None:
-            if cluster_id is None:
-                cluster_id = 1
-            env_state_ref = self.create_environment(cluster_id)
-            if verbose:
-                print(f"Estimating operational limits from cluster {cluster_id}...")
-            if vw_cut_in is None:
-                vw_cut_in, _ = self.estimate_cut_in_wind_speed(env_state_ref)
-                if verbose:
-                    print(f"  Cut-in wind speed: {vw_cut_in:.2f} m/s")
-            if vw_cut_out is None:
-                vw_cut_out, _ = self.estimate_cut_out_wind_speed(env_state_ref)
-                if verbose:
-                    print(f"  Cut-out wind speed: {vw_cut_out:.2f} m/s")
+        # Check that cut-in and cut-out are specified
+        if vw_cut_in is None:
+            raise ValueError(f"cut_in wind speed must be specified in {settings_key} settings")
+        if vw_cut_out is None:
+            raise ValueError(f"cut_out wind speed must be specified in {settings_key} settings")
 
         # Generate wind speed array with optional fine resolution
         if fine_n_points_near_cutout > 0:
@@ -366,6 +187,7 @@ class PowerCurveConstructor:
 
         return wind_speeds
 
+
     def run_predefined_sequence(self, optimization_sequence, x0_start, wind_speeds,
                                 save_plot_dir=None):
         """Run sequential optimizations with warm starts.
@@ -378,7 +200,7 @@ class PowerCurveConstructor:
             save_plot_dir (Path or str, optional): Directory to save per-wind-speed
                 optimization evolution PDFs.
         """
-        self.wind_speeds = wind_speeds
+        self.wind_speeds = []
 
         wind_speed_thresholds = iter(sorted(list(optimization_sequence)))
         vw_switch = next(wind_speed_thresholds)
@@ -400,27 +222,38 @@ class PowerCurveConstructor:
                 x0_next = x_opt_last + dx0 * (vw - vw_last)
 
             print(f"[{i}] Processing v={vw:.2f} m/s")
+            optimization_succeeded = False
             try:
                 x_opt, sim_successful = self.run_optimization(
                     vw, power_optimizer, x0_next, save_plot_dir=save_plot_dir
                 )
+                optimization_succeeded = True
+                final_vw = vw
             except (OperationalLimitViolation, SteadyStateError, PhaseError):
                 try:  # Retry for slightly different wind speed
                     x_opt, sim_successful = self.run_optimization(
                         vw + 1e-2, power_optimizer, x0_next, save_plot_dir=save_plot_dir
                     )
-                    self.wind_speeds[i] = vw + 1e-2
+                    optimization_succeeded = True
+                    final_vw = vw + 1e-2
                 except (OperationalLimitViolation, SteadyStateError, PhaseError):
-                    self.wind_speeds = self.wind_speeds[:i]
-                    print(
-                        f"Optimization sequence stopped prematurely. "
-                        f"{self.wind_speeds[-1]:.1f} m/s is the highest successful wind speed."
-                    )
-                    break
+                    print(f"  Failed at {vw:.2f} m/s, skipping this wind speed...")
+                    optimization_succeeded = False
 
-            if sim_successful:
-                x_opt_last = x_opt
-                vw_last = vw
+            if optimization_succeeded:
+                self.wind_speeds.append(final_vw)
+                if sim_successful:
+                    x_opt_last = x_opt
+                    vw_last = final_vw
+        
+        # Convert to numpy array
+        self.wind_speeds = np.array(self.wind_speeds)
+        
+        if len(self.wind_speeds) == 0:
+            print(
+                f"Optimization failed at all wind speeds. "
+                f"Try lowering the cut_in wind speed in the configuration file."
+            )
    
     def run_optimization(self, wind_speed, power_optimizer, x0, show_plot=False,
                          save_plot_dir=None):
@@ -938,6 +771,14 @@ class PowerCurveConstructor:
         """
         # Extract wind speeds from first cluster's data
         wind_speeds = [entry['wind_speed_m_s'] for entry in wind_speed_data_per_cluster[0]]
+        
+        # Check if there are any successful wind speeds
+        if len(wind_speeds) == 0:
+            raise ValueError(
+                "No successful simulations for any wind speed. "
+                "Cannot generate power curve output. "
+                "Try adjusting the cut_in wind speed or optimizer settings in the configuration file."
+            )
 
         # Build per-cluster power curve dicts
         power_curves = []
@@ -966,6 +807,8 @@ class PowerCurveConstructor:
         cycle_powers = [entry['performance']['power']['average_cycle_power_w']
                         for entry in wind_speed_data_per_cluster[0]]
         cut_in_ws = self._find_cut_in_wind_speed(wind_speeds, cycle_powers)
+        if cut_in_ws is None:
+            cut_in_ws = wind_speeds[0]  # Fallback to first wind speed
         cut_out_ws = wind_speeds[-1]
 
         # Calculate nominal power (max across all clusters)
@@ -1188,8 +1031,10 @@ class PowerCurveConstructor:
             cycle_powers (list): Cycle power values [W].
 
         Returns:
-            float: Cut-in wind speed [m/s].
+            float: Cut-in wind speed [m/s], or None if no data available.
         """
+        if len(wind_speeds) == 0:
+            return None
         for ws, power in zip(wind_speeds, cycle_powers):
             if power > 0:
                 return float(ws)
