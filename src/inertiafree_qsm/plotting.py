@@ -394,13 +394,17 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     plt.tight_layout()
 
+    if show_plot:
+        plt.show()
+
     if output_path:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
 
-    if show_plot:
-        plt.show()
+    plt.close()
+
+    
 
     return fig, axes
 

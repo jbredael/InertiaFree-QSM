@@ -42,9 +42,9 @@ components:
       drag_coefficient: 1.1
     structure:
       length_m: 500.0
-      diameter_m: 0.006
+      diameter_m: 0.004
       density_kg_m3: 724.0
-      max_tether_force_n: 8200.0
+      max_tether_force_n: 5000.0
       conductive: false
       material:
         type: dyneema
