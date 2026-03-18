@@ -592,10 +592,10 @@ class SteadyState:
         self.error_code = -1
 
         # Iterative procedure settings.
-        self.force_n_iterations = iterative_procedure_config.get('force_n_iterations', None)
-        self.max_iterations = iterative_procedure_config.get('max_iterations', 250)
-        self.enable_steady_state_errors = iterative_procedure_config.get('enable_steady_state_errors', True)
-        self.convergence_tolerance = iterative_procedure_config.get('convergence_tolerance', 1e-6)
+        self.force_n_iterations = iterative_procedure_config.get('force_n_iterations')
+        self.max_iterations = iterative_procedure_config.get('max_iterations')
+        self.enable_steady_state_errors = iterative_procedure_config.get('enable_steady_state_errors')
+        self.convergence_tolerance = iterative_procedure_config.get('convergence_tolerance')
 
         # Monitoring parameters for tether force limit violation.
         self.tether_force_max_limit_violated = False
@@ -658,6 +658,11 @@ class SteadyState:
 
         a = np.cos(theta) * np.cos(phi) * np.cos(chi) - np.sin(phi) * np.sin(chi)
         b = np.sin(theta) * np.cos(phi)
+        
+        # TEST PRINT
+        print(v_wind)
+        print(np.rad2deg(basic_kinematics.elevation_angle))
+        print(self.control_settings)
 
         # Pre-iteration calculations: implications of operational setpoints on invariant forces.
         # If a tether force is used as setpoint - reeling factor is updated each iteration. The evaluated forces are
@@ -805,7 +810,6 @@ class SteadyState:
                 inflow_angle = 0.
 
             self.n_iterations_aoa += 1
-
             if update_aero_coefficients:
                 alpha_new = inflow_angle + system_properties.pitch
                 d_alpha = alpha_new - alpha
@@ -1052,7 +1056,7 @@ class Phase(TimeSeries):
 
         # Monitoring settings.
         self.enable_limit_violation_error = True
-        self.max_time_points = phase_settings.get('max_time_points', 5000)
+        self.max_time_points = phase_settings.get('max_time_points')
 
         # Operational properties of the phase.
         self.average_reeling_factor = None
@@ -1188,7 +1192,6 @@ class Phase(TimeSeries):
         new_state.find_state(sys_props, env_state, kinematics)
         if temporary_suppress_steady_state_errors:
             new_state.enable_steady_state_errors = True
-
         # Operational limits.
         if 'tether_force' not in self.control_settings[0] and len(self.control_settings) == 4:
             min_force = self.control_settings[2]
@@ -1368,11 +1371,6 @@ class RetractionPhaseElevationStop(RetractionPhase):
 
         # Binary kite aerodynamic state.
         self.kite_powered = False
-
-        # Properties of initial state and final position.
-        self.tether_length_start = 385.
-        self.elevation_angle_start = 30.*np.pi/180.
-        self.elevation_angle_end = 60.*np.pi/180.
 
         self.fix_tether_length = False  # Should be False for realistic simulation.
 
@@ -1592,14 +1590,14 @@ class TractionPhase(Phase):
         self.kite_powered = True
 
         # Kinematics assumptions of representative flight state for the traction phase.
-        self.azimuth_angle = phase_settings.get('azimuth_angle', 10. * np.pi / 180.)
+        self.azimuth_angle = phase_settings.get('azimuth_angle')
         #TODO: Kitepower uses 90 degree course angle, which makes a significant difference. Validation with experiments
         # should show what value is sensible.
-        self.course_angle = phase_settings.get('course_angle', 110. * np.pi / 180.)
+        self.course_angle = phase_settings.get('course_angle')
 
         # Lissajous pattern amplitudes for crosswind pattern estimation.
-        self.lissajous_elevation_amplitude = phase_settings.get('lissajous_elevation_amplitude', 4.0)
-        self.lissajous_azimuth_amplitude = phase_settings.get('lissajous_azimuth_amplitude', 20.0)
+        self.lissajous_elevation_amplitude = phase_settings.get('lissajous_elevation_amplitude')
+        self.lissajous_azimuth_amplitude = phase_settings.get('lissajous_azimuth_amplitude')
 
         # Properties of initial state and final position.
         self.tether_length_start = 240.
@@ -1778,9 +1776,9 @@ class TractionPhasePattern(Phase):
         self.kite_powered = True
 
         # Properties of initial state and final position.
-        self.tether_length_start = 240.
-        self.tether_length_end = 385.
-        self.elevation_angle = TractionConstantElevation(25. * np.pi / 180.)
+        self.tether_length_start = None
+        self.tether_length_end = None
+        self.elevation_angle = None
 
         # State of kite along the cross-wind pattern.
         self.n_crosswind_patterns = 0.
@@ -2027,11 +2025,11 @@ class Cycle(TimeSeries):
         cycle_settings = settings.get('cycle', {})
 
         # Properties of idealized pumping cycle trajectory.
-        self.tether_length_start_retraction = cycle_settings.get('tether_length_start_retraction', 385.)
-        self.tether_length_end_retraction = cycle_settings.get('tether_length_end_retraction', 240.)
+        self.tether_length_start_retraction = cycle_settings.get('tether_length_start_retraction')
+        self.tether_length_end_retraction = cycle_settings.get('tether_length_end_retraction')
         # Setting the lower attribute imposes the traction phase to start at the given length.
-        self.tether_length_start_traction = cycle_settings.get('tether_length_start_traction', None)
-        self.elevation_angle_traction = cycle_settings.get('elevation_angle_traction', 25.*np.pi/180.)
+        self.tether_length_start_traction = cycle_settings.get('tether_length_start_traction')
+        self.elevation_angle_traction = cycle_settings.get('elevation_angle_traction')
 
         # Initiating phases, allows manipulating its attribute before running the simulation.
         self.retraction_phase = RetractionPhase(settings['retraction'], impose_operational_limits)
@@ -2039,10 +2037,10 @@ class Cycle(TimeSeries):
         self.traction_phase = cycle_settings.get('traction_phase',
                                                  TractionPhase)(settings['traction'], impose_operational_limits)
 
-        self.follow_wind = cycle_settings.get('follow_wind', False)
-        self.include_transition_energy = cycle_settings.get('include_transition_energy', True)
-        self.n_traction_points = cycle_settings.get('n_traction_points', 6)
-        self.n_pattern_eval_points = cycle_settings.get('n_pattern_eval_points', 100)
+        self.follow_wind = cycle_settings.get('follow_wind')
+        self.include_transition_energy = cycle_settings.get('include_transition_energy')
+        self.n_traction_points = cycle_settings.get('n_traction_points')
+        self.n_pattern_eval_points = cycle_settings.get('n_pattern_eval_points')
 
         self.duty_cycle = None
         self.pumping_efficiency = None

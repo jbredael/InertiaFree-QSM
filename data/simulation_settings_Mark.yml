@@ -140,7 +140,7 @@ retraction:
   # Control setting: [control_parameter, setpoint_value]
   # Options: 'tether_force_ground', 'tether_force_kite', 'reeling_factor', 'reeling_speed'
   # Using a force appropriate for the system (~10-15% of max)
-  control: ['tether_force_ground', 8200.0]
+  control: ['tether_force_ground', 4000.0]
   # Time step for simulation [s]
   time_step: 0.25
 
@@ -153,7 +153,7 @@ transition:
 traction:
   # Control setting for traction phase
   # reeling_factor is the ratio of reeling speed to wind speed
-  control: ['reeling_factor', 0.37]
+  control: ['reeling_speed', 5.0]
   # Time step for simulation [s]
   time_step: 0.25
   # Azimuth angle [degrees]
