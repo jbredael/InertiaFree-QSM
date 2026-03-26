@@ -1452,10 +1452,6 @@ class TransitionPhase(Phase):
         #TODO: kite powered or not?
         self.kite_powered = True
 
-        # Properties of initial state and final position.
-        self.tether_length_start = 240.
-        self.elevation_angle_start = 80.*np.pi/180.
-        self.elevation_angle_end = 25.*np.pi/180.
 
         self.azimuth_angle = phase_settings.get('azimuth_angle')
         self.course_angle = phase_settings.get('course_angle')
