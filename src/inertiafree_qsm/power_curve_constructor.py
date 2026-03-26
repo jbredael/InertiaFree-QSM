@@ -97,10 +97,6 @@ class PowerCurveConstructor:
         self.tether_length_end = self.simulation_settings['cycle'][
             'tether_length_end_retraction']
         
-        # Get traction settings
-        self.phi_traction = self.simulation_settings['traction']['azimuth_angle']
-        self.chi_traction = self.simulation_settings['traction']['course_angle']
-
         # Initialize result storage
         self.wind_speeds = None
         self.x_opts = []

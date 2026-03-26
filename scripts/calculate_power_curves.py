@@ -23,7 +23,7 @@ from inertiafree_qsm import PowerCurveConstructor
 # Define file paths
 PROJECT_ROOT = Path(__file__).parent.parent
 
-SYSTEM_CONFIG_PATH = PROJECT_ROOT / "data" / "kitepower V3_test.yml"
+SYSTEM_CONFIG_PATH = PROJECT_ROOT / "data" / "kitepower V3_Mark.yml"
 WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "wind_resource.yml"
 SIMULATION_SETTINGS_PATH = PROJECT_ROOT / "data" / "simulation_settings_Mark.yml"
 OUTPUT_PATH_DIRECT = PROJECT_ROOT / "results" / "power_curves_direct_simulation.yml"
@@ -41,16 +41,16 @@ if __name__ == "__main__":
         validate_file=True
     )
     
-    constructor.print_summary()
+    # constructor.print_summary()
     
-    # Generate power curves using direct simulation
-    result = constructor.generate_power_curves_direct(
-        output_path=OUTPUT_PATH_DIRECT,
-        verbose=True,
-        show_plot=True,
-        save_plot=True, 
-        validate_file=True
-    )
+    # # Generate power curves using direct simulation
+    # result = constructor.generate_power_curves_direct(
+    #     output_path=OUTPUT_PATH_DIRECT,
+    #     verbose=True,
+    #     show_plot=True,
+    #     save_plot=True, 
+    #     validate_file=True
+    # )
 
     # # Generate power curves using optimized simulation
     # result = constructor.generate_power_curves_optimized(

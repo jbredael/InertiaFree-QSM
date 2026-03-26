@@ -211,6 +211,9 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
         ),
         'time_step': float(retraction_config.get('time_step')),
         'max_time_points': max_time_points,
+        'azimuth_angle': deg_to_rad(retraction_config.get('azimuth_angle')),
+        'course_angle': deg_to_rad(retraction_config.get('course_angle')),
+
     }
 
     transition = {
@@ -219,6 +222,8 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
         ),
         'time_step': float(transition_config.get('time_step')),
         'max_time_points': max_time_points,
+        'azimuth_angle': deg_to_rad(transition_config.get('azimuth_angle')),
+        'course_angle': deg_to_rad(transition_config.get('course_angle')),
     }
 
     traction = {
@@ -357,10 +362,15 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
     print("\n  Retraction:")
     print(f"    Control  : {retraction['control']}")
     print(f"    Time step: {retraction['time_step']} s")
+    print(f"    Azimuth angle : {np.degrees(retraction['azimuth_angle']):.1f} deg")
+    print(f"    Course angle  : {np.degrees(retraction['course_angle']):.1f} deg")
 
     print("\n  Transition:")
     print(f"    Control  : {transition['control']}")
     print(f"    Time step: {transition['time_step']} s")
+    print(f"    Azimuth angle : {np.degrees(transition['azimuth_angle']):.1f} deg")
+    print(f"    Course angle  : {np.degrees(transition['course_angle']):.1f} deg")
+
 
     print("\n  Traction:")
     print(f"    Control      : {traction['control']}")

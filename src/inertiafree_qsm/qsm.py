@@ -1279,8 +1279,6 @@ class RetractionPhase(Phase):
     phase. Inherits from `Phase`.
 
     Attributes:
-        AZIMUTH_ANGLE (float): Constant azimuth angle [rad] of representative flight state.
-        COURSE_ANGLE (float): Constant course angle [rad] of representative flight state.
         tether_length_start (float): Tether length [m] used for initial state.
         tether_length_end (float): Tether length [m] used for phase ending criteria.
         elevation_angle_start (float): Elevation angle [rad] used for initial state.
@@ -1288,9 +1286,6 @@ class RetractionPhase(Phase):
             True when abusing this class for the unrealistic simulation to determine the steady reel-in elevation angle.
 
     """
-    # General kinematics assumptions of representative flight state for the retraction phase.
-    AZIMUTH_ANGLE = 0.
-    COURSE_ANGLE = np.pi
 
     def __init__(self, phase_settings={'control': ('tether_force_ground', 1200.)}, impose_operational_limits=True):
         """
@@ -1306,11 +1301,16 @@ class RetractionPhase(Phase):
 
         self.fix_tether_length = False  # Should be False for realistic simulation.
 
+                # Kinematics assumptions of representative flight state for the traction phase.
+        self.azimuth_angle = phase_settings.get('azimuth_angle')
+        self.course_angle = phase_settings.get('course_angle')
+
+
     def finalize_start_and_end_kite_obj(self):
         """Finalize the initial state and ending criteria before running the simulation, respectively `kinematics_start`
         and `position_end`."""
-        self.kinematics_start = KiteKinematics(self.tether_length_start, self.AZIMUTH_ANGLE,
-                                               self.elevation_angle_start, self.COURSE_ANGLE)
+        self.kinematics_start = KiteKinematics(self.tether_length_start, self.azimuth_angle,
+                                               self.elevation_angle_start, self.course_angle)
         self.position_end = KitePosition(straight_tether_length=self.tether_length_end)
 
     def determine_new_kinematics(self, last_kinematics, last_steady_state):
@@ -1438,9 +1438,6 @@ class TransitionPhase(Phase):
         elevation_angle_end (float): Elevation angle [rad] used for phase ending criteria.
 
     """
-    # General kinematics assumptions of representative flight state for the transition phase.
-    AZIMUTH_ANGLE = 0.
-    COURSE_ANGLE = 0.
 
     def __init__(self, phase_settings={'control': ('reeling_factor', 0.)}, impose_operational_limits=True):
         """
@@ -1460,11 +1457,14 @@ class TransitionPhase(Phase):
         self.elevation_angle_start = 80.*np.pi/180.
         self.elevation_angle_end = 25.*np.pi/180.
 
+        self.azimuth_angle = phase_settings.get('azimuth_angle')
+        self.course_angle = phase_settings.get('course_angle')
+
     def finalize_start_and_end_kite_obj(self):
         """Finalize the initial state and ending criteria before running the simulation, respectively `kinematics_start`
         and `position_end`."""
-        self.kinematics_start = KiteKinematics(self.tether_length_start, self.AZIMUTH_ANGLE,
-                                               self.elevation_angle_start, self.COURSE_ANGLE)
+        self.kinematics_start = KiteKinematics(self.tether_length_start, self.azimuth_angle,
+                                               self.elevation_angle_start, self.course_angle)
         self.position_end = KitePosition(elevation_angle=self.elevation_angle_end)
 
     def determine_new_kinematics(self, last_kinematics, last_steady_state):
@@ -2007,21 +2007,6 @@ class Cycle(TimeSeries):
 
         """
         super().__init__()
-        if settings is None:
-            settings = {
-                'cycle': {
-                    'traction_phase': TractionPhase,
-                },
-                'retraction': {
-                    'control': ('tether_force_ground', 1200),
-                },
-                'transition': {
-                    'control': ('reeling_speed', 0.),
-                },
-                'traction': {
-                    'control': ('reeling_factor', .37),
-                },
-            }
         cycle_settings = settings.get('cycle', {})
 
         # Properties of idealized pumping cycle trajectory.

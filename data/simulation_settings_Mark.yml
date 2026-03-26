@@ -119,14 +119,14 @@ cycle:
   # Elevation angle during traction phase [degrees]
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
-  elevation_angle_traction: 20.0
+  elevation_angle_traction: 35
 
   # Tether length at start of retraction as fraction of max tether length [-]
   # (null = 1.0, uses full tether length from system config)
   tether_length_start_retraction: 1.0
 
   # Tether length at end of retraction as fraction of max tether length [-]
-  tether_length_end_retraction: 0.5
+  tether_length_end_retraction: 0.71
 
   # Include transition phase energy in cycle energy calculation
   include_transition_energy: true
@@ -140,26 +140,34 @@ retraction:
   # Control setting: [control_parameter, setpoint_value]
   # Options: 'tether_force_ground', 'tether_force_kite', 'reeling_factor', 'reeling_speed'
   # Using a force appropriate for the system (~10-15% of max)
-  control: ['tether_force_ground', 4000.0]
+  control: ['tether_force_ground', 1000.0]
   # Time step for simulation [s]
   time_step: 0.25
+  # Azimuth angle [degrees]
+  azimuth_angle: 0.0
+  # Course angle [degrees]
+  course_angle: 180.0
 
 transition:
   # Control setting for transition phase
-  control: ['reeling_speed', 0.0]
+  control: ['reeling_speed', -1.75]
   # Time step for simulation [s]
   time_step: 0.25
+  # Azimuth angle [degrees]
+  azimuth_angle: 0.0
+  # Course angle [degrees]
+  course_angle: 180.0
 
 traction:
   # Control setting for traction phase
   # reeling_factor is the ratio of reeling speed to wind speed
-  control: ['reeling_speed', 5.0]
+  control: ['reeling_speed', 1.19]
   # Time step for simulation [s]
   time_step: 0.25
   # Azimuth angle [degrees]
-  azimuth_angle: 15.0
+  azimuth_angle: 11.5
   # Course angle [degrees]
-  course_angle: 110.0
+  course_angle: 93.0
 
 # ============================================================================
 # STEADY STATE SOLVER SETTINGS
