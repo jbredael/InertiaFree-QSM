@@ -658,11 +658,7 @@ class SteadyState:
 
         a = np.cos(theta) * np.cos(phi) * np.cos(chi) - np.sin(phi) * np.sin(chi)
         b = np.sin(theta) * np.cos(phi)
-        
-        # TEST PRINT
-        print(v_wind)
-        print(np.rad2deg(basic_kinematics.elevation_angle))
-        print(self.control_settings)
+    
 
         # Pre-iteration calculations: implications of operational setpoints on invariant forces.
         # If a tether force is used as setpoint - reeling factor is updated each iteration. The evaluated forces are
@@ -1452,7 +1448,6 @@ class TransitionPhase(Phase):
         #TODO: kite powered or not?
         self.kite_powered = True
 
-
         self.azimuth_angle = phase_settings.get('azimuth_angle')
         self.course_angle = phase_settings.get('course_angle')
 
@@ -1594,11 +1589,6 @@ class TractionPhase(Phase):
         # Lissajous pattern amplitudes for crosswind pattern estimation.
         self.lissajous_elevation_amplitude = phase_settings.get('lissajous_elevation_amplitude')
         self.lissajous_azimuth_amplitude = phase_settings.get('lissajous_azimuth_amplitude')
-
-        # Properties of initial state and final position.
-        self.tether_length_start = 240.
-        self.tether_length_end = 385.
-        self.elevation_angle = TractionConstantElevation(25. * np.pi / 180.)
 
     def finalize_start_and_end_kite_obj(self):
         """Finalize the initial state and ending criteria before running the simulation, respectively `kinematics_start`

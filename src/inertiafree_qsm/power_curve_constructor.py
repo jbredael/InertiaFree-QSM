@@ -470,15 +470,15 @@ class PowerCurveConstructor:
 
         cycle = Cycle(settings, impose_operational_limits=True)
 
-        steady_state_config = self.simulation_settings.get('steady_state', {})
+        steady_state_config = self.simulation_settings.get('steady_state')
         try:
             error_in_phase, average_power = cycle.run_simulation(
                 self.sys_props, env_state, steady_state_config, print_summary=False
             )
 
-            traction = getattr(cycle, 'traction_phase', None)
-            retraction = getattr(cycle, 'retraction_phase', None)
-            transition = getattr(cycle, 'transition_phase', None)
+            traction = getattr(cycle, 'traction_phase')
+            retraction = getattr(cycle, 'retraction_phase')
+            transition = getattr(cycle, 'transition_phase')
 
             reel_out_time = traction.duration if traction else 0.0
             reel_in_time = ((retraction.duration if retraction else 0.0)
