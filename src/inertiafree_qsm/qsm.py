@@ -1123,9 +1123,6 @@ class Phase(TimeSeries):
         else:
             self.average_power = 0
 
-        # print("Energy for comparison: ", simple_integration([s.power_ground for s in self.steady_states][:-1], self.time[:-1]))
-        # print("{:.1f} seconds passed to reach, {:.0f}J energy produced.".format(self.timer-timer_start, self.energy))
-
     def calc_operational_properties(self):
         """Calculate the operational properties of the phase."""
         # Calculate time averages.
@@ -1200,6 +1197,7 @@ class Phase(TimeSeries):
         assert max_speed > 0 and min_speed >= 0, "Reeling speed limits should be positive."
 
         # When operational limits are imposed, evaluate if the primary control setting yield limit violations.
+
         if self.impose_operational_limits:
             if 'tether_force' not in self.control_settings[0]:  # If speed controlled.
                 # Check if the tether force limits are violated. If so, use the force limit as controlled parameter.
