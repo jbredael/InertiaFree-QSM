@@ -270,7 +270,30 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
         title += '\n(simulation converged with relaxed errors)'
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
-    reelOutTime = timing['reel_out_time_s']
+    startRetractionTime = timing.get('start_retraction_time_s', timing.get('reel_out_time_s'))
+    startTransitionTime = timing.get('start_transition_time_s')
+    if startTransitionTime is None:
+        retractionTime = timing.get('retraction_time_s')
+        if retractionTime is not None and startRetractionTime is not None:
+            startTransitionTime = float(startRetractionTime) + float(retractionTime)
+
+    def _plot_phase_start_markers(axis, with_labels=False):
+        if startRetractionTime is not None:
+            axis.axvline(
+                x=startRetractionTime,
+                color='blue',
+                linestyle=':',
+                alpha=0.6,
+                label='Start retraction' if with_labels else None,
+            )
+        if startTransitionTime is not None:
+            axis.axvline(
+                x=startTransitionTime,
+                color='darkorange',
+                linestyle='--',
+                alpha=0.6,
+                label='Start transition' if with_labels else None,
+            )
 
     # Altitude
     ax = axes[0, 0]
@@ -281,6 +304,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.grid(True, alpha=0.3)
     ax.axhline(y=altitude.mean(), color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {altitude.mean():.1f} m')
+    _plot_phase_start_markers(ax, with_labels=True)
     ax.legend(fontsize=9)
 
     # Tether force
@@ -292,6 +316,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.grid(True, alpha=0.3)
     ax.axhline(y=tetherForce.mean() / 1000, color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {tetherForce.mean()/1000:.1f} kN')
+    _plot_phase_start_markers(ax)
     ax.legend(fontsize=9)
 
     # Instantaneous power
@@ -304,8 +329,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.axhline(y=0, color='k', linestyle='-', alpha=0.3, linewidth=0.8)
     ax.axhline(y=power['average_cycle_power_w'] / 1000, color='r', linestyle='--',
                alpha=0.5, label=f"Avg Cycle: {power['average_cycle_power_w']/1000:.1f} kW")
-    ax.axvline(x=reelOutTime, color='blue', linestyle=':', alpha=0.5,
-               label='Phase transition')
+    _plot_phase_start_markers(ax)
     ax.legend(fontsize=9)
 
     # Reel speed
@@ -316,8 +340,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.set_title('Tether Reel Speed', fontweight='bold')
     ax.grid(True, alpha=0.3)
     ax.axhline(y=0, color='k', linestyle='-', alpha=0.3, linewidth=0.8)
-    ax.axvline(x=reelOutTime, color='blue', linestyle=':', alpha=0.5,
-               label='Phase transition')
+    _plot_phase_start_markers(ax, with_labels=True)
     ax.legend(fontsize=9)
 
     # Tether length
@@ -329,7 +352,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.grid(True, alpha=0.3)
     ax.axhline(y=tetherLength.mean(), color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {tetherLength.mean():.1f} m')
-    ax.axvline(x=reelOutTime, color='blue', linestyle=':', alpha=0.5)
+    _plot_phase_start_markers(ax)
     ax.legend(fontsize=9)
 
     # Elevation angle
@@ -341,13 +364,13 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.grid(True, alpha=0.3)
     ax.axhline(y=elevationAngleDeg.mean(), color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {elevationAngleDeg.mean():.1f} deg')
-    ax.axvline(x=reelOutTime, color='blue', linestyle=':', alpha=0.5)
+    _plot_phase_start_markers(ax)
     ax.legend(fontsize=9)
 
     # 2-D trajectory (side view): horizontal distance vs altitude
     elevationAngleRad = np.deg2rad(elevationAngleDeg)
     horizontalDist = tetherLength * np.cos(elevationAngleRad)
-    phaseTransitionIdx = np.searchsorted(time, reelOutTime)
+    phaseTransitionIdx = np.searchsorted(time, startRetractionTime)
 
     ax = axes[3, 0]
     ax.plot(

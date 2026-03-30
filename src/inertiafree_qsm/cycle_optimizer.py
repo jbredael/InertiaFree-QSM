@@ -119,8 +119,8 @@ class CycleOptimizer:
             k
             for k in [
                 "cycle.elevation_angle_traction",
-                "cycle.tether_length_start_retraction",
-                "cycle.tether_length_end_retraction",
+                "cycle.tether_length_start_traction",
+                "cycle.tether_length_end_traction",
                 "retraction.control",
                 "transition.control",
                 "traction.control",
@@ -487,8 +487,8 @@ class CycleOptimizer:
 
         # Update cycle settings with current optimization variables.
         self.cycle_settings["cycle"]["elevation_angle_traction"] = elevation_angle
-        self.cycle_settings["cycle"]["tether_length_start_retraction"] = tether_length_start
-        self.cycle_settings["cycle"]["tether_length_end_retraction"] = tether_length_end
+        self.cycle_settings["cycle"]["tether_length_start_traction"] = tether_length_start
+        self.cycle_settings["cycle"]["tether_length_end_traction"] = tether_length_end
 
         self.cycle_settings["retraction"]["control"] = (
             "tether_force_ground",

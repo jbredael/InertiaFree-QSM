@@ -68,7 +68,7 @@ class PowerCurveConstructor:
         system_config_path,
         wind_resource_path,
         simulation_settings_path,
-        validate_file=True,):
+        validate_file=True,verbose=False):
         """Initialize the power curve optimizer with configuration files."""
         self.system_config_path = Path(system_config_path)
         self.wind_resource_path = Path(wind_resource_path)
@@ -78,7 +78,7 @@ class PowerCurveConstructor:
         self.sys_props_dict = load_system_config(self.system_config_path, validate_file=validate_file)
         self.wind_resource = load_wind_resource(self.wind_resource_path, validate_file=validate_file)
         self.simulation_settings = load_simulation_settings(
-            self.simulation_settings_path, self.sys_props_dict, verbose=True
+            self.simulation_settings_path, self.sys_props_dict, verbose=verbose
         )
 
         # Create system properties object
@@ -92,10 +92,15 @@ class PowerCurveConstructor:
         # Number of clusters
         self.n_clusters = self.wind_resource.get('metadata', {}).get('n_clusters')
 
-        self.tether_length_start = self.simulation_settings['cycle'][
-            'tether_length_start_retraction']
-        self.tether_length_end = self.simulation_settings['cycle'][
-            'tether_length_end_retraction']
+        cycle_settings = self.simulation_settings['cycle']
+        self.tether_length_start = cycle_settings.get(
+            'tether_length_start_traction',
+            cycle_settings.get('tether_length_end_retraction')
+        )
+        self.tether_length_end = cycle_settings.get(
+            'tether_length_end_traction',
+            cycle_settings.get('tether_length_start_retraction')
+        )
         
         # Initialize result storage
         self.wind_speeds = None
@@ -469,7 +474,6 @@ class PowerCurveConstructor:
         settings['cycle']['traction_phase'] = TractionPhase
 
         cycle = Cycle(settings, impose_operational_limits=True)
-
         steady_state_config = self.simulation_settings.get('steady_state')
         try:
             error_in_phase, average_power = cycle.run_simulation(
@@ -481,8 +485,8 @@ class PowerCurveConstructor:
             transition = getattr(cycle, 'transition_phase')
 
             reel_out_time = traction.duration if traction else 0.0
-            reel_in_time = ((retraction.duration if retraction else 0.0)
-                           + (transition.duration if transition else 0.0))
+            retraction_time = retraction.duration if retraction else 0.0
+            transition_time = transition.duration if transition else 0.0
             reel_out_power = (traction.energy / traction.duration
                              if traction and traction.duration > 0 else 0.0)
             reel_in_power = (retraction.energy / retraction.duration
@@ -503,7 +507,10 @@ class PowerCurveConstructor:
                     },
                     'timing': {
                         'reel_out_time_s': float(reel_out_time),
-                        'reel_in_time_s': float(reel_in_time),
+                        'reel_in_time_s': float(retraction_time),
+                        'transition_time_s': float(transition_time),
+                        'start_reel_in_time_s': float(reel_out_time),
+                        'start_transition_time_s': float(reel_out_time + retraction_time),
                         'cycle_time_s': float(cycle.duration),
                     },
                 },
@@ -526,6 +533,9 @@ class PowerCurveConstructor:
                     'timing': {
                         'reel_out_time_s': 0.0,
                         'reel_in_time_s': 0.0,
+                        'transition_time_s': 0.0,
+                        'start_reel_in_time_s': 0.0,
+                        'start_transition_time_s': 0.0,
                         'cycle_time_s': 0.0,
                     },
                 },
@@ -923,8 +933,11 @@ class PowerCurveConstructor:
                 },
                 'timing': {
                     'reel_out_time_s': _safe_float(kpi['duration']['out']),
-                    'reel_in_time_s': (_safe_float(kpi['duration']['in'])
-                                       + _safe_float(kpi['duration'].get('trans', 0.0))),
+                    'reel_in_time_s': _safe_float(kpi['duration']['in']),
+                    'transition_time_s': _safe_float(kpi['duration'].get('trans', 0.0)),
+                    'start_retraction_time_s': _safe_float(kpi['duration']['out']),
+                    'start_transition_time_s': (_safe_float(kpi['duration']['out'])
+                                                + _safe_float(kpi['duration']['in'])),
                     'cycle_time_s': _safe_float(kpi['duration']['cycle']),
                 },
             },
@@ -950,7 +963,7 @@ class PowerCurveConstructor:
 
         Returns:
             dict: Time history data with altitude, forces, power, speeds, etc.
-                Downsampled to ~2 second intervals. Returns None if inputs are
+                Downsampled to ~1 second intervals. Returns None if inputs are
                 empty.
         """
         if not time_list or not kinematics or not steady_states:
@@ -972,8 +985,8 @@ class PowerCurveConstructor:
             tether_length_full.append(float(kin.straight_tether_length))
             elevation_angle_full.append(float(np.degrees(kin.elevation_angle)))
 
-        # Downsample to ~2 second intervals
-        indices = self._downsample_indices(time_full, interval_s=2.0)
+        # Downsample to ~1 second intervals
+        indices = self._downsample_indices(time_full, interval_s=1.0)
 
         return {
             'time_s': [time_full[i] for i in indices],
@@ -986,7 +999,7 @@ class PowerCurveConstructor:
         }
 
     @staticmethod
-    def _downsample_indices(time_vector, interval_s=2.0):
+    def _downsample_indices(time_vector, interval_s=1.0):
         """Find indices for downsampling to approximately fixed time intervals.
 
         Always includes the first and last point.
