@@ -182,18 +182,24 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
     phase_solver_config = config.get('phase_solver', {})
     cw_config = config.get('crosswind_pattern', {})
     lissajous_config = cw_config.get('lissajous', {})
-    max_time_points = int(phase_solver_config.get('max_time_points'))
+    max_time_points = int(phase_solver_config.get('max_time_points', 5000))
 
+    # Tether lengths are fractions of max_tether_length; null → 1.0
+    start_fraction_raw = cycle_config.get('tether_length_start_retraction')
+    start_fraction = float(start_fraction_raw) if start_fraction_raw is not None else 1.0
 
-    tetherLengthStartTraction = cycle_config.get('tether_length_start_traction') * max_tether_length
-    tetherLengthEndTraction = cycle_config.get('tether_length_end_traction') * max_tether_length
+    end_fraction_raw = cycle_config.get('tether_length_end_retraction')
+    end_fraction = float(end_fraction_raw) if end_fraction_raw is not None else 0.5
+
+    tetherLengthStartRetraction = start_fraction * max_tether_length
+    tetherLengthEndRetraction = end_fraction * max_tether_length
 
     cycle = {
         'elevation_angle_traction': deg_to_rad(
             cycle_config.get('elevation_angle_traction')
         ),
-        'tether_length_start_traction': tetherLengthStartTraction,
-        'tether_length_end_traction': tetherLengthEndTraction,
+        'tether_length_start_retraction': tetherLengthStartRetraction,
+        'tether_length_end_retraction': tetherLengthEndRetraction,
         'include_transition_energy': bool(cycle_config.get('include_transition_energy',)),
         'n_traction_points': int(cw_config.get('n_traction_points')),
         'n_pattern_eval_points': int(cw_config.get('n_pattern_eval_points')),
@@ -314,16 +320,23 @@ def load_simulation_settings(file_path, sys_props, verbose=False):
     }
 
     if verbose:
-        _print_simulation_settings(settings)
+        _print_simulation_settings(settings, max_tether_length,
+                                   start_fraction, end_fraction,
+                                   opt_bounds_cfg)
 
     return settings
 
 
-def _print_simulation_settings(settings):
+def _print_simulation_settings(settings, maxTetherLength, startFraction,
+                               endFraction, optBoundsCfg):
     """Print loaded simulation settings.
 
     Args:
         settings (dict): Parsed simulation settings.
+        maxTetherLength (float): Maximum tether length from system config [m].
+        startFraction (float): Start-of-retraction tether length fraction [-].
+        endFraction (float): End-of-retraction tether length fraction [-].
+        optBoundsCfg (dict): Raw optimiser bounds section from the YAML file.
     """
     cycle = settings['cycle']
     retraction = settings['retraction']
@@ -332,16 +345,16 @@ def _print_simulation_settings(settings):
     direct = settings['direct_simulation']
     opt = settings['optimization']
 
-    tether_length_start_traction = float(cycle.get('tether_length_start_traction', 0.0))
-    tether_length_end_traction = float(cycle.get('tether_length_end_traction', 0.0))
-
     print("\nSimulation Settings")
     print("=" * 60)
 
     # -- Cycle ---------------------------------------------------------------
     print("\n  Cycle:")
-    print(f"    Tether length start traction      : {tether_length_start_traction:.1f} m")
-    print(f"    Tether length end traction        : {tether_length_end_traction:.1f} m")
+    print(f"    Max tether length (system config)   : {maxTetherLength:.1f} m")
+    print(f"    Tether length start retraction       : {startFraction:.2f}  "
+          f"({cycle['tether_length_start_retraction']:.1f} m)")
+    print(f"    Tether length end retraction         : {endFraction:.2f}  "
+          f"({cycle['tether_length_end_retraction']:.1f} m)")
     print(f"    Elevation angle traction             : "
           f"{np.degrees(cycle['elevation_angle_traction']):.1f} deg")
 
@@ -357,6 +370,7 @@ def _print_simulation_settings(settings):
     print(f"    Time step: {transition['time_step']} s")
     print(f"    Azimuth angle : {np.degrees(transition['azimuth_angle']):.1f} deg")
     print(f"    Course angle  : {np.degrees(transition['course_angle']):.1f} deg")
+
 
     print("\n  Traction:")
     print(f"    Control      : {traction['control']}")
@@ -395,7 +409,14 @@ def _print_simulation_settings(settings):
           f"(from system props)")
     print(f"      Elevation angle  [deg]     : "
           f"[{np.degrees(bounds[2,0]):.1f}, {np.degrees(bounds[2,1]):.1f}]")
-    print(f"      Start tether length  [m]   : [{bounds[3,0]:.1f}, {bounds[3,1]:.1f}]")
-    print(f"      End tether length    [m]   : [{bounds[4,0]:.1f}, {bounds[4,1]:.1f}]")
+
+    startFracMin = float(optBoundsCfg.get('tether_length_start_fraction_min', 0))
+    startFracMax = float(optBoundsCfg.get('tether_length_start_fraction_max', 0))
+    endFracMin = float(optBoundsCfg.get('tether_length_end_fraction_min', 0))
+    endFracMax = float(optBoundsCfg.get('tether_length_end_fraction_max', 0))
+    print(f"      Start tether length  [m]   : [{bounds[3,0]:.1f}, {bounds[3,1]:.1f}]  "
+          f"(fractions: [{startFracMin}, {startFracMax}])")
+    print(f"      End tether length    [m]   : [{bounds[4,0]:.1f}, {bounds[4,1]:.1f}]  "
+          f"(fractions: [{endFracMin}, {endFracMax}])")
 
     print("=" * 60)

@@ -1353,71 +1353,71 @@ class RetractionPhase(Phase):
         return end_phase, kin
 
 
-# class RetractionPhaseElevationStop(RetractionPhase):
-#     def __init__(self, phase_settings={'control': ('tether_force_ground', 1200.)}, impose_operational_limits=True):
-#         """
-#         Args:
-#             phase_settings (tuple, optional): Setting parent's `control_settings` attribute.
-#             impose_operational_limits (bool, optional): Setting parent's `impose_operational_limits` attribute.
+class RetractionPhaseElevationStop(RetractionPhase):
+    def __init__(self, phase_settings={'control': ('tether_force_ground', 1200.)}, impose_operational_limits=True):
+        """
+        Args:
+            phase_settings (tuple, optional): Setting parent's `control_settings` attribute.
+            impose_operational_limits (bool, optional): Setting parent's `impose_operational_limits` attribute.
 
-#         """
-#         super().__init__(phase_settings, impose_operational_limits)
+        """
+        super().__init__(phase_settings, impose_operational_limits)
 
-#         # Binary kite aerodynamic state.
-#         self.kite_powered = False
+        # Binary kite aerodynamic state.
+        self.kite_powered = False
 
-#         self.fix_tether_length = False  # Should be False for realistic simulation.
+        self.fix_tether_length = False  # Should be False for realistic simulation.
 
-#     def finalize_start_and_end_kite_obj(self):
-#         """Finalize the initial state and ending criteria before running the simulation, respectively `kinematics_start`
-#         and `position_end`."""
-#         self.kinematics_start = KiteKinematics(self.tether_length_start, self.AZIMUTH_ANGLE,
-#                                                self.elevation_angle_start, self.COURSE_ANGLE)
-#         self.position_end = KitePosition(elevation_angle=self.elevation_angle_end)
+    def finalize_start_and_end_kite_obj(self):
+        """Finalize the initial state and ending criteria before running the simulation, respectively `kinematics_start`
+        and `position_end`."""
+        self.kinematics_start = KiteKinematics(self.tether_length_start, self.AZIMUTH_ANGLE,
+                                               self.elevation_angle_start, self.COURSE_ANGLE)
+        self.position_end = KitePosition(elevation_angle=self.elevation_angle_end)
 
-#     def determine_new_kinematics(self, last_kinematics, last_steady_state):
-#         """Determine kinematic state of the kite for the new time point based on the previous kinematic and steady state
-#         properties. For the retraction phase, the tether length and elevation angle are updated.
+    def determine_new_kinematics(self, last_kinematics, last_steady_state):
+        """Determine kinematic state of the kite for the new time point based on the previous kinematic and steady state
+        properties. For the retraction phase, the tether length and elevation angle are updated.
 
-#         Args:
-#             last_kinematics (`KiteKinematics`): Kinematics object of previous time point.
-#             last_steady_state (`SteadyState`): Steady state of previous time point.
+        Args:
+            last_kinematics (`KiteKinematics`): Kinematics object of previous time point.
+            last_steady_state (`SteadyState`): Steady state of previous time point.
 
-#         Returns:
-#             bool: Flag indicating meeting phase ending criteria.
-#             `KiteKinematics`: Kinematic state of the kite for the new time point.
+        Returns:
+            bool: Flag indicating meeting phase ending criteria.
+            `KiteKinematics`: Kinematic state of the kite for the new time point.
 
-#         """
-#         kin = copy(last_kinematics)
+        """
+        kin = copy(last_kinematics)
 
-#         # Determine the difference in tether length and elevation angle for regular time step.
-#         if not self.fix_tether_length:
-#             d_tether_length = last_steady_state.reeling_speed*self.time_step
-#         else:
-#             d_tether_length = 0.
-#         d_elevation = last_steady_state.elevation_rate*self.time_step
-#         if d_elevation < 1e-4 and d_tether_length > 0.:
-#             raise PhaseError("Reeling out at constant elevation angle during reel-in phase.", 3)
+        # Determine the difference in tether length and elevation angle for regular time step.
+        if not self.fix_tether_length:
+            d_tether_length = last_steady_state.reeling_speed*self.time_step
+        else:
+            d_tether_length = 0.
+        d_elevation = last_steady_state.elevation_rate*self.time_step
+        if d_elevation < 1e-4 and d_tether_length > 0.:
+            raise PhaseError("Reeling out at constant elevation angle during reel-in phase.", 3)
 
-#         # Check if target tether length is not exceeded next iteration.
-#         if kin.elevation_angle + d_elevation < self.position_end.elevation_angle:
-#             # Set timer and kite kinematics for next iteration.
-#             self.timer += self.time_step
-#             kin.straight_tether_length += d_tether_length
-#             kin.elevation_angle += d_elevation
-#             kin.update()
-#             end_phase = False
-#         else:
-#             d_elevation_remaining = self.position_end.elevation_angle - kin.elevation_angle
-#             reduced_time_step = d_elevation_remaining/last_steady_state.elevation_rate
+        # Check if target tether length is not exceeded next iteration.
+        if kin.elevation_angle + d_elevation < self.position_end.elevation_angle:
+            # Set timer and kite kinematics for next iteration.
+            self.timer += self.time_step
+            kin.straight_tether_length += d_tether_length
+            kin.elevation_angle += d_elevation
+            kin.update()
+            end_phase = False
+        else:
+            d_elevation_remaining = self.position_end.elevation_angle - kin.elevation_angle
+            reduced_time_step = d_elevation_remaining/last_steady_state.elevation_rate
 
-#             # Set final timer and kite kinematics.
-#             self.timer += reduced_time_step
-#             kin.elevation_angle += d_elevation_remaining
-#             kin.straight_tether_length += last_steady_state.reeling_speed*reduced_time_step
-#             kin.update()
-#             end_phase = True
-#         return end_phase, kin
+            # Set final timer and kite kinematics.
+            self.timer += reduced_time_step
+            kin.elevation_angle += d_elevation_remaining
+            kin.straight_tether_length += last_steady_state.reeling_speed*reduced_time_step
+            kin.update()
+            end_phase = True
+        return end_phase, kin
 
 
 class TransitionPhase(Phase):
@@ -1967,16 +1967,17 @@ class EvaluatePattern(Phase):  # Determine performance along cross wind pattern 
 
 
 class Cycle(TimeSeries):
-    """Combination of phases: `TractionPhase`, `RetractionPhase`, and `TransitionPhase`, which together make a pumping
-    cycle. Inherits from `TimeSeries`. The traction phase is simulated first.
+    """Combination of phases: `RetractionPhase`, `TransitionPhase`, and `TractionPhase`, which together make a pumping
+    cycle. Inherits from `TimeSeries`. The retraction phase is simulated first and the traction phase last. The results
+    are however manipulated such that the cycle starts with the traction phase.
 
     Attributes:
-        tether_length_start_traction (float): Tether length [m] at the start of the traction phase.
-        tether_length_end_traction (float): Tether length [m] at the end of the traction phase.
+        tether_length_start_retraction (float): Tether length [m] at the start of the retraction phase.
+        tether_length_end_retraction (float): Tether length [m] at the end of the retraction phase.
         elevation_angle_traction (float): Elevation angle [rad] of the traction phase.
-        traction_phase (`TractionPhase`): Traction phase simulation object.
         retraction_phase (`RetractionPhase`): Retraction phase simulation object.
         transition_phase (`TransitionPhase`): Transition phase simulation object.
+        traction_phase (`TractionPhase`): Traction phase simulation object.
         follow_wind (bool): Specifies whether kite is 'aligned' with the wind. Controlled azimuth angle is expressed
             w.r.t. wind reference frame if True, or ground reference frame if False.
 
@@ -1993,10 +1994,10 @@ class Cycle(TimeSeries):
         cycle_settings = settings.get('cycle', {})
 
         # Properties of idealized pumping cycle trajectory.
+        self.tether_length_start_retraction = cycle_settings.get('tether_length_start_retraction')
+        self.tether_length_end_retraction = cycle_settings.get('tether_length_end_retraction')
+        # Setting the lower attribute imposes the traction phase to start at the given length.
         self.tether_length_start_traction = cycle_settings.get('tether_length_start_traction')
-        self.tether_length_end_traction = cycle_settings.get('tether_length_end_traction')
-
-
         self.elevation_angle_traction = cycle_settings.get('elevation_angle_traction')
 
         # Initiating phases, allows manipulating its attribute before running the simulation.
@@ -2032,63 +2033,37 @@ class Cycle(TimeSeries):
 
         """
         if isinstance(environment_state, list):
-            env_trac, env_retr, env_trans = environment_state
+            env_retr, env_trans, env_trac = environment_state
         else:
-            env_trac, env_retr, env_trans = environment_state, environment_state, environment_state
+            env_retr, env_trans, env_trac = environment_state, environment_state, environment_state
         error_in_phase = None
+        reorder = True
 
-        # First, run the traction phase.
-        trac = self.traction_phase
-        trac.follow_wind = self.follow_wind
-        trac.enable_limit_violation_error = enable_limit_violation_error
-
-        # Set start and stop conditions of traction phase.
-        trac.elevation_angle = TractionConstantElevation(self.elevation_angle_traction)
-        trac.tether_length_start = self.tether_length_start_traction
-        trac.tether_length_end = self.tether_length_end_traction
-        trac.finalize_start_and_end_kite_obj()
-
-        try:
-            if trac.__class__.__name__ == "TractionPhaseHybrid":
-                trac.run_simulation(system_properties, env_trac, steady_state_config, 0.,
-                                    n_patterns=self.n_traction_points,
-                                    n_pattern_eval_points=self.n_pattern_eval_points)
-            else:
-                trac.run_simulation(system_properties, env_trac, steady_state_config, 0.)
-        except PhaseError as e:
-            if e.code not in [1, 2]:  # Simulation does not seem to reach end criteria.
-                raise
-            trac.energy = -1e2
-            trac.duration = 1.
-            error_in_phase = "traction"
-        last_kinematics = trac.kinematics[-1]
-        last_time = trac.time[-1]
-
-        # Second, run the retraction phase.
+        # Start with running the retraction phase, since its start and stop conditions are predefined.
         retr = self.retraction_phase
         retr.follow_wind = self.follow_wind
         retr.enable_limit_violation_error = enable_limit_violation_error
 
         # Set start and stop conditions of retraction phase.
-        retr.tether_length_start = self.tether_length_end_traction
-        retr.tether_length_end = self.tether_length_start_traction
-        retr.elevation_angle_start = last_kinematics.elevation_angle
+        retr.tether_length_start = self.tether_length_start_retraction
+        retr.tether_length_end = self.tether_length_end_retraction
+        retr.elevation_angle_start = self.elevation_angle_traction
         retr.finalize_start_and_end_kite_obj()
 
         try:
-            retr.run_simulation(system_properties, env_retr, steady_state_config, last_time)
+            retr.run_simulation(system_properties, env_retr, steady_state_config, 0.)
             last_straight_tether_length = retr.kinematics[-1].straight_tether_length
         except PhaseError as e:
             if e.code not in [1, 3]:  # Simulation does not seem to reach end criteria.
                 raise
             retr.energy = -1e8
-            last_straight_tether_length = self.tether_length_start_traction
+            last_straight_tether_length = self.tether_length_end_retraction
             retr.duration = 100.
             error_in_phase = "retraction"
         last_kinematics = retr.kinematics[-1]
         last_time = retr.time[-1]
 
-        # Third, run the transition phase.
+        # Second, run the transition phase.
         trans = self.transition_phase
         trans.follow_wind = self.follow_wind
         trans.enable_limit_violation_error = False
@@ -2099,13 +2074,57 @@ class Cycle(TimeSeries):
         trans.elevation_angle_end = self.elevation_angle_traction
         trans.finalize_start_and_end_kite_obj()
 
-        trans.run_simulation(system_properties, env_trans, steady_state_config, last_time)
+        if reorder:
+            timer_start = 0
+        else:
+            timer_start = last_time
+        trans.run_simulation(system_properties, env_trans, steady_state_config, timer_start)
+        last_kinematics = trans.kinematics[-1]
         last_time = trans.time[-1]
+        # trans.average_power = 0
+        # trans.energy = 0
+
+        # Third, run the traction phase.
+        trac = self.traction_phase
+        trac.follow_wind = self.follow_wind
+        trac.enable_limit_violation_error = enable_limit_violation_error
+
+        # Start and stop conditions of traction phase. Note that the traction phase uses an azimuth angle in contrast to
+        # the other phases, which results in jumps of the kite position.
+        if trac.__class__.__name__ == "TractionPhaseHybrid":
+            trac.tether_length_start_aim = self.tether_length_end_retraction
+        trac.elevation_angle = TractionConstantElevation(self.elevation_angle_traction)
+        if self.tether_length_start_traction is None:
+            trac.tether_length_start = last_kinematics.straight_tether_length
+        else:
+            trac.tether_length_start = self.tether_length_start_traction
+        trac.tether_length_end = self.tether_length_start_retraction
+        trac.finalize_start_and_end_kite_obj()
+
+        try:
+            if trac.__class__.__name__ == "TractionPhaseHybrid":
+                trac.run_simulation(system_properties, env_trac, steady_state_config, last_time,
+                                    n_patterns=self.n_traction_points,
+                                    n_pattern_eval_points=self.n_pattern_eval_points)
+            else:
+                trac.run_simulation(system_properties, env_trac, steady_state_config, last_time)
+        except PhaseError as e:
+            if e.code not in [1, 2]:  # Simulation does not seem to reach end criteria.
+                raise
+            trac.energy = -1e2
+            trac.duration = 1.
+            error_in_phase = "traction"
+        last_time = trac.time[-1]
 
         # Resulting time series
-        self.time = trac.time + retr.time + trans.time
-        self.kinematics = trac.kinematics + retr.kinematics + trans.kinematics
-        self.steady_states = trac.steady_states + retr.steady_states + trans.steady_states
+        if reorder:
+            self.time = trans.time + trac.time + [t + last_time for t in retr.time]
+            self.kinematics = trans.kinematics + trac.kinematics + retr.kinematics
+            self.steady_states = trans.steady_states + trac.steady_states + retr.steady_states
+        else:
+            self.time = retr.time + trans.time + trac.time
+            self.kinematics = retr.kinematics + trans.kinematics + trac.kinematics
+            self.steady_states = retr.steady_states + trans.steady_states + trac.steady_states
         self.energy = trac.energy + retr.energy
         if self.include_transition_energy:
             self.energy += trans.energy
@@ -2115,9 +2134,9 @@ class Cycle(TimeSeries):
         if print_summary:
             print("Total cycle: {:.1f} seconds in which {:.0f}J energy produced.".format(self.time[-1], self.energy))
             print("Mean cycle power: {:.1f}W".format(self.average_power))
-            print("Traction power: {:.1f}W".format(trac.average_power))
             print("Retraction power: {:.1f}W".format(retr.average_power))
             print("Transition power: {:.1f}W".format(trans.average_power))
+            print("Traction power: {:.1f}W".format(trac.average_power))
 
         self.duty_cycle = trac.duration/self.duration
         try:
@@ -2138,6 +2157,6 @@ class Cycle(TimeSeries):
             plt.figure()
         fig_num = plt.gcf().number
         plot_kwargs = {'color': 'k'}
-        self.traction_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
         self.retraction_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
         self.transition_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
+        self.traction_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)

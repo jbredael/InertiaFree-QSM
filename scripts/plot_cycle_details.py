@@ -12,12 +12,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from inertiafree_qsm.plotting import load_power_curve_data, plot_cycle_detail
 
 # ── INPUT ─────────────────────────────────────────────────────────────────────
-POWER_CURVE_FILE = Path("results/power_curve_single_point.yml")
+POWER_CURVE_FILE = Path("results/power_curves_direct_simulation.yml")
 PROFILE_ID = 1           # int profile_id to filter on; None = use all profiles
 WIND_SPEED_MIN = None    # float [m/s], None = no lower limit
 WIND_SPEED_MAX = None    # float [m/s], None = no upper limit
 OUTPUT_DIR = Path("results/cycle_details")  # folder to save PDFs; None = show only
-SHOW_PLOT = True
+SHOW_PLOT = False
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -27,7 +27,8 @@ def plot_all_cycle_details(
     wind_speed_min=None,
     wind_speed_max=None,
     output_dir=None,
-    show_plot=True,):
+    show_plot=True,
+):
     """Plot cycle detail figures for all matching wind speeds in a power curve file.
 
     Args:
