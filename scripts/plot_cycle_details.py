@@ -52,7 +52,7 @@ def plot_all_cycle_details(
             continue
 
         for entry in profile.get("wind_speed_data", []):
-            ws = entry["wind_speed_m_s"]
+            ws = entry["wind_speed"]
 
             if wind_speed_min is not None and ws < wind_speed_min:
                 continue

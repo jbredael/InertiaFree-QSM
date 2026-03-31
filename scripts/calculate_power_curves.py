@@ -38,19 +38,19 @@ if __name__ == "__main__":
         system_config_path=SYSTEM_CONFIG_PATH,
         wind_resource_path=WIND_RESOURCE_PATH,
         simulation_settings_path=SIMULATION_SETTINGS_PATH,
-        validate_file=True
+        validate_file=True, verbose=False
     )
     
     # constructor.print_summary()
     
-    # Generate power curves using direct simulation
-    result = constructor.generate_power_curves_direct(
-        output_path=OUTPUT_PATH_DIRECT,
-        verbose=True,
-        show_plot=True,
-        save_plot=True, 
-        validate_file=True
-    )
+    # # Generate power curves using direct simulation
+    # result = constructor.generate_power_curves_direct(
+    #     output_path=OUTPUT_PATH_DIRECT,
+    #     verbose=True,
+    #     show_plot=True,
+    #     save_plot=True, 
+    #     validate_file=True
+    # )
 
     # # Generate power curves using optimized simulation
     # result = constructor.generate_power_curves_optimized(
@@ -62,12 +62,12 @@ if __name__ == "__main__":
     #     opt_plots_dir=PROJECT_ROOT / "results" / "opt_evolution_plots",
     # )
 
-    # result = constructor.simulate_single_wind_speed(
-    #     wind_speed=14.0, method="direct",
-    #     output_path=OUTPUT_PATH_DIRECT_SINGLE_POINT,
-    #     verbose=True, show_plot=True, save_plot=True,
-    #     validate_file=True
-    # )
+    result = constructor.simulate_single_wind_speed(
+        wind_speed=14.0, method="direct",
+        output_path=OUTPUT_PATH_DIRECT_SINGLE_POINT,
+        verbose=True, show_plot=True, save_plot=True,
+        validate_file=True
+    )
 
     # result = constructor.simulate_single_wind_speed(
     #     wind_speed=10.0, method="optimization",
@@ -75,14 +75,4 @@ if __name__ == "__main__":
     #     verbose=True, show_plot=False, save_plot=True,
     #     validate_file=True
     # )
-
-    print("=" * 80)
-    print("POWER CURVE GENERATION COMPLETE")
-    print("=" * 80)
-    print("\nGenerated files:")
-    print(f"  1. Direct simulation: {OUTPUT_PATH_DIRECT}")
-    print(f"  2. Optimized curves: {OUTPUT_PATH_OPTIMIZED}")
-    print(f"  3. Single point simulation: {OUTPUT_PATH_DIRECT_SINGLE_POINT}")
-    print(f"  4. Single point optimized: {OUTPUT_PATH_OPTIMIZED_SINGLE_POINT}")
-    print("\nAll done!")
 

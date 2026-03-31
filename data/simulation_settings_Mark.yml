@@ -156,7 +156,7 @@ retraction:
   # Speed-controlled reel-in followed by force-control when the lower limit is reached.
   control: ['reeling_speed', -1.75]
   # Time step for simulation [s]
-  time_step: 0.25
+  time_step: 0.05
   # Azimuth angle [degrees]
   azimuth_angle: 0.0
   # Course angle [degrees]
@@ -166,7 +166,7 @@ transition:
   # Control setting for transition phase
   control: ['reeling_speed', 0]
   # Time step for simulation [s]
-  time_step: 0.25
+  time_step: 0.05
   # Azimuth angle [degrees]
   azimuth_angle: 0.0
   # Course angle [degrees]
@@ -178,7 +178,7 @@ traction:
   #   or [control_parameter, setpoint_value]
   control: ['reeling_factor', 0.2]
   # Time step for simulation [s]
-  time_step: 0.25
+  time_step: 0.05
   # Azimuth angle [degrees]
   azimuth_angle: 11.5
   # Course angle [degrees]

@@ -55,7 +55,7 @@ def find_wind_speed_data(data, target_wind_speed, profile_id=None):
         if profile_id is not None and profile.get('profile_id') != profile_id:
             continue
         for entry in profile.get('wind_speed_data', []):
-            if abs(entry['wind_speed_m_s'] - target_wind_speed) < 0.01:
+            if abs(entry['wind_speed'] - target_wind_speed) < 0.01:
                 return entry
 
     if profile_id is not None:
@@ -88,7 +88,7 @@ def plot_power_curve(file_path, output_path=None, show_plot=True):
     data = load_power_curve_data(file_path)
     metadata = data.get('metadata', {})
     name = metadata.get('name', 'Power Curve')
-    referenceHeight = metadata.get('wind_resource', {}).get('reference_height_m', 100)
+    referenceHeight = metadata.get('wind_resource', {}).get('reference_height', 100)
     powerCurves = data.get('power_curves', [])
 
     if not powerCurves:
@@ -110,14 +110,14 @@ def plot_power_curve(file_path, output_path=None, show_plot=True):
         if not windSpeedData:
             continue
 
-        windSpeeds = [e['wind_speed_m_s'] for e in windSpeedData]
-        cyclePowerKw = [e['performance']['power']['average_cycle_power_w'] / 1000
+        windSpeeds = [e['wind_speed'] for e in windSpeedData]
+        cyclePowerKw = [e['performance']['power']['average_cycle_power'] / 1000
                         for e in windSpeedData]
-        reelOutPowerKw = [e['performance']['power']['average_reel_out_power_w'] / 1000
+        reelOutPowerKw = [e['performance']['power']['average_reel_out_power'] / 1000
                           for e in windSpeedData]
-        reelInPowerKw = [e['performance']['power']['average_reel_in_power_w'] / 1000
+        reelInPowerKw = [e['performance']['power']['average_reel_in_power'] / 1000
                          for e in windSpeedData]
-        cycleTime = [e['performance']['timing']['cycle_time_s'] for e in windSpeedData]
+        cycleTime = [e['performance']['timing']['cycle_time'] for e in windSpeedData]
 
         color = plt.cm.tab20(idx % 20) if nProfiles > 10 else None
         marker = 'o' if useMarkers else ''
@@ -145,13 +145,13 @@ def plot_power_curve(file_path, output_path=None, show_plot=True):
                         markersize=markerSize, label=f'Profile {profileId}', color=color)
 
         if 'model_config' in metadata:
-            wingArea = metadata['model_config'].get('wing_area_m2')
+            wingArea = metadata['model_config'].get('wing_area')
             if wingArea:
                 AIR_DENSITY = 1.225
                 powerCoeff = []
                 for e in windSpeedData:
-                    ws = e['wind_speed_m_s']
-                    cpVal = e['performance']['power']['average_cycle_power_w']
+                    ws = e['wind_speed']
+                    cpVal = e['performance']['power']['average_cycle_power']
                     if ws > 0 and cpVal >= 0:
                         availPower = 0.5 * AIR_DENSITY * wingArea * ws ** 3
                         powerCoeff.append(cpVal / availPower if availPower > 0 else 0)
@@ -182,7 +182,7 @@ def plot_power_curve(file_path, output_path=None, show_plot=True):
     axes[0, 1].legend(fontsize=9)
     axes[0, 1].axhline(y=0, color='k', linestyle='--', alpha=0.3)
 
-    if 'model_config' in metadata and metadata['model_config'].get('wing_area_m2'):
+    if 'model_config' in metadata and metadata['model_config'].get('wing_area'):
         axes[1, 1].set_xlabel(f'Wind Speed at {referenceHeight}m (m/s)', fontsize=11)
         axes[1, 1].set_ylabel('Power Coefficient', fontsize=11)
         axes[1, 1].set_title('Power Coefficient', fontsize=12, fontweight='bold')
@@ -233,7 +233,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     """
     data = load_power_curve_data(file_path)
     metadata = data.get('metadata', {})
-    referenceHeight = metadata.get('wind_resource', {}).get('reference_height_m', 100)
+    referenceHeight = metadata.get('wind_resource', {}).get('reference_height', 100)
     profileLabel = f" (Profile {profile_id})" if profile_id is not None else ""
 
     wsData = find_wind_speed_data(data, wind_speed, profile_id)
@@ -255,13 +255,14 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
         print(f"No time history data available for wind speed {wind_speed} m/s")
         return None
 
-    time = np.array(timeHistory.get('time_s', []))
-    altitude = np.array(timeHistory.get('altitude_m', []))
-    tetherForce = np.array(timeHistory.get('tether_force_n', []))
-    powerInst = np.array(timeHistory.get('power_w', []))
-    reelSpeed = np.array(timeHistory.get('reel_speed_m_s', []))
-    tetherLength = np.array(timeHistory.get('tether_length_m', []))
-    elevationAngleDeg = np.array(timeHistory.get('elevation_angle_deg', []))
+    time = np.array(timeHistory.get('time', []))
+    altitude = np.array(timeHistory.get('altitude', []))
+    tetherForce = np.array(timeHistory.get('tether_force', []))
+    powerInst = np.array(timeHistory.get('power', []))
+    reelSpeed = np.array(timeHistory.get('reel_speed', []))
+    tetherLength = np.array(timeHistory.get('tether_length', []))
+    elevationAngleRad = np.array(timeHistory.get('elevation_angle', []))
+    elevationAngleDeg = np.degrees(elevationAngleRad)
 
     fig, axes = plt.subplots(4, 2, figsize=(16, 16))
     title = (
@@ -272,8 +273,8 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
         title += '\n(simulation converged with relaxed errors)'
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
-    reelOutTime = timing['reel_out_time_s']
-    reelInTime = timing['reel_in_time_s']
+    reelOutTime = timing['reel_out_time']
+    reelInTime = timing['reel_in_time']
     startReelInidx = np.searchsorted(time, reelOutTime) - 1
     start_TransitionIdx = np.searchsorted(time, reelOutTime + reelInTime) - 1
 
@@ -311,8 +312,8 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.set_title('Instantaneous Power', fontweight='bold')
     ax.grid(True, alpha=0.3)
     ax.axhline(y=0, color='k', linestyle='-', alpha=0.3, linewidth=0.8)
-    ax.axhline(y=power['average_cycle_power_w'] / 1000, color='r', linestyle='--',
-               alpha=0.5, label=f"Avg Cycle: {power['average_cycle_power_w']/1000:.1f} kW")
+    ax.axhline(y=power['average_cycle_power'] / 1000, color='r', linestyle='--',
+               alpha=0.5, label=f"Avg Cycle: {power['average_cycle_power']/1000:.1f} kW")
     ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
     ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend(fontsize=9)
@@ -356,7 +357,6 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.legend(fontsize=9)
 
     # 2-D trajectory (side view): horizontal distance vs altitude
-    elevationAngleRad = np.deg2rad(elevationAngleDeg)
     horizontalDist = tetherLength * np.cos(elevationAngleRad)
 
     ax = axes[3, 0]
@@ -389,12 +389,12 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     summaryText = (
         f"Performance Summary\n"
         f"{'─' * 28}\n"
-        f"Cycle Power:      {power['average_cycle_power_w']/1000:.2f} kW\n"
-        f"Reel-Out Power:   {power['average_reel_out_power_w']/1000:.2f} kW\n"
-        f"Reel-In Power:    {power['average_reel_in_power_w']/1000:.2f} kW\n"
-        f"Cycle Time:       {timing['cycle_time_s']:.2f} s\n"
-        f"Reel-Out Time:    {timing['reel_out_time_s']:.2f} s\n"
-        f"Reel-In Time:     {timing['reel_in_time_s']:.2f} s"
+        f"Cycle Power:      {power['average_cycle_power']/1000:.2f} kW\n"
+        f"Reel-Out Power:   {power['average_reel_out_power']/1000:.2f} kW\n"
+        f"Reel-In Power:    {power['average_reel_in_power']/1000:.2f} kW\n"
+        f"Cycle Time:       {timing['cycle_time']:.2f} s\n"
+        f"Reel-Out Time:    {timing['reel_out_time']:.2f} s\n"
+        f"Reel-In Time:     {timing['reel_in_time']:.2f} s"
     )
     axSummary.text(0.05, 0.95, summaryText, fontsize=10,
                    verticalalignment='top', horizontalalignment='left',

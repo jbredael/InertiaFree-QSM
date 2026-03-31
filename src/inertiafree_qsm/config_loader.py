@@ -97,27 +97,27 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     kcu = components.get('control_system', {})
     kcu_structure = kcu.get('structure', {})
 
-    wing_mass = wing_structure.get('mass_kg')
+    wing_mass = wing_structure.get('mass')
     bridle = components.get('bridle', {})
-    bridle_mass = bridle.get('structure', {}).get('mass_kg')
-    kcu_mass = kcu_structure.get('mass_kg')
+    bridle_mass = bridle.get('structure', {}).get('mass')
+    kcu_mass = kcu_structure.get('mass')
     kite_mass = wing_mass + bridle_mass + kcu_mass
 
-    tether_force_max_limit = tether_structure.get('max_tether_force_n')
-    tether_force_min_limit = tether_structure.get('min_tether_force_n')
+    tether_force_max_limit = tether_structure.get('max_tether_force')
+    tether_force_min_limit = tether_structure.get('min_tether_force')
     if tether_force_min_limit is None and tether_force_max_limit is not None:
         tether_force_min_limit = 0.03 * tether_force_max_limit
 
     base_sys_props = {
-        'kite_projected_area': wing_structure.get('projected_surface_area_m2'),
+        'kite_projected_area': wing_structure.get('projected_surface_area'),
         'kite_mass': kite_mass,
-        'tether_density': tether_structure.get('density_kg_m3'),
-        'tether_diameter': tether_structure.get('diameter_m'),
+        'tether_density': tether_structure.get('density'),
+        'tether_diameter': tether_structure.get('diameter'),
         'tether_force_min_limit': tether_force_min_limit,
         'tether_force_max_limit': tether_force_max_limit,
         'reeling_speed_min_limit': 0.0,
-        'reeling_speed_max_limit': drum.get('max_tether_speed_m_s'),
-        'max_tether_length': tether_structure.get('length_m'),
+        'reeling_speed_max_limit': drum.get('max_tether_speed'),
+        'max_tether_length': tether_structure.get('length'),
         'max_generator_power': ground_station.get('generator', {}).get('max_power'),
     }
 

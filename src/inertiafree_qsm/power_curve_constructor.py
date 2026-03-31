@@ -64,7 +64,7 @@ class PowerCurveConstructor:
         system_config_path,
         wind_resource_path,
         simulation_settings_path,
-        validate_file=True,):
+        validate_file=True, verbose=False):
         """Initialize the power curve optimizer with configuration files."""
         self.system_config_path = Path(system_config_path)
         self.wind_resource_path = Path(wind_resource_path)
@@ -75,7 +75,7 @@ class PowerCurveConstructor:
             self.system_config_path,
             self.simulation_settings_path,
             validate_file=validate_file,
-            verbose=True,
+            verbose=verbose,
         )
         self.wind_resource = load_wind_resource(self.wind_resource_path, validate_file=validate_file)
         # Create system properties object
@@ -722,8 +722,6 @@ class PowerCurveConstructor:
         return self._build_wind_speed_entry(wind_speed, kpi)
 
 
-
-
     def _build_and_save_output(
         self,
         cluster_ids,
@@ -752,7 +750,7 @@ class PowerCurveConstructor:
             dict: Complete power curve data in awesIO format.
         """
         # Extract wind speeds from first cluster's data
-        wind_speeds = [entry['wind_speed_m_s'] for entry in wind_speed_data_per_cluster[0]]
+        wind_speeds = [entry['wind_speed'] for entry in wind_speed_data_per_cluster[0]]
         
         # Check if there are any successful wind speeds
         if len(wind_speeds) == 0:
@@ -786,7 +784,7 @@ class PowerCurveConstructor:
             })
 
         # Determine cut-in and cut-out from first cluster
-        cycle_powers = [entry['performance']['power']['average_cycle_power_w']
+        cycle_powers = [entry['performance']['power']['average_cycle_power']
                         for entry in wind_speed_data_per_cluster[0]]
         cut_in_ws = self._find_cut_in_wind_speed(wind_speeds, cycle_powers)
         if cut_in_ws is None:
@@ -795,7 +793,7 @@ class PowerCurveConstructor:
 
         # Calculate nominal power (max across all clusters)
         nominal_power = max(
-            max(entry['performance']['power']['average_cycle_power_w'] for entry in wsd)
+            max(entry['performance']['power']['average_cycle_power'] for entry in wsd)
             for wsd in wind_speed_data_per_cluster
         )
 
@@ -810,21 +808,18 @@ class PowerCurveConstructor:
                 'schema': 'power_curves_schema.yml',
                 'time_created': datetime.now().isoformat(),
                 'model_config': {
-                    'wing_area_m2': float(self.sys_props.kite_projected_area),
-                    'nominal_power_w': float(nominal_power),
-                    'nominal_tether_force_n': float(self.sys_props.tether_force_max_limit),
-                    'cut_in_wind_speed_m_s': float(cut_in_ws),
-                    'cut_out_wind_speed_m_s': float(cut_out_ws),
+                    'wing_area': float(self.sys_props.kite_projected_area),
+                    'wing_mass': float(self.sys_props.kite_mass),
                 },
                 'wind_resource': {
                     'n_clusters': self.n_clusters,
                     'n_profiles_calculated': len(cluster_ids),
                     'profile_ids_calculated': list(cluster_ids),
-                    'reference_height_m': float(self.reference_height),
+                    'reference_height': float(self.reference_height),
                 },
             },
-            'altitudes_m': [float(a) for a in altitudes],
-            'reference_wind_speeds_m_s': [float(ws) for ws in wind_speeds],
+            'altitudes': [float(a) for a in altitudes],
+            'reference_wind_speeds': [float(ws) for ws in wind_speeds],
             'power_curves': power_curves,
         }
 
@@ -899,19 +894,19 @@ class PowerCurveConstructor:
             )
 
         entry = {
-            'wind_speed_m_s': float(wind_speed),
+            'wind_speed': float(wind_speed),
             'success': bool(kpi.get('sim_successful', True)),
             'performance': {
                 'power': {
-                    'average_cycle_power_w': _safe_float(kpi['average_power']['cycle']),
-                    'average_reel_out_power_w': _safe_float(kpi['average_power']['out']),
-                    'average_reel_in_power_w': _safe_float(kpi['average_power']['in']),
+                    'average_cycle_power': _safe_float(kpi['average_power']['cycle']),
+                    'average_reel_out_power': _safe_float(kpi['average_power']['out']),
+                    'average_reel_in_power': _safe_float(kpi['average_power']['in']),
                 },
                 'timing': {
-                    'reel_out_time_s': _safe_float(kpi['duration']['out']),
-                    'reel_in_time_s': (_safe_float(kpi['duration']['in'])),
-                    'transition_time_s': _safe_float(kpi['duration'].get('trans', 0.0)),
-                    'cycle_time_s': _safe_float(kpi['duration']['cycle']),
+                    'reel_out_time': _safe_float(kpi['duration']['out']),
+                    'reel_in_time': (_safe_float(kpi['duration']['in'])),
+                    'transition_time': _safe_float(kpi['duration'].get('trans', 0.0)),
+                    'cycle_time': _safe_float(kpi['duration']['cycle']),
                 },
             },
         }
@@ -956,20 +951,36 @@ class PowerCurveConstructor:
             power_full.append(float(ss.power_ground))
             reel_speed_full.append(float(ss.reeling_speed))
             tether_length_full.append(float(kin.straight_tether_length))
-            elevation_angle_full.append(float(np.degrees(kin.elevation_angle)))
+            elevation_angle_full.append(float(kin.elevation_angle))
 
         # Downsample to ~2 second intervals
         indices = self._downsample_indices(time_full, interval_s=2.0)
 
         return {
-            'time_s': [time_full[i] for i in indices],
-            'altitude_m': [altitude_full[i] for i in indices],
-            'tether_force_n': [tether_force_full[i] for i in indices],
-            'power_w': [power_full[i] for i in indices],
-            'reel_speed_m_s': [reel_speed_full[i] for i in indices],
-            'tether_length_m': [tether_length_full[i] for i in indices],
-            'elevation_angle_deg': [elevation_angle_full[i] for i in indices],
+            'time': [time_full[i] for i in indices],
+            'altitude': [altitude_full[i] for i in indices],
+            'tether_force': [tether_force_full[i] for i in indices],
+            'power': [power_full[i] for i in indices],
+            'reel_speed': [reel_speed_full[i] for i in indices],
+            'tether_length': [tether_length_full[i] for i in indices],
+            'elevation_angle': [elevation_angle_full[i] for i in indices],
         }
+
+    @staticmethod
+    def _find_cut_in_wind_speed(wind_speeds, cycle_powers):
+        """Find the cut-in wind speed where average cycle power first becomes positive.
+
+        Args:
+            wind_speeds (list): Wind speeds [m/s].
+            cycle_powers (list): Average cycle power values [W].
+
+        Returns:
+            float or None: Cut-in wind speed, or None if no positive power found.
+        """
+        for ws, p in zip(wind_speeds, cycle_powers):
+            if p is not None and p > 0:
+                return ws
+        return None
 
     @staticmethod
     def _downsample_indices(time_vector, interval_s=2.0):
@@ -1003,23 +1014,5 @@ class PowerCurveConstructor:
             indices.append(len(time_vector) - 1)
         
         return indices
-
-    @staticmethod
-    def _find_cut_in_wind_speed(wind_speeds, cycle_powers):
-        """Find the cut-in wind speed where power first becomes positive.
-
-        Args:
-            wind_speeds (array-like): Wind speeds [m/s].
-            cycle_powers (list): Cycle power values [W].
-
-        Returns:
-            float: Cut-in wind speed [m/s], or None if no data available.
-        """
-        if len(wind_speeds) == 0:
-            return None
-        for ws, power in zip(wind_speeds, cycle_powers):
-            if power > 0:
-                return float(ws)
-        return float(wind_speeds[0])
 
 
