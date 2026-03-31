@@ -890,7 +890,8 @@ class PowerCurveConstructor:
                 n_pts = len(kpi['kinematics'])
                 time_list = list(np.linspace(0, kpi['duration']['cycle'], n_pts))
             time_history = self._extract_time_history(
-                time_list, kpi['kinematics'], kpi['steady_states']
+                time_list, kpi['kinematics'], kpi['steady_states'],
+                phase_durations=kpi.get('duration'),
             )
 
         entry = {
@@ -915,7 +916,8 @@ class PowerCurveConstructor:
 
         return entry
 
-    def _extract_time_history(self, time_list, kinematics, steady_states):
+    def _extract_time_history(self, time_list, kinematics, steady_states,
+                               phase_durations=None):
         """Extract time history data from kinematics and steady state objects.
 
         This unified method is used by both direct simulation and optimization.
@@ -928,6 +930,9 @@ class PowerCurveConstructor:
                 elevation_angle attributes.
             steady_states (list): Steady state objects with tether_force_ground,
                 power_ground, reeling_speed attributes.
+            phase_durations (dict, optional): Duration dict with keys 'out'
+                (traction), 'in' (retraction), 'trans' (transition), 'cycle'.
+                Used to preserve phase boundary points during downsampling.
 
         Returns:
             dict: Time history data with altitude, forces, power, speeds, etc.
@@ -953,8 +958,19 @@ class PowerCurveConstructor:
             tether_length_full.append(float(kin.straight_tether_length))
             elevation_angle_full.append(float(kin.elevation_angle))
 
-        # Downsample to ~2 second intervals
-        indices = self._downsample_indices(time_full, interval_s=2.0)
+
+        # Compute phase boundary times: traction ends, retraction ends.
+        # Order in stored time series is traction → retraction → transition.
+        boundary_times = None
+        if phase_durations:
+            t_traction = float(phase_durations.get('out') or 0.0)
+            t_retraction = float(phase_durations.get('in') or 0.0)
+            boundary_times = [t_traction, t_traction + t_retraction]
+
+        # Downsample to ~2 second intervals, preserving phase boundaries
+        indices = self._downsample_indices(
+            time_full, interval_s=2.0, boundary_times=boundary_times
+        )
 
         return {
             'time': [time_full[i] for i in indices],
@@ -983,36 +999,43 @@ class PowerCurveConstructor:
         return None
 
     @staticmethod
-    def _downsample_indices(time_vector, interval_s=2.0):
+    def _downsample_indices(time_vector, interval_s=2.0, boundary_times=None):
         """Find indices for downsampling to approximately fixed time intervals.
 
-        Always includes the first and last point.
+        Always includes the first and last point. Optionally preserves the
+        index nearest to each supplied boundary time (e.g. phase transitions).
 
         Args:
             time_vector (list): Time values [s].
             interval_s (float): Desired time interval [s].
+            boundary_times (list of float, optional): Absolute times [s] whose
+                nearest index must be preserved regardless of the regular grid.
 
         Returns:
-            list: Indices to keep.
+            list: Sorted, deduplicated indices to keep.
         """
         if not time_vector:
             return []
-        
+
         if len(time_vector) == 1:
             return [0]
-        
-        indices = [0]  # Always include first point
+
+        # Regular interval downsampling
+        indices = {0, len(time_vector) - 1}
         last_time = time_vector[0]
-        
+
         for i, t in enumerate(time_vector[1:-1], start=1):
             if t - last_time >= interval_s:
-                indices.append(i)
+                indices.add(i)
                 last_time = t
-        
-        # Always include last point
-        if indices[-1] != len(time_vector) - 1:
-            indices.append(len(time_vector) - 1)
-        
-        return indices
+
+        # Snap nearest index to each phase boundary time
+        if boundary_times:
+            time_array = np.array(time_vector)
+            for bt in boundary_times:
+                idx = int(np.argmin(np.abs(time_array - bt)))
+                indices.add(idx)
+
+        return sorted(indices)
 
 
