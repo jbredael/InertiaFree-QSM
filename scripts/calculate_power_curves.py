@@ -43,14 +43,14 @@ if __name__ == "__main__":
     
     # constructor.print_summary()
     
-    # # Generate power curves using direct simulation
-    # result = constructor.generate_power_curves_direct(
-    #     output_path=OUTPUT_PATH_DIRECT,
-    #     verbose=True,
-    #     show_plot=True,
-    #     save_plot=True, 
-    #     validate_file=True
-    # )
+    # Generate power curves using direct simulation
+    result = constructor.generate_power_curves_direct(
+        output_path=OUTPUT_PATH_DIRECT,
+        verbose=True,
+        show_plot=True,
+        save_plot=True, 
+        validate_file=True
+    )
 
     # # Generate power curves using optimized simulation
     # result = constructor.generate_power_curves_optimized(
@@ -62,12 +62,12 @@ if __name__ == "__main__":
     #     opt_plots_dir=PROJECT_ROOT / "results" / "opt_evolution_plots",
     # )
 
-    result = constructor.simulate_single_wind_speed(
-        wind_speed=14.0, method="direct",
-        output_path=OUTPUT_PATH_DIRECT_SINGLE_POINT,
-        verbose=True, show_plot=True, save_plot=True,
-        validate_file=True
-    )
+    # result = constructor.simulate_single_wind_speed(
+    #     wind_speed=14.0, method="direct",
+    #     output_path=OUTPUT_PATH_DIRECT_SINGLE_POINT,
+    #     verbose=True, show_plot=True, save_plot=True,
+    #     validate_file=True
+    # )
 
     # result = constructor.simulate_single_wind_speed(
     #     wind_speed=10.0, method="optimization",

@@ -1528,7 +1528,7 @@ class TransitionPhase(Phase):
         return end_phase, kin
 
 
-class TractionConstantElevation:
+class TractionElevation:
     def __init__(self, elevation_angle):
         self.elevation_angle = elevation_angle
 
@@ -1540,46 +1540,6 @@ class TractionConstantElevation:
 
         """
         return self.elevation_angle
-
-
-class TractionVariableElevation(TractionConstantElevation):
-    def __init__(self, tether_length0, tether_length1, elevation_angle0, elevation_angle1):
-        # Calculating the difference between elevation angle start and the path inclination angle.
-        # Applying the cosine rule.
-        self.elevation_angle0 = elevation_angle0
-        self.a = tether_length0
-        self.b = tether_length1
-        gamma = elevation_angle0 - elevation_angle1
-        c = np.sqrt(self.a**2 + self.b**2 - 2*self.a*self.b*np.cos(gamma))
-        # Applying the sine rule.
-        if gamma > 0.:
-            beta = np.pi - np.arcsin(self.b*np.sin(gamma)/c)
-            # Difference between elevation angle start and the path inclination angle.
-            self.delta_path_angle = np.pi - beta
-        else:
-            beta = np.pi + np.arcsin(self.b*np.sin(gamma)/c)
-            # Difference between elevation angle start and the path inclination angle.
-            self.delta_path_angle = -np.pi + beta
-
-    def calculate(self, tether_length):
-        """Calculate the elevation angle as function of the tether length.
-
-        Returns:
-            float: Elevation angle [rad].
-
-        """
-        # Applying the sine rule.
-        b = tether_length
-        beta = np.pi - abs(self.delta_path_angle)
-        alpha = np.arcsin(self.a*np.sin(beta)/b)
-
-        gamma = np.pi - beta - alpha
-
-        if self.delta_path_angle > 0.:
-            elevation_angle = self.elevation_angle0 - gamma
-        else:
-            elevation_angle = self.elevation_angle0 + gamma
-        return elevation_angle
 
 
 class TractionPhase(Phase):
@@ -1990,9 +1950,15 @@ class EvaluatePattern(Phase):  # Determine performance along cross wind pattern 
     def plot_pattern(self):
         plt.figure()
         plt.plot([kin.azimuth_angle*180./np.pi for kin in self.kinematics],
-                 [kin.elevation_angle*180./np.pi for kin in self.kinematics])
+                 [kin.elevation_angle*180./np.pi for kin in self.kinematics],
+                 label='Pattern path')
         kin = self.kinematics[5]
-        plt.plot([kin.azimuth_angle*180./np.pi], [kin.elevation_angle*180./np.pi], 's')
+        plt.plot([kin.azimuth_angle*180./np.pi], [kin.elevation_angle*180./np.pi], 's', label='Reference point')
+        plt.xlabel('Azimuth angle [deg]')
+        plt.ylabel('Elevation angle [deg]')
+        plt.title('Crosswind Pattern')
+        plt.grid(True)
+        plt.legend()
 
 
 class Cycle(TimeSeries):
@@ -2122,7 +2088,7 @@ class Cycle(TimeSeries):
         # the other phases, which results in jumps of the kite position.
         if trac.__class__.__name__ == "TractionPhaseHybrid":
             trac.tether_length_start_aim = self.tether_length_end_retraction
-        trac.elevation_angle = TractionConstantElevation(self.elevation_angle_traction)
+        trac.elevation_angle = TractionElevation(self.elevation_angle_traction)
         if self.tether_length_start_traction is None:
             trac.tether_length_start = last_kinematics.straight_tether_length
         else:

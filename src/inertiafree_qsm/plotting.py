@@ -193,6 +193,8 @@ def plot_power_curve(file_path, output_path=None, show_plot=True):
     else:
         axes[1, 1].text(0.5, 0.5, 'Wing area not available',
                         ha='center', va='center', transform=axes[1, 1].transAxes)
+        axes[1, 1].set_xlabel(f'Wind Speed at {referenceHeight}m (m/s)', fontsize=11)
+        axes[1, 1].set_ylabel('Power Coefficient', fontsize=11)
         axes[1, 1].set_title('Power Coefficient', fontsize=12, fontweight='bold')
 
     plt.tight_layout()
@@ -272,26 +274,25 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     reelOutTime = timing['reel_out_time_s']
     reelInTime = timing['reel_in_time_s']
-    transitionTime = timing.get('transition_time_s')
-    startReelInidx = np.searchsorted(time, reelOutTime)-1
-    start_TransitionIdx = np.searchsorted(time, reelOutTime + reelInTime)-1
+    startReelInidx = np.searchsorted(time, reelOutTime) - 1
+    start_TransitionIdx = np.searchsorted(time, reelOutTime + reelInTime) - 1
 
     # Altitude
     ax = axes[0, 0]
-    ax.plot(time, altitude, linewidth=2, color='steelblue')
+    ax.plot(time, altitude, linewidth=2, color='steelblue', label='Altitude')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Altitude (m)')
     ax.set_title('Kite Altitude', fontweight='bold')
     ax.grid(True, alpha=0.3)
     ax.axhline(y=altitude.mean(), color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {altitude.mean():.1f} m')
-    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5, label='Start reel-in')
+    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5, label='Start transition')
     ax.legend(fontsize=9)
 
     # Tether force
     ax = axes[0, 1]
-    ax.plot(time, tetherForce / 1000, linewidth=2, color='orangered')
+    ax.plot(time, tetherForce / 1000, linewidth=2, color='orangered', label='Tether force')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Tether Force (kN)')
     ax.set_title('Tether Force', fontweight='bold')
@@ -304,7 +305,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     # Instantaneous power
     ax = axes[1, 0]
-    ax.plot(time, powerInst / 1000, linewidth=2, color='darkgreen')
+    ax.plot(time, powerInst / 1000, linewidth=2, color='darkgreen', label='Power')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Power (kW)')
     ax.set_title('Instantaneous Power', fontweight='bold')
@@ -318,7 +319,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     # Reel speed
     ax = axes[1, 1]
-    ax.plot(time, reelSpeed, linewidth=2, color='purple')
+    ax.plot(time, reelSpeed, linewidth=2, color='purple', label='Reel speed')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Reel Speed (m/s)')
     ax.set_title('Tether Reel Speed', fontweight='bold')
@@ -330,7 +331,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     # Tether length
     ax = axes[2, 0]
-    ax.plot(time, tetherLength, linewidth=2, color='brown')
+    ax.plot(time, tetherLength, linewidth=2, color='brown', label='Tether length')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Tether Length (m)')
     ax.set_title('Tether Length', fontweight='bold')
@@ -343,7 +344,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     # Elevation angle
     ax = axes[2, 1]
-    ax.plot(time, elevationAngleDeg, linewidth=2, color='teal')
+    ax.plot(time, elevationAngleDeg, linewidth=2, color='teal', label='Elevation angle')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Elevation Angle (deg)')
     ax.set_title('Elevation Angle', fontweight='bold')
@@ -373,7 +374,6 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
         horizontalDist[start_TransitionIdx:],
         altitude[start_TransitionIdx:],
         linewidth=2, color='green', label='Transition', linestyle='-',
-
     )
 
     ax.set_xlabel('Horizontal Distance (m)')
@@ -412,8 +412,6 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
 
     plt.close()
-
-    
 
     return fig, axes
 

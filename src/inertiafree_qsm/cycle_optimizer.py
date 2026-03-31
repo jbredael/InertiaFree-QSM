@@ -299,6 +299,7 @@ class CycleOptimizer:
             ax_r.set_ylim(lo * real_factor, hi * real_factor)
 
             ax_l.set_title(label, fontsize=8, loc="left")
+            ax_l.set_xlabel("Iteration [-]", fontsize=8)
             ax_l.grid(True, alpha=0.4)
 
         # Objective panel.
