@@ -7,9 +7,58 @@ YAML output) so that plotting is decoupled from the simulation objects.
 
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
+
+
+# ---------------------------------------------------------------------------
+# Publication-quality matplotlib defaults
+# ---------------------------------------------------------------------------
+
+mpl.rcParams.update({
+    'font.family'         : 'serif',
+    'font.size'           : 10,
+    'axes.labelsize'      : 10,
+    'xtick.labelsize'     : 9,
+    'ytick.labelsize'     : 9,
+    'legend.fontsize'     : 9,
+    'axes.prop_cycle'     : mpl.cycler('color', [
+        '#0072B2', '#D55E00', '#009E73',
+        '#E69F00', '#CC79A7', '#56B4E9',
+    ]),
+    'lines.linewidth'     : 1.5,
+    'axes.linewidth'      : 0.8,
+    'xtick.direction'     : 'in',
+    'ytick.direction'     : 'in',
+    'xtick.minor.visible' : True,
+    'ytick.minor.visible' : True,
+    'xtick.major.size'    : 4,
+    'ytick.major.size'    : 4,
+    'xtick.minor.size'    : 2,
+    'ytick.minor.size'    : 2,
+    'xtick.major.width'   : 0.8,
+    'ytick.major.width'   : 0.8,
+    'xtick.minor.width'   : 0.6,
+    'ytick.minor.width'   : 0.6,
+    'lines.markersize'    : 4,
+    'errorbar.capsize'    : 3,
+    'axes.xmargin'        : 0.02,
+    'axes.ymargin'        : 0.02,
+    'legend.frameon'      : False,
+    'savefig.bbox'        : 'tight',
+    'savefig.dpi'         : 300,
+    **(
+        {'text.usetex'        : True,
+         'text.latex.preamble': r'\usepackage{amsmath} \usepackage{amssymb}',
+         'pgf.texsystem'     : 'pdflatex',
+         'pgf.rcfonts'       : False}
+        if __import__('shutil').which('latex') else
+        {'text.usetex'        : False,
+         'mathtext.fontset'  : 'cm'}
+    ),
+})
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +145,8 @@ def plot_power_curve(file_path, output_path=None, show_plot=True):
 
     nProfiles = len(powerCurves)
 
-    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
-    fig.suptitle(name, fontsize=16, fontweight='bold')
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+    fig.suptitle(name, fontsize=14, fontweight='bold')
 
     useMarkers = nProfiles <= 5
     markerSize = 4 if nProfiles <= 10 else 0
@@ -162,47 +211,48 @@ def plot_power_curve(file_path, output_path=None, show_plot=True):
                                 label=f'Profile {profileId}', color=color)
 
     # Axis labels and formatting
+    windSpeedLabel = f'Wind Speed at {referenceHeight}m (m/s)'
     for axObj, ylabel, title in [
         (axes[0, 0], 'Cycle Power (kW)', 'Power Curve'),
         (axes[1, 0], 'Cycle Time (s)', 'Cycle Duration'),
     ]:
-        axObj.set_xlabel(f'Wind Speed at {referenceHeight}m (m/s)', fontsize=11)
-        axObj.set_ylabel(ylabel, fontsize=11)
-        axObj.set_title(title, fontsize=12, fontweight='bold')
+        axObj.set_xlabel(windSpeedLabel)
+        axObj.set_ylabel(ylabel)
+        axObj.set_title(title, fontweight='bold')
         axObj.grid(True, alpha=0.3)
         if nProfiles <= 15:
-            axObj.legend(fontsize=8, ncol=1 if nProfiles <= 8 else 2)
+            axObj.legend(ncol=1 if nProfiles <= 8 else 2)
 
     axes[0, 0].axhline(y=0, color='k', linestyle='--', alpha=0.3)
 
-    axes[0, 1].set_xlabel(f'Wind Speed at {referenceHeight}m (m/s)', fontsize=11)
-    axes[0, 1].set_ylabel('Power (kW)', fontsize=11)
-    axes[0, 1].set_title('Power Components (Profile 1)', fontsize=12, fontweight='bold')
+    axes[0, 1].set_xlabel(windSpeedLabel)
+    axes[0, 1].set_ylabel('Power (kW)')
+    axes[0, 1].set_title('Power Components (Profile 1)', fontweight='bold')
     axes[0, 1].grid(True, alpha=0.3)
-    axes[0, 1].legend(fontsize=9)
+    axes[0, 1].legend()
     axes[0, 1].axhline(y=0, color='k', linestyle='--', alpha=0.3)
 
     if 'model_config' in metadata and metadata['model_config'].get('wing_area'):
-        axes[1, 1].set_xlabel(f'Wind Speed at {referenceHeight}m (m/s)', fontsize=11)
-        axes[1, 1].set_ylabel('Power Coefficient', fontsize=11)
-        axes[1, 1].set_title('Power Coefficient', fontsize=12, fontweight='bold')
+        axes[1, 1].set_xlabel(windSpeedLabel)
+        axes[1, 1].set_ylabel('Power Coefficient')
+        axes[1, 1].set_title('Power Coefficient', fontweight='bold')
         axes[1, 1].grid(True, alpha=0.3)
         axes[1, 1].axhline(y=0, color='k', linestyle='--', alpha=0.3)
         if nProfiles <= 15:
-            axes[1, 1].legend(fontsize=8, ncol=1 if nProfiles <= 8 else 2)
+            axes[1, 1].legend(ncol=1 if nProfiles <= 8 else 2)
     else:
         axes[1, 1].text(0.5, 0.5, 'Wing area not available',
                         ha='center', va='center', transform=axes[1, 1].transAxes)
-        axes[1, 1].set_xlabel(f'Wind Speed at {referenceHeight}m (m/s)', fontsize=11)
-        axes[1, 1].set_ylabel('Power Coefficient', fontsize=11)
-        axes[1, 1].set_title('Power Coefficient', fontsize=12, fontweight='bold')
+        axes[1, 1].set_xlabel(windSpeedLabel)
+        axes[1, 1].set_ylabel('Power Coefficient')
+        axes[1, 1].set_title('Power Coefficient', fontweight='bold')
 
     plt.tight_layout()
 
     if output_path:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.savefig(output_path)
 
     if show_plot:
         plt.show()
@@ -264,49 +314,51 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     elevationAngleRad = np.array(timeHistory.get('elevation_angle', []))
     elevationAngleDeg = np.degrees(elevationAngleRad)
 
-    fig, axes = plt.subplots(4, 2, figsize=(16, 16))
+    fig, axes = plt.subplots(4, 2, figsize=(14, 14))
     title = (
         f'Detailed Cycle Analysis - Wind Speed: {wind_speed} m/s '
         f'at {referenceHeight}m{profileLabel}'
     )
     if sim_warning:
         title += '\n(simulation converged with relaxed errors)'
-    fig.suptitle(title, fontsize=16, fontweight='bold')
+    fig.suptitle(title, fontsize=14, fontweight='bold')
 
+    # Phase boundary indices in the reordered time series
+    # (traction -> retraction -> transition).
     reelOutTime = timing['reel_out_time']
     reelInTime = timing['reel_in_time']
-    startReelInidx = np.searchsorted(time, reelOutTime) - 1
-    start_TransitionIdx = np.searchsorted(time, reelOutTime + reelInTime) - 1
+    reelInStartIdx = np.searchsorted(time, reelOutTime)
+    transitionStartIdx = np.searchsorted(time, reelOutTime + reelInTime)
 
     # Altitude
     ax = axes[0, 0]
-    ax.plot(time, altitude, linewidth=2, color='steelblue', label='Altitude')
+    ax.plot(time, altitude, color='steelblue', label='Altitude')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Altitude (m)')
     ax.set_title('Kite Altitude', fontweight='bold')
     ax.grid(True, alpha=0.3)
     ax.axhline(y=altitude.mean(), color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {altitude.mean():.1f} m')
-    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5, label='Start reel-in')
-    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5, label='Start transition')
-    ax.legend(fontsize=9)
+    ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5, label='Start reel-in')
+    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5, label='Start transition')
+    ax.legend()
 
     # Tether force
     ax = axes[0, 1]
-    ax.plot(time, tetherForce / 1000, linewidth=2, color='orangered', label='Tether force')
+    ax.plot(time, tetherForce / 1000, color='orangered', label='Tether force')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Tether Force (kN)')
     ax.set_title('Tether Force', fontweight='bold')
     ax.grid(True, alpha=0.3)
     ax.axhline(y=tetherForce.mean() / 1000, color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {tetherForce.mean()/1000:.1f} kN')
-    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
-    ax.legend(fontsize=9)
+    ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.legend()
 
     # Instantaneous power
     ax = axes[1, 0]
-    ax.plot(time, powerInst / 1000, linewidth=2, color='darkgreen', label='Power')
+    ax.plot(time, powerInst / 1000, color='darkgreen', label='Power')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Power (kW)')
     ax.set_title('Instantaneous Power', fontweight='bold')
@@ -314,66 +366,66 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.axhline(y=0, color='k', linestyle='-', alpha=0.3, linewidth=0.8)
     ax.axhline(y=power['average_cycle_power'] / 1000, color='r', linestyle='--',
                alpha=0.5, label=f"Avg Cycle: {power['average_cycle_power']/1000:.1f} kW")
-    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
-    ax.legend(fontsize=9)
+    ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.legend()
 
     # Reel speed
     ax = axes[1, 1]
-    ax.plot(time, reelSpeed, linewidth=2, color='purple', label='Reel speed')
+    ax.plot(time, reelSpeed, color='purple', label='Reel speed')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Reel Speed (m/s)')
     ax.set_title('Tether Reel Speed', fontweight='bold')
     ax.grid(True, alpha=0.3)
     ax.axhline(y=0, color='k', linestyle='-', alpha=0.3, linewidth=0.8)
-    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
-    ax.legend(fontsize=9)
+    ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.legend()
 
     # Tether length
     ax = axes[2, 0]
-    ax.plot(time, tetherLength, linewidth=2, color='brown', label='Tether length')
+    ax.plot(time, tetherLength, color='brown', label='Tether length')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Tether Length (m)')
     ax.set_title('Tether Length', fontweight='bold')
     ax.grid(True, alpha=0.3)
     ax.axhline(y=tetherLength.mean(), color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {tetherLength.mean():.1f} m')
-    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
-    ax.legend(fontsize=9)
+    ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.legend()
 
     # Elevation angle
     ax = axes[2, 1]
-    ax.plot(time, elevationAngleDeg, linewidth=2, color='teal', label='Elevation angle')
+    ax.plot(time, elevationAngleDeg, color='teal', label='Elevation angle')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Elevation Angle (deg)')
     ax.set_title('Elevation Angle', fontweight='bold')
     ax.grid(True, alpha=0.3)
     ax.axhline(y=elevationAngleDeg.mean(), color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {elevationAngleDeg.mean():.1f} deg')
-    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
-    ax.legend(fontsize=9)
+    ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.legend()
 
     # 2-D trajectory (side view): horizontal distance vs altitude
     horizontalDist = tetherLength * np.cos(elevationAngleRad)
 
     ax = axes[3, 0]
     ax.plot(
-        horizontalDist[:startReelInidx + 1],
-        altitude[:startReelInidx + 1],
-        linewidth=2, color='steelblue', label='Reel-out',
+        horizontalDist[:reelInStartIdx + 1],
+        altitude[:reelInStartIdx + 1],
+        color='steelblue', label='Reel-out',
     )
     ax.plot(
-        horizontalDist[startReelInidx:start_TransitionIdx],
-        altitude[startReelInidx:start_TransitionIdx],
-        linewidth=2, color='orangered', label='Reel-in', linestyle='--',
+        horizontalDist[reelInStartIdx:transitionStartIdx + 1],
+        altitude[reelInStartIdx:transitionStartIdx + 1],
+        color='orangered', label='Reel-in', linestyle='--',
     )
     ax.plot(
-        horizontalDist[start_TransitionIdx:],
-        altitude[start_TransitionIdx:],
-        linewidth=2, color='green', label='Transition', linestyle='-',
+        horizontalDist[transitionStartIdx:],
+        altitude[transitionStartIdx:],
+        color='green', label='Transition', linestyle='-',
     )
 
     ax.set_xlabel('Horizontal Distance (m)')
@@ -381,7 +433,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.set_title('Kite Trajectory (Side View)', fontweight='bold')
     ax.set_aspect('equal', adjustable='datalim')
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=9)
+    ax.legend()
 
     # Performance summary in the last axes cell
     axSummary = axes[3, 1]
@@ -396,20 +448,20 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
         f"Reel-Out Time:    {timing['reel_out_time']:.2f} s\n"
         f"Reel-In Time:     {timing['reel_in_time']:.2f} s"
     )
-    axSummary.text(0.05, 0.95, summaryText, fontsize=10,
+    axSummary.text(0.05, 0.95, summaryText,
                    verticalalignment='top', horizontalalignment='left',
                    transform=axSummary.transAxes, fontfamily='monospace',
                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
     plt.tight_layout()
 
-    if show_plot:
-        plt.show()
-
     if output_path:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.savefig(output_path)
+
+    if show_plot:
+        plt.show()
 
     plt.close()
 
