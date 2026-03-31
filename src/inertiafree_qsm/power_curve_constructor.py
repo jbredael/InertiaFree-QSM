@@ -472,7 +472,7 @@ class PowerCurveConstructor:
 
         steady_state_config = self.simulation_settings.get('steady_state')
         try:
-            error_in_phase, average_power = cycle.run_simulation(
+            error_in_phase, _ = cycle.run_simulation(
                 self.sys_props, env_state, steady_state_config, print_summary=False
             )
 
@@ -480,56 +480,45 @@ class PowerCurveConstructor:
             retraction = getattr(cycle, 'retraction_phase')
             transition = getattr(cycle, 'transition_phase')
 
-            reel_out_time = traction.duration if traction else 0.0
-            reel_in_time = ((retraction.duration if retraction else 0.0)
-                           + (transition.duration if transition else 0.0))
-            reel_out_power = (traction.energy / traction.duration
-                             if traction and traction.duration > 0 else 0.0)
-            reel_in_power = (retraction.energy / retraction.duration
-                            if retraction and retraction.duration > 0 else 0.0)
-
-            time_history = self._extract_time_history(
-                cycle.time, cycle.kinematics, cycle.steady_states
-            )
-
-            entry = {
-                'wind_speed_m_s': float(wind_speed),
-                'success': error_in_phase is None,
-                'performance': {
-                    'power': {
-                        'average_cycle_power_w': float(average_power),
-                        'average_reel_out_power_w': float(reel_out_power),
-                        'average_reel_in_power_w': float(reel_in_power),
-                    },
-                    'timing': {
-                        'reel_out_time_s': float(reel_out_time),
-                        'reel_in_time_s': float(reel_in_time),
-                        'cycle_time_s': float(cycle.duration),
-                    },
+            kpi = {
+                'sim_successful': error_in_phase is None,
+                'average_power': {
+                    'cycle': cycle.average_power,
+                    'in': retraction.average_power if retraction else 0.0,
+                    'trans': transition.average_power if transition else 0.0,
+                    'out': traction.average_power if traction else 0.0,
                 },
+                'duration': {
+                    'cycle': cycle.duration,
+                    'in': retraction.duration if retraction else 0.0,
+                    'trans': transition.duration if transition else 0.0,
+                    'out': traction.duration if traction else 0.0,
+                },
+                'time': cycle.time,
+                'kinematics': cycle.kinematics,
+                'steady_states': cycle.steady_states,
             }
-            if time_history is not None:
-                entry['time_history'] = time_history
-            return entry
+
+            return self._build_wind_speed_entry(wind_speed, kpi)
 
         except Exception as e:
             print(f"    ERROR at {wind_speed:.1f} m/s: {type(e).__name__}: {e}")
-            return {
-                'wind_speed_m_s': float(wind_speed),
-                'success': False,
-                'performance': {
-                    'power': {
-                        'average_cycle_power_w': 0.0,
-                        'average_reel_out_power_w': 0.0,
-                        'average_reel_in_power_w': 0.0,
-                    },
-                    'timing': {
-                        'reel_out_time_s': 0.0,
-                        'reel_in_time_s': 0.0,
-                        'cycle_time_s': 0.0,
-                    },
+            kpi = {
+                'sim_successful': False,
+                'average_power': {
+                    'cycle': 0.0,
+                    'in': 0.0,
+                    'trans': 0.0,
+                    'out': 0.0,
+                },
+                'duration': {
+                    'cycle': 0.0,
+                    'in': 0.0,
+                    'trans': 0.0,
+                    'out': 0.0,
                 },
             }
+            return self._build_wind_speed_entry(wind_speed, kpi)
 
     def generate_power_curves_optimized(
         self,
@@ -923,8 +912,8 @@ class PowerCurveConstructor:
                 },
                 'timing': {
                     'reel_out_time_s': _safe_float(kpi['duration']['out']),
-                    'reel_in_time_s': (_safe_float(kpi['duration']['in'])
-                                       + _safe_float(kpi['duration'].get('trans', 0.0))),
+                    'reel_in_time_s': (_safe_float(kpi['duration']['in'])),
+                    'transition_time_s': _safe_float(kpi['duration'].get('trans', 0.0)),
                     'cycle_time_s': _safe_float(kpi['duration']['cycle']),
                 },
             },

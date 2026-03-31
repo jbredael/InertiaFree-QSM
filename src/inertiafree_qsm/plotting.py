@@ -271,6 +271,10 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
     reelOutTime = timing['reel_out_time_s']
+    reelInTime = timing['reel_in_time_s']
+    transitionTime = timing.get('transition_time_s')
+    startReelInidx = np.searchsorted(time, reelOutTime)-1
+    start_TransitionIdx = np.searchsorted(time, reelOutTime + reelInTime)-1
 
     # Altitude
     ax = axes[0, 0]
@@ -281,6 +285,8 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.grid(True, alpha=0.3)
     ax.axhline(y=altitude.mean(), color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {altitude.mean():.1f} m')
+    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend(fontsize=9)
 
     # Tether force
@@ -292,6 +298,8 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.grid(True, alpha=0.3)
     ax.axhline(y=tetherForce.mean() / 1000, color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {tetherForce.mean()/1000:.1f} kN')
+    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend(fontsize=9)
 
     # Instantaneous power
@@ -304,8 +312,8 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.axhline(y=0, color='k', linestyle='-', alpha=0.3, linewidth=0.8)
     ax.axhline(y=power['average_cycle_power_w'] / 1000, color='r', linestyle='--',
                alpha=0.5, label=f"Avg Cycle: {power['average_cycle_power_w']/1000:.1f} kW")
-    ax.axvline(x=reelOutTime, color='blue', linestyle=':', alpha=0.5,
-               label='Phase transition')
+    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend(fontsize=9)
 
     # Reel speed
@@ -316,8 +324,8 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.set_title('Tether Reel Speed', fontweight='bold')
     ax.grid(True, alpha=0.3)
     ax.axhline(y=0, color='k', linestyle='-', alpha=0.3, linewidth=0.8)
-    ax.axvline(x=reelOutTime, color='blue', linestyle=':', alpha=0.5,
-               label='Phase transition')
+    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend(fontsize=9)
 
     # Tether length
@@ -329,7 +337,8 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.grid(True, alpha=0.3)
     ax.axhline(y=tetherLength.mean(), color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {tetherLength.mean():.1f} m')
-    ax.axvline(x=reelOutTime, color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend(fontsize=9)
 
     # Elevation angle
@@ -341,33 +350,32 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.grid(True, alpha=0.3)
     ax.axhline(y=elevationAngleDeg.mean(), color='r', linestyle='--', alpha=0.5,
                label=f'Mean: {elevationAngleDeg.mean():.1f} deg')
-    ax.axvline(x=reelOutTime, color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[startReelInidx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[start_TransitionIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend(fontsize=9)
 
     # 2-D trajectory (side view): horizontal distance vs altitude
     elevationAngleRad = np.deg2rad(elevationAngleDeg)
     horizontalDist = tetherLength * np.cos(elevationAngleRad)
-    phaseTransitionIdx = np.searchsorted(time, reelOutTime)
-    phaseTransitionIdx = min(phaseTransitionIdx, len(time) - 1)
 
     ax = axes[3, 0]
     ax.plot(
-        horizontalDist[:phaseTransitionIdx + 1],
-        altitude[:phaseTransitionIdx + 1],
+        horizontalDist[:startReelInidx + 1],
+        altitude[:startReelInidx + 1],
         linewidth=2, color='steelblue', label='Reel-out',
     )
     ax.plot(
-        horizontalDist[phaseTransitionIdx:],
-        altitude[phaseTransitionIdx:],
+        horizontalDist[startReelInidx:start_TransitionIdx],
+        altitude[startReelInidx:start_TransitionIdx],
         linewidth=2, color='orangered', label='Reel-in', linestyle='--',
     )
-    # Mark start/end and phase-transition points
-    ax.plot(horizontalDist[0], altitude[0], 'go', markersize=8, zorder=5,
-            label='Start')
-    ax.plot(horizontalDist[phaseTransitionIdx], altitude[phaseTransitionIdx],
-            'b^', markersize=8, zorder=5, label='Phase transition')
-    ax.plot(horizontalDist[-1], altitude[-1], 'rs', markersize=8, zorder=5,
-            label='End')
+    ax.plot(
+        horizontalDist[start_TransitionIdx:],
+        altitude[start_TransitionIdx:],
+        linewidth=2, color='green', label='Transition', linestyle='-',
+
+    )
+
     ax.set_xlabel('Horizontal Distance (m)')
     ax.set_ylabel('Altitude (m)')
     ax.set_title('Kite Trajectory (Side View)', fontweight='bold')

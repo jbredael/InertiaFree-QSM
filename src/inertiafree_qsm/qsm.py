@@ -2066,7 +2066,7 @@ class Cycle(TimeSeries):
         else:
             env_retr, env_trans, env_trac = environment_state, environment_state, environment_state
         error_in_phase = None
-        reorder = False
+        reorder = True
 
         # Start with running the retraction phase, since its start and stop conditions are predefined.
         retr = self.retraction_phase
@@ -2147,9 +2147,14 @@ class Cycle(TimeSeries):
 
         # Resulting time series
         if reorder:
-            self.time = trans.time + trac.time + [t + last_time for t in retr.time]
-            self.kinematics = trans.kinematics + trac.kinematics + retr.kinematics
-            self.steady_states = trans.steady_states + trac.steady_states + retr.steady_states
+            # Reassemble cycle to start with traction while keeping a continuous time axis.
+            trac_time = [t - trac.time[0] for t in trac.time]
+            retr_time = [t - retr.time[0] + trac_time[-1] for t in retr.time]
+            trans_time = [t - trans.time[0] + retr_time[-1] for t in trans.time]
+
+            self.time = trac_time + retr_time + trans_time
+            self.kinematics = trac.kinematics + retr.kinematics + trans.kinematics
+            self.steady_states = trac.steady_states + retr.steady_states + trans.steady_states
         else:
             self.time = retr.time + trans.time + trac.time
             self.kinematics = retr.kinematics + trans.kinematics + trac.kinematics
