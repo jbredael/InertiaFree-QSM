@@ -1,6 +1,16 @@
 # Simulation settings for the inertia-free quasi-steady model
 # All angles are in degrees
 
+# ============================================================================
+# General runtime settings
+# ============================================================================
+runtime:
+  # Number of parallel processes for optimization (set to 1 for direct simulation)
+  downsampling:
+    # Whether to downsample the full simulation time series for output
+    enable: false
+    interval_s: 1  # Target interval for downsampling (s)
+  
 
 # ============================================================================
 # AERODYNAMIC SETTINGS

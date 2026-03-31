@@ -93,7 +93,7 @@ class PowerCurveConstructor:
             'tether_length_start_retraction']
         self.tether_length_end = self.simulation_settings['cycle'][
             'tether_length_end_retraction']
-        
+
         # Initialize result storage
         self.wind_speeds = None
         self.x_opts = []
@@ -936,8 +936,8 @@ class PowerCurveConstructor:
 
         Returns:
             dict: Time history data with altitude, forces, power, speeds, etc.
-                Downsampled to ~2 second intervals. Returns None if inputs are
-                empty.
+                Downsampled according to runtime.downsampling settings. Returns
+                None if inputs are empty.
         """
         if not time_list or not kinematics or not steady_states:
             return None
@@ -966,11 +966,15 @@ class PowerCurveConstructor:
             t_traction = float(phase_durations.get('out') or 0.0)
             t_retraction = float(phase_durations.get('in') or 0.0)
             boundary_times = [t_traction, t_traction + t_retraction]
-
-        # Downsample to ~2 second intervals, preserving phase boundaries
-        indices = self._downsample_indices(
-            time_full, interval_s=2.0, boundary_times=boundary_times
-        )
+    
+        # Downsample the time series, preserving phase boundaries
+        if bool(self.simulation_settings['runtime']['downsampling']['enable']) is False:
+            indices = list(range(len(time_full)))
+        else:
+            interval_s = self.simulation_settings['runtime']['downsampling']['interval_s']
+            indices = self._downsample_indices(
+                time_full, interval_s=interval_s, boundary_times=boundary_times
+            )
 
         return {
             'time': [time_full[i] for i in indices],
