@@ -17,9 +17,8 @@ import numpy as np
 import yaml
 
 from .config_loader import (
-    load_system_config,
+    load_system_and_simulation_settings,
     load_wind_resource,
-    load_simulation_settings,
 )
 from .qsm import (
     Cycle,
@@ -74,13 +73,14 @@ class PowerCurveConstructor:
         self.wind_resource_path = Path(wind_resource_path)
         self.simulation_settings_path = Path(simulation_settings_path)
 
-        # Load configurations (validation is internal to loader functions)
-        self.sys_props_dict = load_system_config(self.system_config_path, validate_file=validate_file)
-        self.wind_resource = load_wind_resource(self.wind_resource_path, validate_file=validate_file)
-        self.simulation_settings = load_simulation_settings(
-            self.simulation_settings_path, self.sys_props_dict, verbose=True
+        # Load system config and simulation settings in one call.
+        self.simulation_settings, self.sys_props_dict = load_system_and_simulation_settings(
+            self.system_config_path,
+            self.simulation_settings_path,
+            validate_file=validate_file,
+            verbose=True,
         )
-
+        self.wind_resource = load_wind_resource(self.wind_resource_path, validate_file=validate_file)
         # Create system properties object
         self.sys_props = SystemProperties(self.sys_props_dict)
 

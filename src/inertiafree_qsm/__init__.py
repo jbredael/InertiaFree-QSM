@@ -28,9 +28,8 @@ from .qsm import (
 
 from .config_loader import (
     load_yaml,
-    load_system_config,
     load_wind_resource,
-    load_simulation_settings,
+    load_system_and_simulation_settings,
 )
 
 # Power curve constructor (always available for direct simulation)
@@ -60,9 +59,8 @@ __all__ = [
     "PhaseError",
     # Config loaders
     "load_yaml",
-    "load_system_config",
     "load_wind_resource",
-    "load_simulation_settings",
+    "load_system_and_simulation_settings",
     # Power curve constructor
     "PowerCurveConstructor",
 ]

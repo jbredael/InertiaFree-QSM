@@ -348,6 +348,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     elevationAngleRad = np.deg2rad(elevationAngleDeg)
     horizontalDist = tetherLength * np.cos(elevationAngleRad)
     phaseTransitionIdx = np.searchsorted(time, reelOutTime)
+    phaseTransitionIdx = min(phaseTransitionIdx, len(time) - 1)
 
     ax = axes[3, 0]
     ax.plot(
