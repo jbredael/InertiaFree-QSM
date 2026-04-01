@@ -409,36 +409,7 @@ class PowerCurveConstructor:
         Returns:
             dict: Wind speed entry with performance data and optional time history.
         """
-        # Reset per-run state to avoid cross-contamination.
-        self.x_opts = []
-        self.x0_list = []
-        self.optimization_details = []
-        self.constraints = []
-        self.performance_indicators = []
-
-        cycle_sim_settings = deepcopy(self.simulation_settings)
-        cycle_sim_settings['cycle']['traction_phase'] = TractionPhaseHybrid
-
-        opt_settings = self.simulation_settings['optimization']
-        opt_config = {
-            'x0': opt_settings['optimizer']['x0'].copy(),
-            'scaling': opt_settings['optimizer']['scaling'].copy(),
-            'bounds': opt_settings['bounds'].copy(),
-            'ftol': opt_settings['optimizer']['ftol'],
-            'eps': opt_settings['optimizer']['eps'],
-        }
-
-        power_optimizer = CycleOptimizer(
-            cycle_sim_settings,
-            self.sys_props,
-            env_state,
-            optimizer_config=opt_config,
-        )
-
-        x0 = np.array(opt_settings['optimizer']['x0'].copy())
-        self.run_optimization(wind_speed, power_optimizer, x0, show_plot=show_plot)
-
-        kpi = self.performance_indicators[-1]
+        
         return self._build_wind_speed_entry(wind_speed, kpi)
 
 
