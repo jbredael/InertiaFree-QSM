@@ -505,7 +505,6 @@ class CycleOptimizer:
         cycle = Cycle(self.cycle_settings)
         ss_config = self.cycle_settings.get("steady_state", {})
         iterative_config = {
-            "enable_steady_state_errors": not relax_errors,
             "max_iterations": ss_config.get("max_iterations"),
             "convergence_tolerance": ss_config.get("convergence_tolerance"),
         }

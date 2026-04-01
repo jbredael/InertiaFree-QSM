@@ -115,7 +115,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'tether_diameter': tether_structure.get('diameter'),
         'tether_force_min_limit': tether_force_min_limit,
         'tether_force_max_limit': tether_force_max_limit,
-        'reeling_speed_min_limit': 0.0,
+        'reeling_speed_min_limit': drum.get('min_tether_speed'),
         'reeling_speed_max_limit': drum.get('max_tether_speed'),
         'max_tether_length': tether_structure.get('length'),
         'max_generator_power': ground_station.get('generator', {}).get('max_power'),

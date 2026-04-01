@@ -49,6 +49,7 @@ components:
     drum:
       type: electric_winch
       max_tether_speed: 10.0
+      min_tether_speed: 0.0
     generator:
       type: permanent_magnet_synchronous
       max_power: 40000.0 # W

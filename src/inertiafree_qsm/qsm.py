@@ -512,8 +512,8 @@ class SteadyState:
     separated from KiteKinematics such that the steady state can be easily evaluated for different kinematics.
 
     Attributes:
-        control_settings (tuple): Tuple containing the controlled parameter and the setpoint. The controlled parameter
-            should be either: 'tether_force_ground', 'tether_force_kite', 'reeling_factor', or 'reeling_speed'.
+        control_settings (tuple): Two-item tuple of (control_type, setpoint). control_type must be one of:
+            'tether_force_ground', 'tether_force_kite', 'reeling_factor', or 'reeling_speed'.
         reeling_factor (float): Ratio of the reeling speed and the wind speed [-].
         kinematic_ratio (float): Ratio of the apparent wind velocity components [-].
         tangential_speed_factor (float): Ratio of the tangential kite speed and the wind speed [-].
@@ -540,7 +540,6 @@ class SteadyState:
         error_code (int): Error code in case an error has occurred.
         force_n_iterations (int): Force the iterative procedure to use a desired number of iterations.
         max_iterations (int): Maximum number of iterations before stopping the iterative procedure.
-        enable_steady_state_errors (bool): Raising the exception if True.
         convergence_tolerance (float): Metric declaring convergence: normalized lift-to-drag error [-].
         tether_force_max_limit_violated (bool): Flag indicating if the maximum tether force limit is violated at
             the kite.
@@ -595,7 +594,6 @@ class SteadyState:
         # Iterative procedure settings.
         self.force_n_iterations = iterative_procedure_config.get('force_n_iterations')
         self.max_iterations = iterative_procedure_config.get('max_iterations')
-        self.enable_steady_state_errors = iterative_procedure_config.get('enable_steady_state_errors')
         self.convergence_tolerance = iterative_procedure_config.get('convergence_tolerance')
 
         # Monitoring parameters for tether force limit violation.
@@ -620,8 +618,6 @@ class SteadyState:
         if self.error_message is None:  # If no error has occurred earlier.
             self.error_message = error_message
             self.error_code = error_code
-            if self.enable_steady_state_errors:
-                raise SteadyStateError(error_message, error_code)
 
     def find_state(self, system_properties, environment_state, basic_kinematics, print_details=False):
         """Iterative procedure for finding the kinematic ratio yielding the steady state of the kite.
@@ -991,8 +987,8 @@ class Phase(TimeSeries):
     Attributes:
         time_step (float): Step between consecutive time points for which the kite's motion is solved, last time step
             may deviate [s].
-        control_settings (tuple): Tuple containing the controlled parameter and the setpoint. The controlled parameter
-            should be either: 'tether_force_ground', 'tether_force_kite', 'reeling_factor', or 'reeling_speed'.
+        control_settings (tuple): Two-item tuple of (control_type, setpoint). control_type must be one of:
+            'tether_force_ground', 'tether_force_kite', 'reeling_factor', or 'reeling_speed'.
         impose_operational_limits (bool): Specifies whether to automatically switch the control settings when they lead
             to violating the operational limits.
         kite_powered (bool): Use powered aerodynamic characteristics of the kite if True.
@@ -1170,36 +1166,22 @@ class Phase(TimeSeries):
 
         # Instantiate new steady state using the primary control setting.
         new_state = SteadyState(self.steady_state_config)
-        new_state.control_settings = self.control_settings[:2]
+        new_state.control_settings = self.control_settings
 
         # Find steady state.
-        temporary_suppress_steady_state_errors = False
-        if self.impose_operational_limits:
-            if new_state.enable_steady_state_errors:
-                temporary_suppress_steady_state_errors = True
-                new_state.enable_steady_state_errors = False
         new_state.find_state(sys_props, env_state, kinematics)
-        if temporary_suppress_steady_state_errors:
-            new_state.enable_steady_state_errors = True
 
         # Get tether force operational limits.
-        if 'tether_force' not in self.control_settings[0] and len(self.control_settings) == 4:
-            min_force = self.control_settings[2]
-            max_force = self.control_settings[3]
-        else:
-            min_force = sys_props.tether_force_min_limit
-            max_force = sys_props.tether_force_max_limit
+        min_force = sys_props.tether_force_min_limit
+        max_force = sys_props.tether_force_max_limit
         max_speed = sys_props.reeling_speed_max_limit
         min_speed = sys_props.reeling_speed_min_limit
         max_power = sys_props.max_generator_power
         assert max_speed > 0 and min_speed >= 0, "Reeling speed limits should be positive."
 
-
-        # When operational limits are imposed, evaluate if the primary control setting yield limit violations.
-
+        # When operational limits are imposed, evaluate if the primary control setting yields limit violations.
         if self.impose_operational_limits:
-            if self.__class__.__name__ == "TractionPhase":
-                
+            if isinstance(self, TractionPhase):          
                 # First check if the lower tether force limit is violated. 
                 # If so, use the minimum tether force as control setting.
                 if (min_force is not None and new_state.tether_force_ground < min_force):
@@ -1222,39 +1204,36 @@ class Phase(TimeSeries):
                     new_state.control_settings = ('tether_force_ground', max_force)
                     new_state.find_state(sys_props, env_state, kinematics)
                 
-
-        
-            elif self.__class__.__name__ != "RetractionPhase": 
-                if 'tether_force' not in self.control_settings[0]:  # If speed controlled.
-                    # Check if the tether force limits are violated. If so, use the force limit as controlled parameter.
+            elif isinstance(self, TransitionPhase):
+                # Transition phase: if speed-controlled, clamp tether force to limits.
+                if 'tether_force' not in self.control_settings[0]:
                     if max_force is not None and new_state.tether_force_ground > max_force:
                         new_state.control_settings = ('tether_force_ground', max_force)
                         new_state.find_state(sys_props, env_state, kinematics)
-                    elif (min_force is not None and new_state.tether_force_ground < min_force) or \
-                            (self.__class__.__name__ == "RetractionPhase" and new_state.error_code == 7):
+                    elif min_force is not None and new_state.tether_force_ground < min_force:
                         new_state.control_settings = ('tether_force_ground', min_force)
                         new_state.find_state(sys_props, env_state, kinematics)
-                    elif new_state.error_message is not None and temporary_suppress_steady_state_errors:
-                        raise SteadyStateError(new_state.error_message, new_state.error_code)
-            elif self.__class__.__name__ != "TransitionPhase":
+
+            elif isinstance(self, RetractionPhase):
+                # Retraction phase: clamp reeling speed to limits, then ensure tether force is within limits.
                 setpoint_speed = None
                 if max_speed is not None and abs(new_state.reeling_speed) > max_speed:
-                    if self.__class__.__name__ == "RetractionPhase":
-                        setpoint_speed = -max_speed
-                    else:
-                        setpoint_speed = max_speed
+                    setpoint_speed = -max_speed
                 elif min_speed is not None and abs(new_state.reeling_speed) < min_speed:
-                    if self.__class__.__name__ == "RetractionPhase":
-                        setpoint_speed = -min_speed
-                    else:
-                        setpoint_speed = min_speed
+                    setpoint_speed = -min_speed
 
                 if setpoint_speed is not None:
                     new_state = SteadyState(self.steady_state_config)
                     new_state.control_settings = ('reeling_speed', setpoint_speed)
                     new_state.find_state(sys_props, env_state, kinematics)
-                elif new_state.error_message is not None and temporary_suppress_steady_state_errors:
-                    raise SteadyStateError(new_state.error_message, new_state.error_code)
+
+                # After any speed override, check tether force limits.
+                if max_force is not None and new_state.tether_force_ground > max_force:
+                    new_state.control_settings = ('tether_force_ground', max_force)
+                    new_state.find_state(sys_props, env_state, kinematics)
+                elif min_force is not None and new_state.tether_force_ground < min_force:
+                    new_state.control_settings = ('tether_force_ground', min_force)
+                    new_state.find_state(sys_props, env_state, kinematics)
 
         # Update the monitoring parameters.
         if new_state.converged:
@@ -1286,6 +1265,10 @@ class Phase(TimeSeries):
                 error_message = "The tether force: {:.1f} N is smaller than the {:.1f} N " \
                                 "minimum limit.".format(new_state.tether_force_ground, min_force)
                 error_code = 4
+            elif max_power is not None and new_state.power_ground > max_power + 1e-3:
+                error_message = "The generator power: {:.1f} W is exceeding the {:.1f} W " \
+                                "maximum limit.".format(new_state.power_ground, max_power)
+                error_code = 5
             if error_message:
                 raise OperationalLimitViolation(error_message, error_code)
 
@@ -1738,16 +1721,11 @@ class TractionPhase(Phase):
                 self.course_angle,
             )
             probe_ss = SteadyState(steady_state_config)
-            probe_ss.control_settings = self.control_settings[:2]
+            probe_ss.control_settings = self.control_settings
             probe_ss.find_state(system_properties, environment_state, probe_kin)
 
-            # Mirror the operational-limit handling from determine_new_steady_state.
-            ctrl = self.control_settings
-            if 'tether_force' not in ctrl[0] and len(ctrl) == 4:
-                min_force, max_force = ctrl[2], ctrl[3]
-            else:
-                min_force = system_properties.tether_force_min_limit
-                max_force = system_properties.tether_force_max_limit
+            min_force = system_properties.tether_force_min_limit
+            max_force = system_properties.tether_force_max_limit
             max_speed = system_properties.reeling_speed_max_limit
             max_power = system_properties.max_generator_power
 
@@ -2139,7 +2117,7 @@ class Cycle(TimeSeries):
 
         # Initiating phases, allows manipulating its attribute before running the simulation.
         self.retraction_phase = RetractionPhase(settings['retraction'], impose_operational_limits)
-        self.transition_phase = TransitionPhase(settings['transition'], True)
+        self.transition_phase = TransitionPhase(settings['transition'], impose_operational_limits)
         self.traction_phase = cycle_settings.get('traction_phase',
                                                  TractionPhase)(settings['traction'], impose_operational_limits)
 

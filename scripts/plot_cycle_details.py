@@ -70,13 +70,17 @@ def plot_all_cycle_details(
                 fig_path = dir_path / f"cycle_detail_profile{pid}_v{ws:.1f}ms.pdf"
 
             print(f"  Plotting cycle detail: v={ws:.1f} m/s, profile {pid}")
-            plot_cycle_detail(
-                power_curve_file,
-                ws,
-                profile_id=pid,
-                output_path=fig_path,
-                show_plot=show_plot,
-            )
+            try:
+                plot_cycle_detail(
+                    power_curve_file,
+                    ws,
+                    profile_id=pid,
+                    output_path=fig_path,
+                    show_plot=show_plot,
+                )
+            except Exception as e:
+                print(f"    Error plotting v={ws:.1f} m/s, profile {pid}: {e}")
+                continue
             n_plotted += 1
 
     print(f"Done — plotted {n_plotted} wind speed(s).")
