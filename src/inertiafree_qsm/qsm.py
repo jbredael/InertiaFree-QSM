@@ -1213,16 +1213,9 @@ class Phase(TimeSeries):
                         reeling_speed_point = max_speed
                     new_state.control_settings = ('reeling_speed', reeling_speed_point)
                     new_state.find_state(sys_props, env_state, kinematics)
-                    while new_state.power_ground > max_power or new_state.tether_force_ground > max_force:
-                        # Update elevation angle to reduce power and tether force until the power limit is no longer violated.
-                        #  This is done in a loop to also account for the tether force limit,
-                        #  which may be violated when the power limit is active.
-
-                        kinematics.elevation_angle += 0.5 * np.pi/180. # Increase elevation angle with 0.5 degree steps.
-                        kinematics.update()  # Recompute x, y, z from the new elevation angle.
-                        env_state.calculate(kinematics.z)  # Update wind speed at the new altitude.
-
-                        new_state.find_state(sys_props, env_state, kinematics)
+                    if new_state.power_ground > max_power or new_state.tether_force_ground > max_force:
+                        self._resolve_regime3(new_state, kinematics, sys_props, env_state,
+                                              max_power, max_force)
 
                 # Second regime: Tether force limit violation, use tether force as control setting.
                 elif max_force is not None and new_state.tether_force_ground > max_force:
@@ -1672,6 +1665,47 @@ class TractionPhase(Phase):
             end_phase = True
         return end_phase, kin
 
+    def _resolve_regime3(self, state, kinematics, sys_props, env_state, max_power, max_force):
+        """Raise the elevation angle via bisection to bring generator power within
+        1 W of *max_power* while respecting *max_force*.
+
+        Mutates *kinematics* and *state* in-place.  The final state is always
+        on the safe (non-violating) side of the power and force limits.
+
+        Args:
+            state (SteadyState): Current steady state at the reduced reeling
+                speed setpoint (mutated to the converged state).
+            kinematics (KiteKinematics): Current kinematics; elevation_angle
+                and derived coordinates are updated in-place.
+            sys_props (SystemProperties): System properties.
+            env_state (Environment or child): Environment state (mutated).
+            max_power (float): Maximum generator power [W].
+            max_force (float): Maximum tether force at ground [N].
+        """
+        elev_lo = kinematics.elevation_angle  # violating side (power/force too high)
+        elev_hi = np.pi / 2 - 1e-4           # safe upper bound (near-vertical)
+
+        for _ in range(50):  # 50 bisections → sub-machine-epsilon precision
+            elev_mid = 0.5 * (elev_lo + elev_hi)
+            kinematics.elevation_angle = elev_mid
+            kinematics.update()
+            env_state.calculate(kinematics.z)
+            state.find_state(sys_props, env_state, kinematics)
+
+            if state.power_ground > max_power or state.tether_force_ground > max_force:
+                elev_lo = elev_mid
+            else:
+                elev_hi = elev_mid
+                if abs(state.power_ground - max_power) < 1.0:
+                    break
+
+        # Guarantee the final state is on the safe (non-violating) side.
+        if kinematics.elevation_angle != elev_hi:
+            kinematics.elevation_angle = elev_hi
+            kinematics.update()
+            env_state.calculate(kinematics.z)
+            state.find_state(sys_props, env_state, kinematics)
+
     def get_elevation_angle(self, system_properties, environment_state,
                                steady_state_config={}, tether_length=None):
         """Probe the steady state at the given tether length to find the actual
@@ -1727,16 +1761,9 @@ class TractionPhase(Phase):
                     reeling_speed_point = max_speed
                 probe_ss.control_settings = ('reeling_speed', reeling_speed_point)
                 probe_ss.find_state(system_properties, environment_state, probe_kin)
-                n_probe_iter = 0
-                while (probe_ss.power_ground > max_power
-                       or probe_ss.tether_force_ground > max_force):
-                    probe_kin.elevation_angle += 0.5 * np.pi / 180.
-                    probe_kin.update()  # Recompute z from the new elevation angle.
-                    environment_state.calculate(probe_kin.z)  # Update wind speed at new altitude.
-                    probe_ss.find_state(system_properties, environment_state, probe_kin)
-                    n_probe_iter += 1
-                    if n_probe_iter > 100:
-                        break
+                if probe_ss.power_ground > max_power or probe_ss.tether_force_ground > max_force:
+                    self._resolve_regime3(probe_ss, probe_kin, system_properties,
+                                          environment_state, max_power, max_force)
             elif max_force is not None and probe_ss.tether_force_ground > max_force:
                 probe_ss.control_settings = ('tether_force_ground', max_force)
                 probe_ss.find_state(system_properties, environment_state, probe_kin)
