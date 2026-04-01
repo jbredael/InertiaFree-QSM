@@ -1529,6 +1529,44 @@ class TransitionPhase(Phase):
             end_phase = True
         return end_phase, kin
 
+    def run_simulation_converged(self, traction_phase, system_properties,
+                                  env_trans, env_trac, steady_state_config,
+                                  timer_start, nominal_elevation_angle):
+        """Run the transition phase, iteratively adjusting the target elevation
+        angle to match the elevation at which the traction phase can operate
+        without exceeding the generator power limit (regime 3).
+
+        Args:
+            traction_phase (TractionPhase): Traction phase object used to probe
+                the required start elevation at the end tether length.
+            system_properties (SystemProperties): Collection of system properties.
+            env_trans (Environment or child): Environment for the transition phase.
+            env_trac (Environment or child): Environment for the traction phase probe.
+            steady_state_config (dict): Iterative procedure settings.
+            timer_start (float): Time [s] at which the phase timer starts.
+            nominal_elevation_angle (float): Nominal traction elevation angle
+                [rad] from the simulation settings; used as a lower bound.
+        """
+        ELEVATION_TOLERANCE = 0.1 * np.pi / 180.
+        MAX_ITERATIONS = 5
+        self.elevation_angle_end = nominal_elevation_angle
+
+        for _ in range(MAX_ITERATIONS):
+            self.finalize_start_and_end_kite_obj()
+            self.run_simulation(system_properties, env_trans, steady_state_config,
+                                timer_start)
+
+            end_tether_length = self.kinematics[-1].straight_tether_length
+            required_elevation = traction_phase.get_elevation_angle(
+                system_properties, env_trac, steady_state_config,
+                tether_length=end_tether_length,
+            )
+            required_elevation = max(required_elevation, nominal_elevation_angle)
+
+            if abs(required_elevation - self.elevation_angle_end) < ELEVATION_TOLERANCE:
+                break
+            self.elevation_angle_end = required_elevation
+
 
 class TractionElevation:
     def __init__(self, elevation_angle):
@@ -1634,28 +1672,33 @@ class TractionPhase(Phase):
             end_phase = True
         return end_phase, kin
 
-    def get_end_elevation_angle(self, system_properties, environment_state, steady_state_config={}):
-        """Probe the steady state at the end-of-traction tether length to find the
-        actual elevation angle, which may be raised above the nominal value when
-        the generator power limit is active. Which then acts as the starting elevation angle for the retraction phase.
+    def get_elevation_angle(self, system_properties, environment_state,
+                               steady_state_config={}, tether_length=None):
+        """Probe the steady state at the given tether length to find the actual
+        elevation angle, which may be raised above the nominal value when the
+        generator power limit is active.
 
         Args:
             system_properties (SystemProperties): Collection of system properties.
             environment_state (Environment or child): Specification of environment.
             steady_state_config (dict, optional): Iterative procedure settings.
+            tether_length (float, optional): Tether length [m] at which to
+                probe. Defaults to ``self.tether_length_end``.
 
         Returns:
-            float: Elevation angle [rad] at the end of the traction phase.
+            float: Elevation angle [rad] at the probed tether length.
         """
-        elevation_angle_nominal = self.elevation_angle.calculate(self.tether_length_end)
+        if tether_length is None:
+            tether_length = self.tether_length_end
+        elevation_angle_nominal = self.elevation_angle.calculate(tether_length)
         probe_elevation = elevation_angle_nominal
         try:
-            system_properties.update(self.tether_length_end, kite_powered=True)
+            system_properties.update(tether_length, kite_powered=True)
             environment_state.calculate(
-                self.tether_length_end * np.sin(elevation_angle_nominal)
+                tether_length * np.sin(elevation_angle_nominal)
             )
             probe_kin = KiteKinematics(
-                self.tether_length_end,
+                tether_length,
                 self.azimuth_angle,
                 elevation_angle_nominal,
                 self.course_angle,
@@ -2111,7 +2154,7 @@ class Cycle(TimeSeries):
         retr.follow_wind = self.follow_wind
         retr.enable_limit_violation_error = enable_limit_violation_error
 
-        # Configure the traction phase attributes that get_end_elevation_angle depends on,
+        # Configure the traction phase attributes that get_elevation_angle depends on,
         # so the retraction start elevation can be derived before running any phase.
         self.traction_phase.elevation_angle = TractionElevation(self.elevation_angle_traction)
         self.traction_phase.tether_length_end = self.tether_length_start_retraction
@@ -2119,7 +2162,7 @@ class Cycle(TimeSeries):
         # Set start and stop conditions of retraction phase.
         retr.tether_length_start = self.tether_length_start_retraction
         retr.tether_length_end = self.tether_length_end_retraction
-        retr.elevation_angle_start = self.traction_phase.get_end_elevation_angle(
+        retr.elevation_angle_start = self.traction_phase.get_elevation_angle(
             system_properties, env_trac, steady_state_config
         )
         retr.finalize_start_and_end_kite_obj()
@@ -2141,25 +2184,21 @@ class Cycle(TimeSeries):
         trans = self.transition_phase
         trans.follow_wind = self.follow_wind
         trans.enable_limit_violation_error = False
-
-        # Set start and stop conditions of transition phase.
         trans.tether_length_start = last_straight_tether_length
         trans.elevation_angle_start = last_kinematics.elevation_angle
-        trans.elevation_angle_end = self.elevation_angle_traction
-        trans.finalize_start_and_end_kite_obj()
 
-        if reorder:
-            timer_start = 0
-        else:
-            timer_start = last_time
-        trans.run_simulation(system_properties, env_trans, steady_state_config, timer_start)
+        timer_start = 0 if reorder else last_time
+
+        trac = self.traction_phase
+        trans.run_simulation_converged(
+            trac, system_properties, env_trans, env_trac,
+            steady_state_config, timer_start, self.elevation_angle_traction,
+        )
+
         last_kinematics = trans.kinematics[-1]
         last_time = trans.time[-1]
-        # trans.average_power = 0
-        # trans.energy = 0
 
         # Third, run the traction phase.
-        trac = self.traction_phase
         trac.follow_wind = self.follow_wind
         trac.enable_limit_violation_error = enable_limit_violation_error
 
