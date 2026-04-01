@@ -828,6 +828,33 @@ class PowerCurveConstructor:
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
+            # --- Extract time histories into a binary .npz sidecar ----------
+            # Keys: p{profile_id}_ws{index}_{channel}
+            # The inline time_history dicts are stripped from the YAML output
+            # to avoid serialising thousands of floats as text.
+            TIME_HISTORY_CHANNELS = (
+                'time', 'altitude', 'tether_force', 'power',
+                'reel_speed', 'tether_length', 'elevation_angle',
+            )
+            npz_arrays = {}
+            for pc in output['power_curves']:
+                pid = pc['profile_id']
+                for ws_idx, entry in enumerate(pc['wind_speed_data']):
+                    th = entry.pop('time_history', None)
+                    if th:
+                        for ch in TIME_HISTORY_CHANNELS:
+                            if ch in th:
+                                npz_arrays[f'p{pid}_ws{ws_idx}_{ch}'] = np.array(th[ch])
+
+            if npz_arrays:
+                npz_path = output_path.with_suffix('.npz')
+                np.savez_compressed(npz_path, **npz_arrays)
+                output['time_history_file'] = npz_path.name
+                if verbose:
+                    print(f"Time histories saved to {npz_path}")
+
+            # -----------------------------------------------------------------
+
             class IndentedDumper(yaml.Dumper):
                 def increase_indent(self, flow=False, indentless=False):
                     return super(IndentedDumper, self).increase_indent(flow, indentless=False)
@@ -838,7 +865,7 @@ class PowerCurveConstructor:
                           indent=2, width=1000)
 
             if verbose:
-                print(f"\nPower curves saved to {output_path}")
+                print(f"Power curves saved to {output_path}")
 
             if validate_file:
                 try:
@@ -891,7 +918,6 @@ class PowerCurveConstructor:
                 time_list = list(np.linspace(0, kpi['duration']['cycle'], n_pts))
             time_history = self._extract_time_history(
                 time_list, kpi['kinematics'], kpi['steady_states'],
-                phase_durations=kpi.get('duration'),
             )
 
         entry = {
@@ -916,8 +942,7 @@ class PowerCurveConstructor:
 
         return entry
 
-    def _extract_time_history(self, time_list, kinematics, steady_states,
-                               phase_durations=None):
+    def _extract_time_history(self, time_list, kinematics, steady_states):
         """Extract time history data from kinematics and steady state objects.
 
         This unified method is used by both direct simulation and optimization.
@@ -930,14 +955,10 @@ class PowerCurveConstructor:
                 elevation_angle attributes.
             steady_states (list): Steady state objects with tether_force_ground,
                 power_ground, reeling_speed attributes.
-            phase_durations (dict, optional): Duration dict with keys 'out'
-                (traction), 'in' (retraction), 'trans' (transition), 'cycle'.
-                Used to preserve phase boundary points during downsampling.
 
         Returns:
             dict: Time history data with altitude, forces, power, speeds, etc.
-                Downsampled according to runtime.downsampling settings. Returns
-                None if inputs are empty.
+                Returns None if inputs are empty.
         """
         if not time_list or not kinematics or not steady_states:
             return None
@@ -958,32 +979,14 @@ class PowerCurveConstructor:
             tether_length_full.append(float(kin.straight_tether_length))
             elevation_angle_full.append(float(kin.elevation_angle))
 
-
-        # Compute phase boundary times: traction ends, retraction ends.
-        # Order in stored time series is traction → retraction → transition.
-        boundary_times = None
-        if phase_durations:
-            t_traction = float(phase_durations.get('out') or 0.0)
-            t_retraction = float(phase_durations.get('in') or 0.0)
-            boundary_times = [t_traction, t_traction + t_retraction]
-    
-        # Downsample the time series, preserving phase boundaries
-        if bool(self.simulation_settings['runtime']['downsampling']['enable']) is False:
-            indices = list(range(len(time_full)))
-        else:
-            interval_s = self.simulation_settings['runtime']['downsampling']['interval_s']
-            indices = self._downsample_indices(
-                time_full, interval_s=interval_s, boundary_times=boundary_times
-            )
-
         return {
-            'time': [time_full[i] for i in indices],
-            'altitude': [altitude_full[i] for i in indices],
-            'tether_force': [tether_force_full[i] for i in indices],
-            'power': [power_full[i] for i in indices],
-            'reel_speed': [reel_speed_full[i] for i in indices],
-            'tether_length': [tether_length_full[i] for i in indices],
-            'elevation_angle': [elevation_angle_full[i] for i in indices],
+            'time': time_full,
+            'altitude': altitude_full,
+            'tether_force': tether_force_full,
+            'power': power_full,
+            'reel_speed': reel_speed_full,
+            'tether_length': tether_length_full,
+            'elevation_angle': elevation_angle_full,
         }
 
     @staticmethod
@@ -1002,44 +1005,6 @@ class PowerCurveConstructor:
                 return ws
         return None
 
-    @staticmethod
-    def _downsample_indices(time_vector, interval_s=2.0, boundary_times=None):
-        """Find indices for downsampling to approximately fixed time intervals.
 
-        Always includes the first and last point. Optionally preserves the
-        index nearest to each supplied boundary time (e.g. phase transitions).
-
-        Args:
-            time_vector (list): Time values [s].
-            interval_s (float): Desired time interval [s].
-            boundary_times (list of float, optional): Absolute times [s] whose
-                nearest index must be preserved regardless of the regular grid.
-
-        Returns:
-            list: Sorted, deduplicated indices to keep.
-        """
-        if not time_vector:
-            return []
-
-        if len(time_vector) == 1:
-            return [0]
-
-        # Regular interval downsampling
-        indices = {0, len(time_vector) - 1}
-        last_time = time_vector[0]
-
-        for i, t in enumerate(time_vector[1:-1], start=1):
-            if t - last_time >= interval_s:
-                indices.add(i)
-                last_time = t
-
-        # Snap nearest index to each phase boundary time
-        if boundary_times:
-            time_array = np.array(time_vector)
-            for bt in boundary_times:
-                idx = int(np.argmin(np.abs(time_array - bt)))
-                indices.add(idx)
-
-        return sorted(indices)
 
 

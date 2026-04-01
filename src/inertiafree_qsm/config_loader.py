@@ -297,15 +297,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'convergence_tolerance': float(ss_config.get('convergence_tolerance', 1e-6)),
     }
 
-    runtime_cfg = sim_config.get('runtime', {})
-    ds_cfg = runtime_cfg.get('downsampling', {})
-    runtime = {
-        'downsampling': {
-            'enable': bool(ds_cfg.get('enable', True)),
-            'interval_s': float(ds_cfg.get('interval_s', 0.1)),
-        },
-    }
-
     settings = {
         'aerodynamics': aero_config,
         'cycle': cycle,
@@ -315,7 +306,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'steady_state': steady_state,
         'direct_simulation': direct_simulation,
         'optimization': optimization,
-        'runtime': runtime,
     }
 
     merged_sys_props = dict(base_sys_props)

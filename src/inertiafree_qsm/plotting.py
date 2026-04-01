@@ -68,20 +68,49 @@ mpl.rcParams.update({
 def load_power_curve_data(file_path):
     """Load power curve data from a YAML file.
 
+    If a companion ``<stem>.npz`` sidecar file is referenced in the YAML
+    (``time_history_file`` key), time history arrays are loaded from it and
+    injected back into each wind speed entry so that callers see a uniform
+    ``time_history`` dict regardless of storage format.
+
     Args:
         file_path (str or Path): Path to the YAML file.
 
     Returns:
-        dict: Power curve data.
+        dict: Power curve data with time histories populated.
 
     Raises:
-        FileNotFoundError: If the file does not exist.
+        FileNotFoundError: If the YAML file does not exist.
     """
     file_path = Path(file_path)
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
     with open(file_path, 'r') as f:
-        return yaml.safe_load(f)
+        data = yaml.safe_load(f)
+
+    # Load binary sidecar if present and inject time histories
+    npz_name = data.get('time_history_file')
+    if npz_name:
+        npz_path = file_path.parent / npz_name
+        if npz_path.exists():
+            TIME_HISTORY_CHANNELS = (
+                'time', 'altitude', 'tether_force', 'power',
+                'reel_speed', 'tether_length', 'elevation_angle',
+            )
+            npz = np.load(npz_path)
+            for pc in data.get('power_curves', []):
+                pid = pc['profile_id']
+                for ws_idx, entry in enumerate(pc.get('wind_speed_data', [])):
+                    prefix = f'p{pid}_ws{ws_idx}_'
+                    th = {
+                        ch: npz[f'{prefix}{ch}'].tolist()
+                        for ch in TIME_HISTORY_CHANNELS
+                        if f'{prefix}{ch}' in npz
+                    }
+                    if th:
+                        entry['time_history'] = th
+
+    return data
 
 
 def find_wind_speed_data(data, target_wind_speed, profile_id=None):
