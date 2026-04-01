@@ -1219,6 +1219,8 @@ class Phase(TimeSeries):
                         #  which may be violated when the power limit is active.
 
                         kinematics.elevation_angle += 0.5 * np.pi/180. # Increase elevation angle with 0.5 degree steps.
+                        kinematics.update()  # Recompute x, y, z from the new elevation angle.
+                        env_state.calculate(kinematics.z)  # Update wind speed at the new altitude.
 
                         new_state.find_state(sys_props, env_state, kinematics)
 
@@ -1632,6 +1634,76 @@ class TractionPhase(Phase):
             end_phase = True
         return end_phase, kin
 
+    def get_end_elevation_angle(self, system_properties, environment_state, steady_state_config={}):
+        """Probe the steady state at the end-of-traction tether length to find the
+        actual elevation angle, which may be raised above the nominal value when
+        the generator power limit is active. Which then acts as the starting elevation angle for the retraction phase.
+
+        Args:
+            system_properties (SystemProperties): Collection of system properties.
+            environment_state (Environment or child): Specification of environment.
+            steady_state_config (dict, optional): Iterative procedure settings.
+
+        Returns:
+            float: Elevation angle [rad] at the end of the traction phase.
+        """
+        elevation_angle_nominal = self.elevation_angle.calculate(self.tether_length_end)
+        probe_elevation = elevation_angle_nominal
+        try:
+            system_properties.update(self.tether_length_end, kite_powered=True)
+            environment_state.calculate(
+                self.tether_length_end * np.sin(elevation_angle_nominal)
+            )
+            probe_kin = KiteKinematics(
+                self.tether_length_end,
+                self.azimuth_angle,
+                elevation_angle_nominal,
+                self.course_angle,
+            )
+            probe_ss = SteadyState(steady_state_config)
+            probe_ss.control_settings = self.control_settings[:2]
+            probe_ss.find_state(system_properties, environment_state, probe_kin)
+
+            # Mirror the operational-limit handling from determine_new_steady_state.
+            ctrl = self.control_settings
+            if 'tether_force' not in ctrl[0] and len(ctrl) == 4:
+                min_force, max_force = ctrl[2], ctrl[3]
+            else:
+                min_force = system_properties.tether_force_min_limit
+                max_force = system_properties.tether_force_max_limit
+            max_speed = system_properties.reeling_speed_max_limit
+            max_power = system_properties.max_generator_power
+
+            if min_force is not None and probe_ss.tether_force_ground < min_force:
+                probe_ss.control_settings = ('tether_force_ground', min_force)
+                probe_ss.find_state(system_properties, environment_state, probe_kin)
+
+            if max_power is not None and probe_ss.power_ground > max_power:
+                reeling_speed_point = max_power / max_force
+                if max_speed is not None and reeling_speed_point > max_speed:
+                    reeling_speed_point = max_speed
+                probe_ss.control_settings = ('reeling_speed', reeling_speed_point)
+                probe_ss.find_state(system_properties, environment_state, probe_kin)
+                n_probe_iter = 0
+                while (probe_ss.power_ground > max_power
+                       or probe_ss.tether_force_ground > max_force):
+                    probe_kin.elevation_angle += 0.5 * np.pi / 180.
+                    probe_kin.update()  # Recompute z from the new elevation angle.
+                    environment_state.calculate(probe_kin.z)  # Update wind speed at new altitude.
+                    probe_ss.find_state(system_properties, environment_state, probe_kin)
+                    n_probe_iter += 1
+                    if n_probe_iter > 100:
+                        break
+            elif max_force is not None and probe_ss.tether_force_ground > max_force:
+                probe_ss.control_settings = ('tether_force_ground', max_force)
+                probe_ss.find_state(system_properties, environment_state, probe_kin)
+
+            probe_elevation = probe_kin.elevation_angle
+        except (SteadyStateError, FloatingPointError):
+            pass  # Fall back to nominal elevation.
+
+        return probe_elevation
+
 
 class TractionPhaseHybrid(TractionPhase):
     # Estimates how many crosswind patterns can be flown within the traction phase.
@@ -2039,10 +2111,17 @@ class Cycle(TimeSeries):
         retr.follow_wind = self.follow_wind
         retr.enable_limit_violation_error = enable_limit_violation_error
 
+        # Configure the traction phase attributes that get_end_elevation_angle depends on,
+        # so the retraction start elevation can be derived before running any phase.
+        self.traction_phase.elevation_angle = TractionElevation(self.elevation_angle_traction)
+        self.traction_phase.tether_length_end = self.tether_length_start_retraction
+
         # Set start and stop conditions of retraction phase.
         retr.tether_length_start = self.tether_length_start_retraction
         retr.tether_length_end = self.tether_length_end_retraction
-        retr.elevation_angle_start = self.elevation_angle_traction
+        retr.elevation_angle_start = self.traction_phase.get_end_elevation_angle(
+            system_properties, env_trac, steady_state_config
+        )
         retr.finalize_start_and_end_kite_obj()
 
         try:
@@ -2088,12 +2167,10 @@ class Cycle(TimeSeries):
         # the other phases, which results in jumps of the kite position.
         if trac.__class__.__name__ == "TractionPhaseHybrid":
             trac.tether_length_start_aim = self.tether_length_end_retraction
-        trac.elevation_angle = TractionElevation(self.elevation_angle_traction)
         if self.tether_length_start_traction is None:
             trac.tether_length_start = last_kinematics.straight_tether_length
         else:
             trac.tether_length_start = self.tether_length_start_traction
-        trac.tether_length_end = self.tether_length_start_retraction
         trac.finalize_start_and_end_kite_obj()
 
         try:

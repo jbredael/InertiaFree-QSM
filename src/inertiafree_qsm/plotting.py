@@ -444,17 +444,17 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.plot(
         horizontalDist[:reelInStartIdx + 1],
         altitude[:reelInStartIdx + 1],
-        color='steelblue', label='Reel-out',
+        color='steelblue', label='Reel-out', marker='o', markersize=2
     )
     ax.plot(
         horizontalDist[reelInStartIdx:transitionStartIdx + 1],
         altitude[reelInStartIdx:transitionStartIdx + 1],
-        color='orangered', label='Reel-in', linestyle='--',
+        color='orangered', label='Reel-in', linestyle='--', marker='s', markersize=2
     )
     ax.plot(
         horizontalDist[transitionStartIdx:],
         altitude[transitionStartIdx:],
-        color='green', label='Transition', linestyle='-',
+        color='green', label='Transition', linestyle='-', marker='^', markersize=2
     )
 
     ax.set_xlabel('Horizontal Distance (m)')
