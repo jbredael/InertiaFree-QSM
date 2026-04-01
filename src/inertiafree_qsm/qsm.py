@@ -1288,7 +1288,7 @@ class RetractionPhase(Phase):
 
     """
 
-    def __init__(self, phase_settings={'control': ('tether_force_ground', 1200.)}, impose_operational_limits=True):
+    def __init__(self, phase_settings, impose_operational_limits=True):
         """
         Args:
             phase_settings (tuple, optional): Setting parent's `control_settings` attribute.
@@ -1355,73 +1355,6 @@ class RetractionPhase(Phase):
             self.timer += reduced_time_step
             kin.straight_tether_length += d_tether_length_remaining
             kin.elevation_angle += last_steady_state.elevation_rate*reduced_time_step
-            kin.update()
-            end_phase = True
-        return end_phase, kin
-
-
-class RetractionPhaseElevationStop(RetractionPhase):
-    def __init__(self, phase_settings={'control': ('tether_force_ground', 1200.)}, impose_operational_limits=True):
-        """
-        Args:
-            phase_settings (tuple, optional): Setting parent's `control_settings` attribute.
-            impose_operational_limits (bool, optional): Setting parent's `impose_operational_limits` attribute.
-
-        """
-        super().__init__(phase_settings, impose_operational_limits)
-
-        # Binary kite aerodynamic state.
-        self.kite_powered = False
-
-        self.fix_tether_length = False  # Should be False for realistic simulation.
-
-    def finalize_start_and_end_kite_obj(self):
-        """Finalize the initial state and ending criteria before running the simulation, respectively `kinematics_start`
-        and `position_end`."""
-        self.kinematics_start = KiteKinematics(self.tether_length_start, self.AZIMUTH_ANGLE,
-                                               self.elevation_angle_start, self.COURSE_ANGLE)
-        self.position_end = KitePosition(elevation_angle=self.elevation_angle_end)
-
-    def determine_new_kinematics(self, last_kinematics, last_steady_state):
-        """Determine kinematic state of the kite for the new time point based on the previous kinematic and steady state
-        properties. For the retraction phase, the tether length and elevation angle are updated.
-
-        Args:
-            last_kinematics (`KiteKinematics`): Kinematics object of previous time point.
-            last_steady_state (`SteadyState`): Steady state of previous time point.
-
-        Returns:
-            bool: Flag indicating meeting phase ending criteria.
-            `KiteKinematics`: Kinematic state of the kite for the new time point.
-
-        """
-        kin = copy(last_kinematics)
-
-        # Determine the difference in tether length and elevation angle for regular time step.
-        if not self.fix_tether_length:
-            d_tether_length = last_steady_state.reeling_speed*self.time_step
-        else:
-            d_tether_length = 0.
-        d_elevation = last_steady_state.elevation_rate*self.time_step
-        if d_elevation < 1e-4 and d_tether_length > 0.:
-            raise PhaseError("Reeling out at constant elevation angle during reel-in phase.", 3)
-
-        # Check if target tether length is not exceeded next iteration.
-        if kin.elevation_angle + d_elevation < self.position_end.elevation_angle:
-            # Set timer and kite kinematics for next iteration.
-            self.timer += self.time_step
-            kin.straight_tether_length += d_tether_length
-            kin.elevation_angle += d_elevation
-            kin.update()
-            end_phase = False
-        else:
-            d_elevation_remaining = self.position_end.elevation_angle - kin.elevation_angle
-            reduced_time_step = d_elevation_remaining/last_steady_state.elevation_rate
-
-            # Set final timer and kite kinematics.
-            self.timer += reduced_time_step
-            kin.elevation_angle += d_elevation_remaining
-            kin.straight_tether_length += last_steady_state.reeling_speed*reduced_time_step
             kin.update()
             end_phase = True
         return end_phase, kin
