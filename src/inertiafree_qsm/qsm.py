@@ -1187,6 +1187,11 @@ class Phase(TimeSeries):
                 if (min_force is not None and new_state.tether_force_ground < min_force):
                     new_state.control_settings = ('tether_force_ground', min_force)
                     new_state.find_state(sys_props, env_state, kinematics)
+
+                # Second regime: Tether force limit violation, use tether force as control setting.
+                if max_force is not None and new_state.tether_force_ground > max_force:
+                    new_state.control_settings = ('tether_force_ground', max_force)
+                    new_state.find_state(sys_props, env_state, kinematics)
                 # Third regime: Power limit violation, use derived reeling speed as control setting.
                 if max_power is not None and new_state.power_ground > max_power:
                     reeling_speed_point = max_power / max_force
@@ -1199,10 +1204,6 @@ class Phase(TimeSeries):
                         self._resolve_regime3(new_state, kinematics, sys_props, env_state,
                                               max_power, max_force)
 
-                # Second regime: Tether force limit violation, use tether force as control setting.
-                elif max_force is not None and new_state.tether_force_ground > max_force:
-                    new_state.control_settings = ('tether_force_ground', max_force)
-                    new_state.find_state(sys_props, env_state, kinematics)
                 
             elif isinstance(self, TransitionPhase):
                 # Transition phase: if speed-controlled, clamp tether force to limits.
