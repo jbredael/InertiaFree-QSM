@@ -178,10 +178,12 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     max_time_points = int(phase_solver_config.get('max_time_points', 5000))
 
-    start_fraction_raw = cycle_config.get('tether_length_start_retraction')
+    direct_config = sim_config.get('direct_simulation', {})
+
+    start_fraction_raw = direct_config.get('tether_length_start_retraction')
     start_fraction = float(start_fraction_raw) if start_fraction_raw is not None else 1.0
 
-    end_fraction_raw = cycle_config.get('tether_length_end_retraction')
+    end_fraction_raw = direct_config.get('tether_length_end_retraction')
     end_fraction = float(end_fraction_raw) if end_fraction_raw is not None else 0.5
 
     tetherLengthStartRetraction = start_fraction * max_tether_length
@@ -231,7 +233,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'lissajous_azimuth_amplitude': float(lissajous_config.get('azimuth_amplitude')),
     }
 
-    direct_config = sim_config.get('direct_simulation', {})
     direct_wind = direct_config.get('wind_speeds', {})
     direct_fine = direct_wind.get('fine_resolution', {})
     direct_simulation = {
@@ -244,6 +245,8 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
                 'range_m_s': float(direct_fine.get('range_m_s', 2.0)),
             },
         },
+        'tether_length_start_retraction': tetherLengthStartRetraction,
+        'tether_length_end_retraction': tetherLengthEndRetraction,
     }
 
     opt_config = sim_config.get('optimization', {})
@@ -251,13 +254,10 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     opt_fine = opt_wind.get('fine_resolution', {})
     opt_optimizer = opt_config.get('optimizer', {})
     opt_bounds_cfg = opt_config.get('bounds', {})
-    opt_constraints_cfg = opt_config.get('constraints', {})
+    opt_constraints_cfg = opt_config.get('constraints') or {}
 
     x0_list = list(opt_optimizer.get('x0', []))
-    x0_list[2] = np.deg2rad(x0_list[2])
 
-    elev_min = np.deg2rad(opt_bounds_cfg.get('elevation_angle_min'))
-    elev_max = np.deg2rad(opt_bounds_cfg.get('elevation_angle_max'))
     start_min = float(opt_bounds_cfg.get('tether_length_start_fraction_min')) * max_tether_length
     start_max = float(opt_bounds_cfg.get('tether_length_start_fraction_max')) * max_tether_length
     end_min = float(opt_bounds_cfg.get('tether_length_end_fraction_min')) * max_tether_length
@@ -281,9 +281,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
             'scaling': np.array(opt_optimizer.get('scaling', []), dtype=float),
         },
         'bounds': np.array([
-            [force_min_limit, force_max_limit],
-            [force_min_limit, force_max_limit],
-            [elev_min, elev_max],
             [start_min, start_max],
             [end_min, end_max],
         ]),
@@ -396,20 +393,14 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
 
     bounds = opt['bounds']
     print("\n    Optimiser bounds (absolute values used internally):")
-    print(f"      Tether force out [N]       : [{bounds[0,0]:.1f}, {bounds[0,1]:.1f}]  "
-          f"(from system props)")
-    print(f"      Tether force in  [N]       : [{bounds[1,0]:.1f}, {bounds[1,1]:.1f}]  "
-          f"(from system props)")
-    print(f"      Elevation angle  [deg]     : "
-          f"[{np.degrees(bounds[2,0]):.1f}, {np.degrees(bounds[2,1]):.1f}]")
 
     startFracMin = float(optBoundsCfg.get('tether_length_start_fraction_min', 0))
     startFracMax = float(optBoundsCfg.get('tether_length_start_fraction_max', 0))
     endFracMin = float(optBoundsCfg.get('tether_length_end_fraction_min', 0))
     endFracMax = float(optBoundsCfg.get('tether_length_end_fraction_max', 0))
-    print(f"      Start tether length  [m]   : [{bounds[3,0]:.1f}, {bounds[3,1]:.1f}]  "
+    print(f"      Start tether length  [m]   : [{bounds[0,0]:.1f}, {bounds[0,1]:.1f}]  "
           f"(fractions: [{startFracMin}, {startFracMax}])")
-    print(f"      End tether length    [m]   : [{bounds[4,0]:.1f}, {bounds[4,1]:.1f}]  "
+    print(f"      End tether length    [m]   : [{bounds[1,0]:.1f}, {bounds[1,1]:.1f}]  "
           f"(fractions: [{endFracMin}, {endFracMax}])")
 
     print("=" * 60)
