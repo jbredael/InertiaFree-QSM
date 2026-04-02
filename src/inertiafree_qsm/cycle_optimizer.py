@@ -33,7 +33,7 @@ class CycleOptimizer:
         history (list): List of dicts recording every objective evaluation,
             each with keys ``x`` (variable vector) and ``power`` (cycle power [W]).
     """
-
+    # Large penalty for failed simulations to steer the optimizer away from
     PENALTY = 1e6
 
     def __init__(self, simulation_settings, sys_props, env_state):
@@ -44,19 +44,20 @@ class CycleOptimizer:
 
         opt_config = simulation_settings['optimization']
         self.optimizer_config = opt_config['optimizer']
-
+        self.boundsDict = opt_config['bounds']
+        self.constraintsDict = opt_config['constraints']
+        
+        # Convert tether length bounds from absolute to fractional values.
         maxTetherLength = sys_props.max_tether_length
-        boundsDict = opt_config['bounds']
-
-        fracStartMin = boundsDict['tether_length_start'][0] / maxTetherLength
-        fracStartMax = boundsDict['tether_length_start'][1] / maxTetherLength
-        fracEndMin = boundsDict['tether_length_end'][0] / maxTetherLength
-        fracEndMax = boundsDict['tether_length_end'][1] / maxTetherLength
+        fracStartMin = self.boundsDict['tether_length_start'][0] / maxTetherLength
+        fracStartMax = self.boundsDict['tether_length_start'][1] / maxTetherLength
+        fracEndMin = self.boundsDict['tether_length_end'][0] / maxTetherLength
+        fracEndMax = self.boundsDict['tether_length_end'][1] / maxTetherLength
 
         # Bounds: [rf_out, rf_in, frac_end, frac_start]
         self.bounds = [
-            boundsDict['reeling_factor_out'],
-            boundsDict['reeling_factor_in'],
+            self.boundsDict['reeling_factor_out'],
+            self.boundsDict['reeling_factor_in'],
             (fracEndMin, fracEndMax),
             (fracStartMin, fracStartMax),
         ]
@@ -84,9 +85,10 @@ class CycleOptimizer:
             for (lo, hi), s in zip(self.bounds, scaling)
         ]
 
+        min_frac_diff = self.constraintsDict['min_tether_length_fraction_difference']
         constraints = [{
             'type': 'ineq',
-            'fun': lambda x: x[3] / scaling[3] - x[2] / scaling[2] - 0.05,
+            'fun': lambda x: x[3] / scaling[3] - x[2] / scaling[2] - min_frac_diff,
         }]
 
         result = op.minimize(

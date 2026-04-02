@@ -101,6 +101,10 @@ optimization:
 
   # Optimizer constraints
   constraints:
+    # Minimum difference between retraction start and end tether length fractions [-]
+    # Ensures the cycle reels in a meaningful amount of tether:
+    #   frac_start - frac_end >= min_tether_length_fraction_difference
+    min_tether_length_fraction_difference: 0.05
     
 
 # ============================================================================

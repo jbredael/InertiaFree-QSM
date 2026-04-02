@@ -297,6 +297,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         },
         'constraints': {
             'min_crosswind_patterns': int(opt_constraints_cfg.get('min_crosswind_patterns', 1)),
+            'min_tether_length_fraction_difference': float(opt_constraints_cfg.get('min_tether_length_fraction_difference', 0.05)),
         },
     }
 

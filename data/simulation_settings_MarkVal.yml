@@ -117,6 +117,11 @@ optimization:
     #   figure-of-eight crosswind patterns, which is used as a physical
     #   realism guard:
     #     n_crosswind_patterns - min_crosswind_patterns >= 0
+    # Constraint 4 – Minimum tether length excursion
+    #   Ensures the cycle reels in a meaningful amount of tether, preventing
+    #   the optimizer from collapsing the retraction phase:
+    #     frac_start - frac_end >= min_tether_length_fraction_difference
+    min_tether_length_fraction_difference: 0.05
     min_crosswind_patterns: 1
 
 # ============================================================================
