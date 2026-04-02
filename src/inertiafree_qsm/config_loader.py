@@ -122,11 +122,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     }
 
     # Parse simulation settings.
-    def parse_control(control_config):
-        if isinstance(control_config, list):
-            return tuple(control_config)
-        return control_config
-
     cycle_config = sim_config.get('cycle', {})
     retraction_config = sim_config.get('retraction', {})
     transition_config = sim_config.get('transition', {})
@@ -176,14 +171,14 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         minimum_tether_force = 0.03 * force_max_limit
     force_min_limit = float(minimum_tether_force)
 
-    max_time_points = int(phase_solver_config.get('max_time_points', 5000))
+    max_time_points = int(phase_solver_config.get('max_time_points'))
 
     direct_config = sim_config.get('direct_simulation', {})
 
-    start_fraction_raw = direct_config.get('tether_length_start_retraction')
+    start_fraction_raw = cycle_config.get('tether_length_start_retraction')
     start_fraction = float(start_fraction_raw) if start_fraction_raw is not None else 1.0
 
-    end_fraction_raw = direct_config.get('tether_length_end_retraction')
+    end_fraction_raw = cycle_config.get('tether_length_end_retraction')
     end_fraction = float(end_fraction_raw) if end_fraction_raw is not None else 0.5
 
     tetherLengthStartRetraction = start_fraction * max_tether_length
@@ -202,9 +197,8 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     }
 
     retraction = {
-        'control': parse_control(
-            retraction_config.get('control')
-        ),
+        'control': tuple(retraction_config.get('control')),
+        # control: (control_type, setpoint)
         'time_step': float(retraction_config.get('time_step')),
         'max_time_points': max_time_points,
         'azimuth_angle': np.deg2rad(retraction_config.get('azimuth_angle')),
@@ -212,9 +206,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     }
 
     transition = {
-        'control': parse_control(
-            transition_config.get('control')
-        ),
+        'control': tuple(transition_config.get('control')),
         'time_step': float(transition_config.get('time_step')),
         'max_time_points': max_time_points,
         'azimuth_angle': np.deg2rad(transition_config.get('azimuth_angle')),
@@ -222,9 +214,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     }
 
     traction = {
-        'control': parse_control(
-            traction_config.get('control')
-        ),
+        'control': tuple(traction_config.get('control')),
         'time_step': float(traction_config.get('time_step')),
         'azimuth_angle': np.deg2rad(traction_config.get('azimuth_angle')),
         'course_angle': np.deg2rad(traction_config.get('course_angle')),
@@ -307,7 +297,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     }
 
     settings = {
-        'aerodynamics': aero_config,
         'cycle': cycle,
         'retraction': retraction,
         'transition': transition,
@@ -318,7 +307,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     }
 
     merged_sys_props = dict(base_sys_props)
-    merged_sys_props.update(settings.get('aerodynamics', {}))
+    merged_sys_props.update(aero_config)
     merged_sys_props['tether_force_min_limit'] = force_min_limit
 
     if verbose:

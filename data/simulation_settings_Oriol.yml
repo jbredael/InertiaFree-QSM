@@ -14,7 +14,7 @@ aerodynamics:
 # DIRECT SIMULATION SETTINGS
 # ============================================================================
 # Settings for the non-optimized direct simulation method
-# This method is faster but uses pre-defined cycle parameters
+# This method is faster but uses pre-defined cycle parameters set in CYCLE SETTINGS
 
 direct_simulation:
   # Wind speed range for power curve calculation
@@ -35,13 +35,6 @@ direct_simulation:
       # How far back from cut-out to start fine resolution [m/s]
       # Fine points will span from (cut_out - range_m_s) to (cut_out - 0.05)
       range_m_s: 2.0
-
-  # Tether length at start of retraction as fraction of max tether length [-]
-  # (null = 1.0, uses full tether length from system config)
-  tether_length_start_retraction: 0.9685493
-
-  # Tether length at end of retraction as fraction of max tether length [-]
-  tether_length_end_retraction: 0.36289436
 
 
 # ============================================================================
@@ -113,12 +106,18 @@ optimization:
 # Cycle parameters for simulation
 
 cycle:
-
   minimum_tether_force: 1000.0 # Minimum tether force (N)
   # Elevation angle during traction phase [degrees]
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
   elevation_angle_traction: 30
+
+  # Tether length at start of retraction as fraction of max tether length [-]
+  # (null = 1.0, uses full tether length from system config)
+  tether_length_start_retraction: 0.9685493
+
+  # Tether length at end of retraction as fraction of max tether length [-]
+  tether_length_end_retraction: 0.36289436
 
   # Include transition phase energy in cycle energy calculation
   include_transition_energy: true
