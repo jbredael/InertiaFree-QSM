@@ -208,7 +208,8 @@ class PowerCurveConstructor:
         if method == 'direct':
             entry = self._run_single_simulation_direct(wind_speed, env_state)
         elif method == 'optimization':
-            entry = self._run_single_simulation_optimized(wind_speed, env_state, show_plot=show_plot)
+            entry = self._run_single_simulation_optimized(wind_speed, env_state, show_plot=show_plot,
+                                                           verbose=verbose)
         else:
             raise ValueError(
                 f"Unknown method '{method}'. Use 'direct' or 'optimization'."
@@ -318,6 +319,101 @@ class PowerCurveConstructor:
 
         return output
 
+    def generate_power_curves_optimized(
+        self,
+        wind_speeds=None,
+        cluster_ids=None,
+        output_path=None,
+        verbose=True,
+        show_plot=False,
+        save_plot=False,
+        validate_file=False,):
+        """Generate power curves using SLSQP optimization.
+
+        This method optimizes cycle parameters (reeling factors and tether
+        lengths) for each wind speed to maximize average cycle power.
+
+        Args:
+            wind_speeds (array-like, optional): Wind speeds to evaluate [m/s].
+                Defaults to wind speeds defined in optimization settings.
+            cluster_ids (list, optional): List of cluster IDs (1-indexed) to calculate.
+                If None, calculates all clusters/profiles.
+            output_path (str, optional): Path to save the output YAML file.
+            verbose (bool): Whether to print progress messages.
+            show_plot (bool): If True, display the power curve plot after generation.
+                Defaults to False.
+            save_plot (bool): If True, save the power curve plot as a PNG alongside
+                the YAML output. Requires ``output_path``. Defaults to False.
+            validate_file (bool): If True, validate the saved YAML against the
+                awesIO schema. Defaults to False.
+
+        Returns:
+            dict: Power curve data in awesIO format.
+        """
+        if cluster_ids is None:
+            cluster_ids = list(range(1, self.n_clusters + 1))
+        elif not isinstance(cluster_ids, (list, tuple)):
+            cluster_ids = [cluster_ids]
+
+        if wind_speeds is not None:
+            wind_speeds = np.array(wind_speeds)
+            if verbose:
+                print(f"Using custom wind speeds: {wind_speeds}")
+        else:
+            wind_speeds = self._generate_wind_speed_array(
+                settings_key='optimization',
+                cluster_id=cluster_ids[0],
+                verbose=verbose,
+            )
+
+        wind_speed_data_per_cluster = []
+        for cluster_id in cluster_ids:
+            wind_speed_data = self._calculate_power_curve_optimized(
+                cluster_id, wind_speeds, verbose,
+            )
+            wind_speed_data_per_cluster.append(wind_speed_data)
+
+        output = self._build_and_save_output(
+            cluster_ids=cluster_ids,
+            wind_speed_data_per_cluster=wind_speed_data_per_cluster,
+            method_name='Optimization',
+            output_path=output_path,
+            verbose=verbose,
+            validate_file=validate_file,
+        )
+
+        if (show_plot or save_plot) and output_path is not None:
+            fig_path = Path(output_path).with_suffix('.pdf') if save_plot else None
+            plotting.plot_power_curve(output_path, output_path=fig_path, show_plot=show_plot)
+
+        return output
+
+    def _calculate_power_curve_optimized(self, cluster_id, wind_speeds, verbose):
+        """Calculate power curve for a single wind cluster using optimization.
+
+        Args:
+            cluster_id (int): The cluster ID (1-indexed).
+            wind_speeds (array-like): Wind speeds to evaluate [m/s].
+            verbose (bool): Whether to print progress messages.
+
+        Returns:
+            list: Wind speed data entries for this cluster.
+        """
+        env_state = self.create_environment(cluster_id)
+
+        if verbose:
+            print(f"Optimizing power curve for cluster {cluster_id}...")
+
+        wind_speed_data = []
+        for i, ws in enumerate(wind_speeds):
+            if verbose:
+                print(f"  Wind speed {ws:.1f} m/s ({i+1}/{len(wind_speeds)})")
+            wind_speed_data.append(
+                self._run_single_simulation_optimized(ws, env_state, verbose=verbose)
+            )
+
+        return wind_speed_data
+
     def _calculate_power_curve_direct(self, cluster_id, wind_speeds, verbose):
         """Calculate power curve for a single wind cluster using direct simulation.
 
@@ -410,19 +506,21 @@ class PowerCurveConstructor:
             }
             return self._build_wind_speed_entry(wind_speed, kpi)
 
-    def _run_single_simulation_optimized(self, wind_speed, env_state, show_plot=False):
+    def _run_single_simulation_optimized(self, wind_speed, env_state, show_plot=False,
+                                          verbose=False):
         """Run a single optimized cycle simulation for one wind speed.
 
         Args:
             wind_speed (float): Reference wind speed [m/s].
             env_state (NormalisedWindTable1D): Environment state object.
             show_plot (bool): If True, show optimization evolution and cycle plots.
+            verbose (bool): If True, print per-iteration progress. Defaults to False.
 
         Returns:
             dict: Wind speed entry with performance data and optional time history.
         """
         optimizer = CycleOptimizer(self.simulation_settings, self.sys_props, env_state)
-        kpi = optimizer.optimize(wind_speed)
+        kpi = optimizer.optimize(wind_speed, verbose=verbose)
 
         optResult = kpi.pop('optimization_result', None)
         if optResult is not None:
@@ -432,12 +530,6 @@ class PowerCurveConstructor:
             print(f"    Cycle power: {kpi['average_power']['cycle']:.1f} W")
 
         self.last_optimization_history = optimizer.history
-
-        if show_plot:
-            plotting.plot_optimization_evolution(
-                optimizer.history, wind_speed, show_plot=True,
-            )
-
         return self._build_wind_speed_entry(wind_speed, kpi)
 
 

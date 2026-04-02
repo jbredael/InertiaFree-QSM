@@ -537,6 +537,7 @@ def plot_optimization_evolution(history, wind_speed, output_path=None,
     ax = axes[0]
     ax.plot(evaluations, powers, 'o', alpha=0.35, markersize=3, label='Evaluation')
     ax.plot(evaluations, bestPowers, '-', linewidth=2, label='Best so far')
+    ax.set_ylim(bottom=-0.1 * max(powers), top=1.1 * max(powers))
     ax.set_xlabel('Function evaluation')
     ax.set_ylabel('Cycle power (kW)')
     ax.legend()

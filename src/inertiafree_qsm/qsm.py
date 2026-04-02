@@ -9,10 +9,12 @@ This implementation focuses on 2D simulation (idealized trajectory) for pumping 
     https://arxiv.org/abs/1705.04133
 
 """
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from copy import copy
+from scipy.optimize import brentq
 
 try:
     from .utils import zip_el, plot_traces
@@ -651,11 +653,20 @@ class SteadyState:
         g = environment_state.GRAVITATIONAL_ACCELERATION
 
         q = .5*rho*v_wind**2
-        g_vector = np.array([-np.cos(theta)*g, np.sin(theta)*g, 0])
+        # Scalar trig values used throughout — computed once.
+        cos_theta = math.cos(theta)
+        sin_theta = math.sin(theta)
+        cos_phi   = math.cos(phi)
+        sin_phi   = math.sin(phi)
+        cos_chi   = math.cos(chi)
+        sin_chi   = math.sin(chi)
+        # Gravity vector components (r, theta, phi).
+        gv_r    = -cos_theta * g
+        gv_t    =  sin_theta * g
+        # gv_phi  = 0  (never used explicitly)
 
-        a = np.cos(theta) * np.cos(phi) * np.cos(chi) - np.sin(phi) * np.sin(chi)
-        b = np.sin(theta) * np.cos(phi)
-    
+        a = cos_theta * cos_phi * cos_chi - sin_phi * sin_chi
+        b = sin_theta * cos_phi
 
         # Pre-iteration calculations: implications of operational setpoints on invariant forces.
         # If a tether force is used as setpoint - reeling factor is updated each iteration. The evaluated forces are
@@ -664,44 +675,46 @@ class SteadyState:
         if self.control_settings[0] == 'tether_force_kite':
             f_tether_kite = self.control_settings[1]  # Force controlled at kite.
 
-            f_tether_theta = .5 * np.sin(theta) * m_tether * g
+            f_tether_theta = .5 * sin_theta * m_tether * g
             try:
-                f_tether_r = -np.sqrt(f_tether_kite**2 - f_tether_theta**2)
+                f_tether_r = -math.sqrt(f_tether_kite**2 - f_tether_theta**2)
             except ValueError:
                 self.process_error("Tether force setpoint is too small.", 1, print_details)
                 f_tether_r = 0
 
-            f_tether_vector = np.array([f_tether_r, f_tether_theta, 0])
-
-            f_aero_vector = -f_tether_vector - m * g_vector
-            f_aero = np.linalg.norm(f_aero_vector)
+            # f_aero = -f_tether - m*g  (scalar components)
+            f_aero_r = -f_tether_r  - m * gv_r
+            f_aero_t = -f_tether_theta - m * gv_t
+            # f_aero_phi = 0 - 0 = 0
+            f_aero = math.sqrt(f_aero_r**2 + f_aero_t**2)
         elif self.control_settings[0] == 'tether_force_ground':
             f_tether_ground = self.control_settings[1]  # Force controlled at ground.
-            f_tether_theta = .5 * np.sin(theta) * m_tether * g
+            f_tether_theta = .5 * sin_theta * m_tether * g
             try:
-                f_tether_r_ground = np.sqrt(f_tether_ground**2 - f_tether_theta**2)
-            except FloatingPointError:
+                f_tether_r_ground = math.sqrt(f_tether_ground**2 - f_tether_theta**2)
+            except (ValueError, FloatingPointError):
                 f_tether_r_ground = 0.
-            f_tether_r = -(f_tether_r_ground + np.cos(theta) * m_tether * g)
-            f_tether_vector = np.array([f_tether_r, f_tether_theta, 0])
+            f_tether_r = -(f_tether_r_ground + cos_theta * m_tether * g)
 
-            f_aero_vector = -f_tether_vector - m * g_vector
-            f_aero = np.linalg.norm(f_aero_vector)    
+            f_aero_r = -f_tether_r  - m * gv_r
+            f_aero_t = -f_tether_theta - m * gv_t
+            # f_aero_phi = 0
+            f_aero = math.sqrt(f_aero_r**2 + f_aero_t**2)
         elif self.control_settings[0] in ['reeling_factor', 'reeling_speed']:
             if self.control_settings[0] == 'reeling_factor':  # Reeling factor controlled.
                 rf = self.control_settings[1]
             elif self.control_settings[0] == 'reeling_speed':  # Reeling speed controlled.
                 rf = self.control_settings[1]/v_wind
 
-            if np.sin(theta) * np.cos(phi) < rf:
+            if sin_theta * cos_phi < rf:
                 error_message = "Reeling factor of {} is not feasible.".format(rf)
-                if np.sin(theta) < 0.:
+                if sin_theta < 0.:
                     error_message += " Elevation angle is larger than 90 degrees."
                     self.process_error(error_message, 7, print_details)
                 else:
                     self.process_error(error_message, 2, print_details)
 
-            f_aero_theta = -(.5*m_tether + m)*g*np.sin(theta)  # tangential aerodynamic force
+            f_aero_theta = -(.5*m_tether + m)*g*sin_theta  # tangential aerodynamic force
 
         # Iterative procedure to determine the angle of attack.
         if system_properties.__class__.__name__ == "SysPropsAerodynamicCurves":
@@ -725,12 +738,12 @@ class SteadyState:
             # Iterative procedure to determine true kinematic ratio.
             while True:
                 if 'tether_force' in self.control_settings[0]:  # Updating reeling factor.
-                    rf = np.sin(theta) * np.cos(phi) - np.sqrt(f_aero / (q*s*c_r*(1+kappa**2)))
+                    rf = sin_theta * cos_phi - math.sqrt(f_aero / (q*s*c_r*(1+kappa**2)))
                 elif self.control_settings[0] in ['reeling_factor', 'reeling_speed']:  # Updating aerodynamic force.
-                    f_aero = c_r*(1+kappa**2)*(np.sin(theta)*np.cos(phi)-rf)**2*q*s  # Magnitude of aerodynamic force.
+                    f_aero = c_r*(1+kappa**2)*(sin_theta*cos_phi-rf)**2*q*s  # Magnitude of aerodynamic force.
 
                     try:
-                        f_aero_r = np.sqrt(f_aero**2 - f_aero_theta**2)  # Radial aerodynamic force.
+                        f_aero_r = math.sqrt(f_aero**2 - f_aero_theta**2)  # Radial aerodynamic force.
                     except (ValueError, FloatingPointError):
                         error_message = "No feasible solution found for radial aerodynamic force " \
                                         "after {} iterations - aerodynamic force is too small to keep " \
@@ -738,33 +751,32 @@ class SteadyState:
                         self.process_error(error_message, 3, print_details)
                         f_aero_r = 0.
 
-                    f_aero_vector = np.array([f_aero_r, f_aero_theta, 0.])
+                    f_aero_t = f_aero_theta
 
                 # Updating tangential velocity factor.
                 try:
-                    lambda_ = a + np.sqrt(a**2+b**2-1+kappa**2*(b-rf)**2)
+                    lambda_ = a + math.sqrt(a**2+b**2-1+kappa**2*(b-rf)**2)
                 except (ValueError, FloatingPointError):
                     error_message = "No feasible solution found for tangential velocity factor " \
                                     "after {} iterations.".format(self.n_iterations)
                     self.process_error(error_message, 4, print_details)
                     lambda_ = a
 
-                # Updating the apparent wind speed.
-                v_app = (np.sin(theta) * np.cos(phi) - rf) * np.sqrt(1 + kappa ** 2) * v_wind
-                v_app_vector = np.array([
-                    (np.sin(theta) * np.cos(phi) - rf) * v_wind,
-                    (np.cos(theta) * np.cos(phi) - lambda_ * np.cos(chi)) * v_wind,
-                    (-np.sin(phi) - lambda_ * np.sin(chi)) * v_wind,
-                ])
+                # Updating the apparent wind speed (scalar components).
+                vapp_r = (sin_theta * cos_phi - rf) * v_wind
+                vapp_t = (cos_theta * cos_phi - lambda_ * cos_chi) * v_wind
+                vapp_p = (-sin_phi   - lambda_ * sin_chi) * v_wind
+                v_app = vapp_r * math.sqrt(1 + kappa**2)  # == |v_app_vector| for this geometry
 
                 if v_app < 1e-6:
                     self.process_error("Unrealistic apparent wind speed.", 7, print_details)
                 else:
                     # Evaluate the convergence of the calculated to the actual lift-to-drag ratio.
-                    drag = np.dot(f_aero_vector, v_app_vector)/v_app
+                    # dot(f_aero_vector, v_app_vector) using scalar components (phi-component of f_aero is 0).
+                    drag = (f_aero_r * vapp_r + f_aero_t * vapp_t) / v_app
                     try:
-                        lift_to_drag_calc = np.sqrt((f_aero/drag)**2-1)
-                        kappa *= np.sqrt(lift_to_drag/lift_to_drag_calc)
+                        lift_to_drag_calc = math.sqrt((f_aero/drag)**2-1)
+                        kappa *= math.sqrt(lift_to_drag/lift_to_drag_calc)
                     except (ValueError, FloatingPointError):
                         error_message = "No feasible solution for found for calculated lift-to-drag " \
                                         "after {} iterations.".format(self.n_iterations)
@@ -796,8 +808,8 @@ class SteadyState:
 
             # Determine inflow angle with respect to tangential plane.
             try:
-                inflow_angle = np.arcsin(v_app_vector[0]/v_app)  # Assuming wing is parallel to the unit sphere.
-            except FloatingPointError:
+                inflow_angle = math.asin(vapp_r/v_app)  # Assuming wing is parallel to the unit sphere.
+            except (FloatingPointError, ValueError):
                 inflow_angle = 0.
 
             self.n_iterations_aoa += 1
@@ -825,11 +837,13 @@ class SteadyState:
 
         # Forces from the free body diagram of tether, note that the tether forces as experienced by the kite switch
         # sign.
-        f_tether_vector = f_aero_vector + m*g_vector
-        f_tether = np.linalg.norm(f_tether_vector)
+        # f_tether = f_aero + m*g  (scalar components, phi-component of f_aero is 0)
+        ft_r = f_aero_r + m * gv_r
+        ft_t = f_aero_t + m * gv_t
+        f_tether = math.sqrt(ft_r**2 + ft_t**2)
 
-        f_tether_r_ground = -(f_tether_vector[0] - np.cos(theta)*m_tether*g)
-        f_tether_ground = np.sqrt(f_tether_r_ground**2 + f_tether_vector[1]**2)
+        f_tether_r_ground = -(ft_r - cos_theta * m_tether * g)
+        f_tether_ground = math.sqrt(f_tether_r_ground**2 + ft_t**2)
 
         # Calculating mechanical power of system.
         reeling_speed = v_wind*rf
@@ -842,7 +856,7 @@ class SteadyState:
         self.kite_tangential_speed = lambda_ * v_wind
         self.wind_speed = v_wind
         self.apparent_wind_speed = v_app
-        self.heading = np.arctan2(v_app_vector[2], v_app_vector[1])
+        self.heading = math.atan2(vapp_p, vapp_t)
         self.inflow_angle = inflow_angle
         self.aerodynamic_force = f_aero
         self.tether_force_kite = f_tether
@@ -850,14 +864,14 @@ class SteadyState:
         self.power_ground = p
 
         # Kite velocity in spherical coordinates, see eq. 2.58-2.60 AWE book.
-        self.kite_speed = np.sqrt(reeling_speed**2 + (lambda_*v_wind)**2)
+        self.kite_speed = math.sqrt(reeling_speed**2 + (lambda_*v_wind)**2)
         self.reeling_speed = reeling_speed
         try:
-            self.elevation_rate = - v_wind * lambda_ / r * np.cos(chi)
+            self.elevation_rate = - v_wind * lambda_ / r * cos_chi
         except (ZeroDivisionError, FloatingPointError):
             self.elevation_rate = 0.
         try:
-            self.azimuth_rate = v_wind * lambda_ / r * np.sin(chi) / np.sin(theta)
+            self.azimuth_rate = v_wind * lambda_ / r * sin_chi / sin_theta
         except (ZeroDivisionError, FloatingPointError):
             self.azimuth_rate = 0.
 
@@ -1583,7 +1597,7 @@ class TractionPhase(Phase):
         return end_phase, kin
 
     def _resolve_regime3(self, state, kinematics, sys_props, env_state, max_power, max_force):
-        """Raise the elevation angle via bisection to bring generator power within
+        """Raise the elevation angle via Brent's method to bring generator power within
         1 W of *max_power* while respecting *max_force*.
 
         Mutates *kinematics* and *state* in-place.  The final state is always
@@ -1602,26 +1616,23 @@ class TractionPhase(Phase):
         elev_lo = kinematics.elevation_angle  # violating side (power/force too high)
         elev_hi = np.pi / 2 - 1e-4           # safe upper bound (near-vertical)
 
-        for _ in range(50):  # 50 bisections → sub-machine-epsilon precision
-            elev_mid = 0.5 * (elev_lo + elev_hi)
-            kinematics.elevation_angle = elev_mid
+        def _eval(elev):
+            kinematics.elevation_angle = elev
             kinematics.update()
             env_state.calculate(kinematics.z)
             state.find_state(sys_props, env_state, kinematics)
+            return max(state.power_ground - max_power,
+                       state.tether_force_ground - max_force)
 
-            if state.power_ground > max_power or state.tether_force_ground > max_force:
-                elev_lo = elev_mid
-            else:
-                elev_hi = elev_mid
-                if abs(state.power_ground - max_power) < 1.0:
-                    break
-
-        # Guarantee the final state is on the safe (non-violating) side.
-        if kinematics.elevation_angle != elev_hi:
-            kinematics.elevation_angle = elev_hi
-            kinematics.update()
-            env_state.calculate(kinematics.z)
-            state.find_state(sys_props, env_state, kinematics)
+        try:
+            x_root = brentq(_eval, elev_lo, elev_hi, xtol=1e-6, rtol=1e-6)
+            # brentq's last internal evaluation may not be at x_root; re-evaluate
+            # to set kinematics and state consistently.  Step 1e-5 rad (~0.001°)
+            # above the root so we land on the safe (non-violating) side.
+            _eval(min(x_root + 1e-5, elev_hi))
+        except ValueError:
+            # No sign change in [elev_lo, elev_hi] — evaluate at safe upper bound.
+            _eval(elev_hi)
 
     def get_elevation_angle(self, system_properties, environment_state,
                                steady_state_config={}, tether_length=None):

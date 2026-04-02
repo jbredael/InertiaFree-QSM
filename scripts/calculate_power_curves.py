@@ -52,25 +52,24 @@ if __name__ == "__main__":
     #     validate_file=False
     # )
 
-    # # Generate power curves using optimized simulation
-    # result = constructor.generate_power_curves_optimized(
-    #     output_path=OUTPUT_PATH_OPTIMIZED,
-    #     verbose=True,
-    #     show_plot=False,
-    #     save_plot=True,
-    #     validate_file=True,
-    #     opt_plots_dir=PROJECT_ROOT / "results" / "opt_evolution_plots",
-    # )
-
-    result = constructor.simulate_single_wind_speed(
-        wind_speed=10.0, method="direct",
-        output_path=OUTPUT_PATH_DIRECT_SINGLE_POINT,
-        verbose=True, show_plot=True, save_plot=True,
-        validate_file=True
+    # Generate power curves using optimized simulation
+    result = constructor.generate_power_curves_optimized(
+        output_path=OUTPUT_PATH_OPTIMIZED,
+        verbose=True,
+        show_plot=False,
+        save_plot=True,
+        validate_file=True,
     )
 
     # result = constructor.simulate_single_wind_speed(
-    #     wind_speed=10.0, method="optimization",
+    #     wind_speed=10.0, method="direct",
+    #     output_path=OUTPUT_PATH_DIRECT_SINGLE_POINT,
+    #     verbose=True, show_plot=True, save_plot=True,
+    #     validate_file=True
+    # )
+
+    # result = constructor.simulate_single_wind_speed(
+    #     wind_speed=5.8, method="optimization",
     #     output_path=OUTPUT_PATH_OPTIMIZED_SINGLE_POINT,
     #     verbose=True, show_plot=True, save_plot=True,
     #     validate_file=True

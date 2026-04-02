@@ -16,7 +16,7 @@ POWER_CURVE_FILE = Path("results/power_curves_direct_simulation.yml")
 PROFILE_ID = 1           # int profile_id to filter on; None = use all profiles
 WIND_SPEED_MIN = None    # float [m/s], None = no lower limit
 WIND_SPEED_MAX = None    # float [m/s], None = no upper limit
-OUTPUT_DIR = Path("results/cycle_details")  # folder to save PDFs; None = show only
+OUTPUT_DIR = Path("results/cycle_details_direct2")  # folder to save PDFs; None = show only
 SHOW_PLOT = False
 # ──────────────────────────────────────────────────────────────────────────────
 

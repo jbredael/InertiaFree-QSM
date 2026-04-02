@@ -62,11 +62,12 @@ class CycleOptimizer:
             (fracStartMin, fracStartMax),
         ]
 
-    def optimize(self, wind_speed):
+    def optimize(self, wind_speed, verbose=False):
         """Run SLSQP optimization for a single wind speed.
 
         Args:
             wind_speed (float): Reference wind speed [m/s].
+            verbose (bool): If True, print a progress line after each iteration.
 
         Returns:
             dict: KPI dict with the same structure as the direct simulation
@@ -75,6 +76,7 @@ class CycleOptimizer:
         """
         self.env_state.set_reference_wind_speed(wind_speed)
         self.history = []
+        self._iter_count = 0
 
         x0 = np.array(self.optimizer_config['x0'], dtype=float)
         scaling = np.array(self.optimizer_config['scaling'], dtype=float)
@@ -91,12 +93,26 @@ class CycleOptimizer:
             'fun': lambda x: x[3] / scaling[3] - x[2] / scaling[2] - min_frac_diff,
         }]
 
+        def _callback(xk):
+            self._iter_count += 1
+            xUnscaled = xk / scaling
+            # Best power seen so far (most recent history entry is the current point)
+            currentPower = self.history[-1]['power'] if self.history else float('nan')
+            if verbose:
+                print(
+                    f"      iter {self._iter_count:3d} | "
+                    f"rf_out={xUnscaled[0]:+.4f}  rf_in={xUnscaled[1]:+.4f}  "
+                    f"frac_end={xUnscaled[2]:.4f}  frac_start={xUnscaled[3]:.4f} | "
+                    f"power={currentPower/1000:+.3f} kW"
+                )
+
         result = op.minimize(
             lambda x: self._objective(x / scaling),
             x0Scaled,
             method='SLSQP',
             bounds=scaledBounds,
             constraints=constraints,
+            callback=_callback,
             options={
                 'maxiter': self.optimizer_config['max_iterations'],
                 'ftol': self.optimizer_config['ftol'],
