@@ -645,7 +645,7 @@ class PowerCurveConstructor:
             # to avoid serialising thousands of floats as text.
             TIME_HISTORY_CHANNELS = (
                 'time', 'altitude', 'tether_force', 'power',
-                'reel_speed', 'tether_length', 'elevation_angle',
+                'reel_speed', 'tether_length', 'elevation_angle', 'wind_speed',
             )
             npz_arrays = {}
             for pc in output['power_curves']:
@@ -729,6 +729,7 @@ class PowerCurveConstructor:
                 time_list = list(np.linspace(0, kpi['duration']['cycle'], n_pts))
             time_history = self._extract_time_history(
                 time_list, kpi['kinematics'], kpi['steady_states'],
+                wind_speed=float(wind_speed),
             )
 
         entry = {
@@ -753,7 +754,8 @@ class PowerCurveConstructor:
 
         return entry
 
-    def _extract_time_history(self, time_list, kinematics, steady_states):
+    def _extract_time_history(self, time_list, kinematics, steady_states,
+                               wind_speed=None):
         """Extract time history data from kinematics and steady state objects.
 
         This unified method is used by both direct simulation and optimization.
@@ -765,7 +767,9 @@ class PowerCurveConstructor:
             kinematics (list): Kinematics objects with z, straight_tether_length,
                 elevation_angle attributes.
             steady_states (list): Steady state objects with tether_force_ground,
-                power_ground, reeling_speed attributes.
+                power_ground, reeling_speed, wind_speed attributes.
+            wind_speed (float, optional): Reference wind speed [m/s]. Used as
+                fallback when the steady-state wind speed is unavailable.
 
         Returns:
             dict: Time history data with altitude, forces, power, speeds, etc.
@@ -781,6 +785,7 @@ class PowerCurveConstructor:
         reel_speed_full = []
         tether_length_full = []
         elevation_angle_full = []
+        wind_speed_full = []
 
         for kin, ss in zip(kinematics, steady_states):
             altitude_full.append(float(kin.z))
@@ -789,6 +794,8 @@ class PowerCurveConstructor:
             reel_speed_full.append(float(ss.reeling_speed))
             tether_length_full.append(float(kin.straight_tether_length))
             elevation_angle_full.append(float(kin.elevation_angle))
+            ws_val = ss.wind_speed if ss.wind_speed is not None else wind_speed
+            wind_speed_full.append(float(ws_val) if ws_val is not None else float('nan'))
 
         return {
             'time': time_full,
@@ -798,6 +805,7 @@ class PowerCurveConstructor:
             'reel_speed': reel_speed_full,
             'tether_length': tether_length_full,
             'elevation_angle': elevation_angle_full,
+            'wind_speed': wind_speed_full,
         }
 
     @staticmethod

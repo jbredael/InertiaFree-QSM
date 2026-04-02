@@ -95,7 +95,7 @@ def load_power_curve_data(file_path):
         if npz_path.exists():
             TIME_HISTORY_CHANNELS = (
                 'time', 'altitude', 'tether_force', 'power',
-                'reel_speed', 'tether_length', 'elevation_angle',
+                'reel_speed', 'tether_length', 'elevation_angle', 'wind_speed',
             )
             npz = np.load(npz_path)
             for pc in data.get('power_curves', []):
@@ -343,7 +343,23 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     elevationAngleRad = np.array(timeHistory.get('elevation_angle', []))
     elevationAngleDeg = np.degrees(elevationAngleRad)
 
-    fig, axes = plt.subplots(4, 2, figsize=(14, 14))
+    windSpeedArr = np.array(timeHistory.get('wind_speed', []))
+
+
+    fig = plt.figure(figsize=(16, 8))
+    gs = mpl.gridspec.GridSpec(3, 3, figure=fig)
+
+    axAlt  = fig.add_subplot(gs[0:1, 0:1])
+    axTf   = fig.add_subplot(gs[0:1, 1:2])
+    axPow  = fig.add_subplot(gs[0:1, 2:3])
+    axReel = fig.add_subplot(gs[1:2, 0:1])
+    axTL   = fig.add_subplot(gs[1:2, 1:2])
+    axElev = fig.add_subplot(gs[1:2, 2:3])
+    axTraj = fig.add_subplot(gs[2:3, 0:1])
+    axWind = fig.add_subplot(gs[2:3, 1:2])
+    axes   = np.array([[axAlt, axTf], [axPow, axReel],
+                       [axTL, axElev], [axTraj, axWind]])
+
     title = (
         f'Detailed Cycle Analysis - Wind Speed: {wind_speed} m/s '
         f'at {referenceHeight}m{profileLabel}'
@@ -360,79 +376,79 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     transitionStartIdx = np.searchsorted(time, reelOutTime + reelInTime)
 
     # Altitude
-    ax = axes[0, 0]
+    ax = axAlt
     ax.plot(time, altitude, color='steelblue', label='Altitude')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Altitude (m)')
     ax.set_title('Kite Altitude', fontweight='bold')
     ax.grid(True, alpha=0.3)
-    ax.axhline(y=altitude.mean(), color='r', linestyle='--', alpha=0.5,
-               label=f'Mean: {altitude.mean():.1f} m')
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5, label='Start reel-in')
     ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5, label='Start transition')
     ax.legend()
 
     # Tether force
-    ax = axes[0, 1]
+    ax = axTf
     ax.plot(time, tetherForce / 1000, color='orangered', label='Tether force')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Tether Force (kN)')
     ax.set_title('Tether Force', fontweight='bold')
     ax.grid(True, alpha=0.3)
-    ax.axhline(y=tetherForce.mean() / 1000, color='r', linestyle='--', alpha=0.5,
-               label=f'Mean: {tetherForce.mean()/1000:.1f} kN')
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
     ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend()
 
     # Instantaneous power
-    ax = axes[1, 0]
+    ax = axPow
     ax.plot(time, powerInst / 1000, color='darkgreen', label='Power')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Power (kW)')
     ax.set_title('Instantaneous Power', fontweight='bold')
     ax.grid(True, alpha=0.3)
-    ax.axhline(y=0, color='k', linestyle='-', alpha=0.3, linewidth=0.8)
-    ax.axhline(y=power['average_cycle_power'] / 1000, color='r', linestyle='--',
-               alpha=0.5, label=f"Avg Cycle: {power['average_cycle_power']/1000:.1f} kW")
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
     ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend()
 
-    # Reel speed
-    ax = axes[1, 1]
+    # Reel speed (left axis) + reeling factor (right axis)
+    ax = axReel
     ax.plot(time, reelSpeed, color='purple', label='Reel speed')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Reel Speed (m/s)')
     ax.set_title('Tether Reel Speed', fontweight='bold')
     ax.grid(True, alpha=0.3)
-    ax.axhline(y=0, color='k', linestyle='-', alpha=0.3, linewidth=0.8)
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
     ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
-    ax.legend()
+
+    if windSpeedArr.size == reelSpeed.size and np.all(windSpeedArr > 0):
+        reelingFactor = reelSpeed / windSpeedArr
+        axRf = ax.twinx()
+        axRf.plot(time, reelingFactor, color='purple', linestyle='--',
+                  alpha=0.5, label='Reeling factor')
+        axRf.set_ylabel('Reeling Factor (−)')
+        axRf.tick_params(axis='y', labelcolor='purple')
+        lines1, labels1 = ax.get_legend_handles_labels()
+        lines2, labels2 = axRf.get_legend_handles_labels()
+        ax.legend(lines1 + lines2, labels1 + labels2)
+    else:
+        ax.legend()
 
     # Tether length
-    ax = axes[2, 0]
+    ax = axTL
     ax.plot(time, tetherLength, color='brown', label='Tether length')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Tether Length (m)')
     ax.set_title('Tether Length', fontweight='bold')
     ax.grid(True, alpha=0.3)
-    ax.axhline(y=tetherLength.mean(), color='r', linestyle='--', alpha=0.5,
-               label=f'Mean: {tetherLength.mean():.1f} m')
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
     ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend()
 
     # Elevation angle
-    ax = axes[2, 1]
+    ax = axElev
     ax.plot(time, elevationAngleDeg, color='teal', label='Elevation angle')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Elevation Angle (deg)')
     ax.set_title('Elevation Angle', fontweight='bold')
     ax.grid(True, alpha=0.3)
-    ax.axhline(y=elevationAngleDeg.mean(), color='r', linestyle='--', alpha=0.5,
-               label=f'Mean: {elevationAngleDeg.mean():.1f} deg')
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
     ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend()
@@ -440,7 +456,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     # 2-D trajectory (side view): horizontal distance vs altitude
     horizontalDist = tetherLength * np.cos(elevationAngleRad)
 
-    ax = axes[3, 0]
+    ax = axTraj
     ax.plot(
         horizontalDist[:reelInStartIdx + 1],
         altitude[:reelInStartIdx + 1],
@@ -456,31 +472,48 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
         altitude[transitionStartIdx:],
         color='green', label='Transition', linestyle='-', marker='^', markersize=2
     )
-
     ax.set_xlabel('Horizontal Distance (m)')
     ax.set_ylabel('Altitude (m)')
     ax.set_title('Kite Trajectory (Side View)', fontweight='bold')
-    ax.set_aspect('equal', adjustable='datalim')
+    ax.set_ylim(bottom=0, top=1.1 * max(max(altitude), max(horizontalDist)))
+    ax.set_xlim(left=-1.1 * max(max(altitude), max(horizontalDist)), right=1.1 * max(max(altitude), max(horizontalDist)))
+    # ax.set_aspect('equal', adjustable='datalim')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+
+    # Wind profile
+    ax = axWind
+
+    altitudesArr = np.array(data.get('altitudes', []))
+    profileEntry = None
+    for pc in data.get('power_curves', []):
+        if profile_id is None or pc.get('profile_id') == profile_id:
+            profileEntry = pc
+            break
+
+    if profileEntry is not None and altitudesArr.size > 0:
+        uNorm = np.array(profileEntry.get('wind_profile', {}).get('u_normalized', []))
+        if uNorm.size == altitudesArr.size:
+            windProfileActual = wind_speed * uNorm
+            ax.plot(windProfileActual, altitudesArr, color='steelblue', linewidth=1.5,
+                    label='Wind speed')
+            ax.plot(wind_speed, referenceHeight, 'o', color='darkred', markersize=7,
+                    zorder=5, label=f'Ref. height ({referenceHeight:.0f} m)')
+    else:
+        ax.text(0.5, 0.5, 'Wind profile\nnot available',
+                ha='center', va='center', transform=ax.transAxes)
+
+    ax.set_xlabel('Wind Speed (m/s)')
+    ax.set_ylabel('Altitude (m)')
+    ax.set_title('Wind Profile', fontweight='bold')
+    ax.set_xlim(left=0)
+    ax.set_ylim(bottom=0, top=1.1 * max(max(altitude), max(horizontalDist)))
     ax.grid(True, alpha=0.3)
     ax.legend()
 
-    # Performance summary in the last axes cell
-    axSummary = axes[3, 1]
-    axSummary.axis('off')
-    summaryText = (
-        f"Performance Summary\n"
-        f"{'─' * 28}\n"
-        f"Cycle Power:      {power['average_cycle_power']/1000:.2f} kW\n"
-        f"Reel-Out Power:   {power['average_reel_out_power']/1000:.2f} kW\n"
-        f"Reel-In Power:    {power['average_reel_in_power']/1000:.2f} kW\n"
-        f"Cycle Time:       {timing['cycle_time']:.2f} s\n"
-        f"Reel-Out Time:    {timing['reel_out_time']:.2f} s\n"
-        f"Reel-In Time:     {timing['reel_in_time']:.2f} s"
-    )
-    axSummary.text(0.05, 0.95, summaryText,
-                   verticalalignment='top', horizontalalignment='left',
-                   transform=axSummary.transAxes, fontfamily='monospace',
-                   bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    # Sync wind-profile y-axis to trajectory (both start at 0).
+    ax.set_ylim(axTraj.get_ylim())
 
     plt.tight_layout()
 
