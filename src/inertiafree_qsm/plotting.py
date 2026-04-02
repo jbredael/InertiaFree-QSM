@@ -496,3 +496,74 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     return fig, axes
 
+
+# ---------------------------------------------------------------------------
+# Optimization evolution plot
+# ---------------------------------------------------------------------------
+
+def plot_optimization_evolution(history, wind_speed, output_path=None,
+                                show_plot=True):
+    """Plot how cycle power and decision variables evolve during optimization.
+
+    Args:
+        history (list): List of dicts with keys ``x`` (ndarray) and
+            ``power`` (float, in W), one per objective evaluation.
+        wind_speed (float): Reference wind speed [m/s] (used in title).
+        output_path (str or Path, optional): Path to save the figure.
+        show_plot (bool): Whether to display the plot. Defaults to True.
+
+    Returns:
+        tuple: (fig, axes) matplotlib figure and axes array.
+    """
+    if not history:
+        return None
+
+    powers = [h['power'] / 1000 for h in history]
+    evaluations = list(range(1, len(powers) + 1))
+
+    bestPowers = []
+    currentBest = -np.inf
+    for p in powers:
+        currentBest = max(currentBest, p)
+        bestPowers.append(currentBest)
+
+    fig, axes = plt.subplots(2, 1, figsize=(10, 7))
+    fig.suptitle(
+        f'Optimization Evolution — {wind_speed:.1f} m/s',
+        fontsize=13, fontweight='bold',
+    )
+
+    # --- Power evolution ---
+    ax = axes[0]
+    ax.plot(evaluations, powers, 'o', alpha=0.35, markersize=3, label='Evaluation')
+    ax.plot(evaluations, bestPowers, '-', linewidth=2, label='Best so far')
+    ax.set_xlabel('Function evaluation')
+    ax.set_ylabel('Cycle power (kW)')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # --- Decision-variable evolution ---
+    ax = axes[1]
+    varNames = [r'$f_\mathrm{out}$', r'$f_\mathrm{in}$',
+                r'$\ell_\mathrm{end}$', r'$\ell_\mathrm{start}$']
+    for i, name in enumerate(varNames):
+        values = [h['x'][i] for h in history]
+        ax.plot(evaluations, values, 'o-', alpha=0.5, markersize=3, label=name)
+    ax.set_xlabel('Function evaluation')
+    ax.set_ylabel('Variable value')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path)
+
+    if show_plot:
+        plt.show()
+
+    plt.close()
+
+    return fig, axes

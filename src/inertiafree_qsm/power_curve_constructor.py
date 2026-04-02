@@ -230,6 +230,18 @@ class PowerCurveConstructor:
                 output_path=fig_path, show_plot=show_plot,
             )
 
+        if method == 'optimization' and (show_plot or save_plot):
+            history = getattr(self, 'last_optimization_history', None)
+            if history:
+                evo_path = None
+                if save_plot and output_path is not None:
+                    evo_path = Path(output_path).with_name(
+                        Path(output_path).stem + '_opt_evolution.pdf'
+                    )
+                plotting.plot_optimization_evolution(
+                    history, wind_speed, output_path=evo_path, show_plot=show_plot,
+                )
+
         return output
 
     def generate_power_curves_direct(
@@ -409,7 +421,23 @@ class PowerCurveConstructor:
         Returns:
             dict: Wind speed entry with performance data and optional time history.
         """
-        
+        optimizer = CycleOptimizer(self.simulation_settings, self.sys_props, env_state)
+        kpi = optimizer.optimize(wind_speed)
+
+        optResult = kpi.pop('optimization_result', None)
+        if optResult is not None:
+            print(f"    Optimizer status: {optResult.message}  "
+                  f"(nit={optResult.nit}, nfev={optResult.nfev})")
+            print(f"    Optimal x: {optResult.x}")
+            print(f"    Cycle power: {kpi['average_power']['cycle']:.1f} W")
+
+        self.last_optimization_history = optimizer.history
+
+        if show_plot:
+            plotting.plot_optimization_evolution(
+                optimizer.history, wind_speed, show_plot=True,
+            )
+
         return self._build_wind_speed_entry(wind_speed, kpi)
 
 

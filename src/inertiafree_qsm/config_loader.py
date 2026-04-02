@@ -203,7 +203,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     retraction = {
         'control': parse_control(
-            retraction_config.get('control', ('tether_force_ground',))
+            retraction_config.get('control')
         ),
         'time_step': float(retraction_config.get('time_step')),
         'max_time_points': max_time_points,
@@ -213,7 +213,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     transition = {
         'control': parse_control(
-            transition_config.get('control', ('reeling_speed',))
+            transition_config.get('control')
         ),
         'time_step': float(transition_config.get('time_step')),
         'max_time_points': max_time_points,
@@ -223,7 +223,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     traction = {
         'control': parse_control(
-            traction_config.get('control', ('reeling_factor',))
+            traction_config.get('control')
         ),
         'time_step': float(traction_config.get('time_step')),
         'azimuth_angle': np.deg2rad(traction_config.get('azimuth_angle')),
@@ -258,10 +258,19 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     x0_list = list(opt_optimizer.get('x0', []))
 
-    start_min = float(opt_bounds_cfg.get('tether_length_start_fraction_min')) * max_tether_length
-    start_max = float(opt_bounds_cfg.get('tether_length_start_fraction_max')) * max_tether_length
-    end_min = float(opt_bounds_cfg.get('tether_length_end_fraction_min')) * max_tether_length
-    end_max = float(opt_bounds_cfg.get('tether_length_end_fraction_max')) * max_tether_length
+    start_min = float(opt_bounds_cfg.get('fraction_tether_length_retraction_start_min',
+                       opt_bounds_cfg.get('tether_length_start_fraction_min'))) * max_tether_length
+    start_max = float(opt_bounds_cfg.get('fraction_tether_length_retraction_start_max',
+                       opt_bounds_cfg.get('tether_length_start_fraction_max'))) * max_tether_length
+    end_min = float(opt_bounds_cfg.get('fraction_tether_length_retraction_end_min',
+                     opt_bounds_cfg.get('tether_length_end_fraction_min'))) * max_tether_length
+    end_max = float(opt_bounds_cfg.get('fraction_tether_length_retraction_end_max',
+                     opt_bounds_cfg.get('tether_length_end_fraction_max'))) * max_tether_length
+
+    rf_out_min = float(opt_bounds_cfg.get('reeling_factor_traction_min', 0.01))
+    rf_out_max = float(opt_bounds_cfg.get('reeling_factor_traction_max', 0.5))
+    rf_in_min = float(opt_bounds_cfg.get('reeling_factor_retraction_min', -1.0))
+    rf_in_max = float(opt_bounds_cfg.get('reeling_factor_retraction_max', -0.01))
 
     optimization = {
         'wind_speeds': {
@@ -280,10 +289,12 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
             'x0': np.array(x0_list, dtype=float),
             'scaling': np.array(opt_optimizer.get('scaling', []), dtype=float),
         },
-        'bounds': np.array([
-            [start_min, start_max],
-            [end_min, end_max],
-        ]),
+        'bounds': {
+            'reeling_factor_out': (rf_out_min, rf_out_max),
+            'reeling_factor_in': (rf_in_min, rf_in_max),
+            'tether_length_start': (start_min, start_max),
+            'tether_length_end': (end_min, end_max),
+        },
         'constraints': {
             'min_crosswind_patterns': int(opt_constraints_cfg.get('min_crosswind_patterns', 1)),
         },
