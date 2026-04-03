@@ -15,11 +15,11 @@ from .qsm import Cycle, TractionPhase
 class CycleOptimizer:
     """SLSQP-based optimizer for AWE pumping cycle parameters.
 
-    Optimizes reeling factors and tether lengths to maximize average cycle
+    Optimizes reeling speeds and tether lengths to maximize average cycle
     power while respecting operational bounds.
 
     The decision variable vector is:
-        x = [reeling_factor_out, reeling_factor_in,
+        x = [reeling_speed_out, reeling_speed_in,
              fraction_tether_length_retraction_end,
              fraction_tether_length_retraction_start]
 
@@ -54,10 +54,10 @@ class CycleOptimizer:
         fracEndMin = self.boundsDict['tether_length_end'][0] / maxTetherLength
         fracEndMax = self.boundsDict['tether_length_end'][1] / maxTetherLength
 
-        # Bounds: [rf_out, rf_in, frac_end, frac_start]
+        # Bounds: [rs_out, rs_in, frac_end, frac_start]
         self.bounds = [
-            self.boundsDict['reeling_factor_out'],
-            self.boundsDict['reeling_factor_in'],
+            self.boundsDict['reeling_speed_out'],
+            self.boundsDict['reeling_speed_in'],
             (fracEndMin, fracEndMax),
             (fracStartMin, fracStartMax),
         ]
@@ -149,19 +149,19 @@ class CycleOptimizer:
 
         Args:
             x (np.ndarray): Decision variables
-                [rf_out, rf_in, frac_end, frac_start].
+                [rs_out, rs_in, frac_end, frac_start].
 
         Returns:
             dict: KPI dict compatible with ``_build_wind_speed_entry``.
         """
-        rfOut, rfIn, fracEnd, fracStart = x
+        rsOut, rsIn, fracEnd, fracStart = x
         maxTetherLength = self.sys_props.max_tether_length
 
         settings = deepcopy(self.simulation_settings)
         settings['cycle']['tether_length_start_retraction'] = fracStart * maxTetherLength
         settings['cycle']['tether_length_end_retraction'] = fracEnd * maxTetherLength
-        settings['traction']['control'] = ('reeling_factor', float(rfOut))
-        settings['retraction']['control'] = ('reeling_factor', float(rfIn))
+        settings['traction']['control'] = ('reeling_speed', float(rsOut))
+        settings['retraction']['control'] = ('reeling_speed', float(rsIn))
         settings['cycle']['traction_phase'] = TractionPhase
 
         cycle = Cycle(settings, impose_operational_limits=True)

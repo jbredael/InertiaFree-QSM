@@ -71,19 +71,19 @@ optimization:
     ftol: 1.0e-4
     # Finite difference step size for gradient estimation
     eps: 1.0e-4
-    # Optimizer starting point: [reeling_factor_out, reeling_factor_in, 
+    # Optimizer starting point: [reeling_speed_out, reeling_speed_in, 
     #   fraction_tether_length_retraction_end, fraction_tether_length_retraction_start]
-    x0: [0.1, -0.3,  0.3, 0.5]
+    x0: [2, -2,  0.5, 0.9]
     # Variable scaling factors (maps variables to similar search ranges)
-    scaling: [5, 5, 3, 1]
+    scaling: [1, 1, 1, 1]
 
   # Optimizer bounds (where not derived from system properties)
   bounds:
-    # Reeling factor bounds for traction and retraction phases
-    reeling_factor_traction_min: 0.05
-    reeling_factor_traction_max: 0.8
-    reeling_factor_retraction_min: -0.5
-    reeling_factor_retraction_max: -0.01
+    # Reeling speed bounds for traction and retraction phases
+    reeling_speed_traction_min: 0.01
+    reeling_speed_traction_max: 6.0
+    reeling_speed_retraction_min: -8.0
+    reeling_speed_retraction_max: -0.01
 
     # Tether length bounds as fractions of max_tether_length
     fraction_tether_length_retraction_start_min: 0.7
@@ -145,7 +145,7 @@ transition:
   # Control setting for transition phase
   control: ['reeling_speed', 0]
   # Time step for simulation [s]
-  time_step: 0.01
+  time_step: 0.05
   # Azimuth angle [degrees]
   azimuth_angle: 0.0
   # Course angle [degrees]
@@ -157,7 +157,7 @@ traction:
   #   or [control_parameter, setpoint_value]
   control: ['reeling_speed', 2.0]
   # Time step for simulation [s]
-  time_step: 0.01
+  time_step: 0.25
   # Azimuth angle [degrees]
   azimuth_angle: 11.5
   # Course angle [degrees]
