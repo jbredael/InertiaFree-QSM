@@ -1678,6 +1678,10 @@ class TractionPhase(Phase):
                 probe_ss.control_settings = ('tether_force_ground', min_force)
                 probe_ss.find_state(system_properties, environment_state, probe_kin)
 
+            if max_force is not None and probe_ss.tether_force_ground > max_force:
+                probe_ss.control_settings = ('tether_force_ground', max_force)
+                probe_ss.find_state(system_properties, environment_state, probe_kin)
+
             if max_power is not None and probe_ss.power_ground > max_power:
                 reeling_speed_point = max_power / max_force
                 if max_speed is not None and reeling_speed_point > max_speed:
@@ -1687,9 +1691,6 @@ class TractionPhase(Phase):
                 if probe_ss.power_ground > max_power or probe_ss.tether_force_ground > max_force:
                     self._resolve_regime3(probe_ss, probe_kin, system_properties,
                                           environment_state, max_power, max_force)
-            elif max_force is not None and probe_ss.tether_force_ground > max_force:
-                probe_ss.control_settings = ('tether_force_ground', max_force)
-                probe_ss.find_state(system_properties, environment_state, probe_kin)
 
             probe_elevation = probe_kin.elevation_angle
         except (SteadyStateError, FloatingPointError):

@@ -117,7 +117,7 @@ cycle:
   tether_length_start_retraction: 0.9685493
 
   # Tether length at end of retraction as fraction of max tether length [-]
-  tether_length_end_retraction: 0.36289436
+  tether_length_end_retraction: 0.5289436
 
   # Include transition phase energy in cycle energy calculation
   include_transition_energy: true
@@ -133,7 +133,7 @@ retraction:
   #   or [control_parameter, setpoint_value]
   # Options: 'tether_force_ground', 'tether_force_kite', 'reeling_factor', 'reeling_speed'
   # Speed-controlled reel-in followed by force-control when the lower limit is reached.
-  control: ['reeling_factor', -0.16289571]
+  control: ['reeling_speed', -2.0]
   # Time step for simulation [s]
   time_step: 0.25
   # Azimuth angle [degrees]
@@ -155,9 +155,9 @@ traction:
   # Control setting for traction phase:
   #   [control_parameter, setpoint_value]
   #   or [control_parameter, setpoint_value]
-  control: ['reeling_factor', 0.16375393]
+  control: ['reeling_speed', 2.0]
   # Time step for simulation [s]
-  time_step: 0.25
+  time_step: 0.01
   # Azimuth angle [degrees]
   azimuth_angle: 11.5
   # Course angle [degrees]
