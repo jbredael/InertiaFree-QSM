@@ -47,7 +47,7 @@ optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s]
-    cut_in: 6.0
+    cut_in: 15.0
     # Maximum wind speed [m/s]
     cut_out: 25.0
     # Number of points to calculate (determines spacing)
@@ -73,9 +73,9 @@ optimization:
       elevation_angle_traction: true
 
     opt_phase_timestep:
-      retraction: 1
+      retraction: 2.5
       transition: 0.2
-      traction: 1
+      traction: 2.5
 
     # Maximum number of iterations per wind speed point
     max_iterations: 100
