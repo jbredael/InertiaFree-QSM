@@ -72,10 +72,15 @@ optimization:
       fraction_tether_length_retraction_end: true
       elevation_angle_traction: true
 
+    opt_phase_timestep:
+      retraction: 1
+      transition: 0.2
+      traction: 1
+
     # Maximum number of iterations per wind speed point
-    max_iterations: 30
+    max_iterations: 100
     # Function tolerance for convergence
-    ftol: 1.0e-5
+    ftol: 1.0e-6
     # Finite difference step size for gradient estimation
     eps: 1.0e-4
     # Optimizer starting point: [reeling_speed_out, reeling_speed_in,

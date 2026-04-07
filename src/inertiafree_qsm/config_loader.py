@@ -268,6 +268,8 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     opt_optimize_vars = opt_optimizer.get('optimize_variables', {})
 
+    opt_timestep_cfg = opt_optimizer.get('opt_phase_timestep', {})
+
     optimization = {
         'wind_speeds': {
             'cut_in': opt_wind.get('cut_in'),
@@ -284,6 +286,14 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
             'eps': float(opt_optimizer.get('eps')),
             'x0': np.array(x0_list, dtype=float),
             'scaling': np.array(opt_optimizer.get('scaling', []), dtype=float),
+            'opt_phase_timestep': {
+                'retraction': float(opt_timestep_cfg['retraction'])
+                    if 'retraction' in opt_timestep_cfg else None,
+                'transition': float(opt_timestep_cfg['transition'])
+                    if 'transition' in opt_timestep_cfg else None,
+                'traction': float(opt_timestep_cfg['traction'])
+                    if 'traction' in opt_timestep_cfg else None,
+            },
             'optimize_variables': {
                 'reeling_speed_traction': bool(opt_optimize_vars.get('reeling_speed_traction', True)),
                 'reeling_speed_retraction': bool(opt_optimize_vars.get('reeling_speed_retraction', True)),

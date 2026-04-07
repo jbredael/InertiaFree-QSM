@@ -121,6 +121,15 @@ class CycleOptimizer:
             np.degrees(self._elev_bounds[1]),
         )
 
+        # Coarse time steps used during optimization iterations (from opt_phase_timestep).
+        # None values mean: keep the phase setting as-is.
+        _opt_ts = self.optimizer_config.get('opt_phase_timestep', {})
+        self._opt_time_steps = {
+            'retraction': _opt_ts.get('retraction'),
+            'transition': _opt_ts.get('transition'),
+            'traction': _opt_ts.get('traction'),
+        }
+
         # Cache for the last evaluated point (avoids double simulation from SLSQP
         # calling the objective and constraint functions at the same x).
         self._cache_x = None
@@ -175,7 +184,7 @@ class CycleOptimizer:
         # disabled elevation), skip the optimizer and return the nominal result.
         if not var_specs:
             print("    No active optimisation variables — returning nominal simulation.")
-            kpi = self._evaluate_from_specs([])
+            kpi = self._evaluate_from_specs([], use_opt_timesteps=False)
             kpi['optimization_result'] = None
             self.last_var_names = []
             return kpi
@@ -272,7 +281,11 @@ class CycleOptimizer:
         )
 
         x_opt = result.x * scaling
-        kpi = self._cached_evaluate(x_opt, var_names)
+        # Final evaluation uses the full-resolution phase time steps so that
+        # time histories and KPIs are computed at the same fidelity as a direct
+        # simulation, not at the coarser steps used during optimization.
+        print("    Re-evaluating optimal solution with full-resolution time steps...")
+        kpi = self._evaluate_from_names(x_opt, var_names, use_opt_timesteps=False)
         kpi['optimization_result'] = result
         self.last_var_names = var_names
         return kpi
@@ -315,11 +328,15 @@ class CycleOptimizer:
         self._cache_kpi = kpi
         return kpi
 
-    def _build_settings(self, values_by_name):
+    def _build_settings(self, values_by_name, use_opt_timesteps=True):
         """Build a settings dict with decision variables applied.
 
         Args:
             values_by_name (dict): Mapping from variable name to value.
+            use_opt_timesteps (bool): When True, override phase time steps with
+                the coarser ``opt_phase_timestep`` values to speed up optimizer
+                iterations. When False, the original phase time steps are kept
+                for a full-resolution evaluation. Defaults to True.
 
         Returns:
             dict: Deep-copied simulation settings with overrides applied.
@@ -337,6 +354,13 @@ class CycleOptimizer:
         settings['cycle']['tether_length_end_retraction'] = frac_end * maxTetherLength
         settings['cycle']['tether_length_start_retraction'] = frac_start * maxTetherLength
 
+        # Apply coarser time steps during optimizer iterations.
+        if use_opt_timesteps:
+            for phase in ('retraction', 'transition', 'traction'):
+                ts = self._opt_time_steps.get(phase)
+                if ts is not None:
+                    settings[phase]['time_step'] = ts
+
         # Override elevation angles if any elevation variable is in values_by_name.
         # Optimizer elevation variables are in degrees; convert to radians for simulation.
         elev_keys = [k for k in values_by_name if k.startswith('elevation_')]
@@ -350,31 +374,35 @@ class CycleOptimizer:
         settings['cycle']['traction_phase'] = TractionPhase
         return settings
 
-    def _evaluate_from_specs(self, var_specs):
+    def _evaluate_from_specs(self, var_specs, use_opt_timesteps=True):
         """Evaluate at the x0 values of the given var_specs list.
 
         Args:
             var_specs (list): List of (name, x0, bounds, scaling) tuples.
+            use_opt_timesteps (bool): Passed through to ``_evaluate_from_names``.
+                Defaults to True.
 
         Returns:
             dict: KPI dict.
         """
         x0 = np.array([s[1] for s in var_specs], dtype=float)
         names = [s[0] for s in var_specs]
-        return self._evaluate_from_names(x0, names)
+        return self._evaluate_from_names(x0, names, use_opt_timesteps=use_opt_timesteps)
 
-    def _evaluate_from_names(self, x_unscaled, var_names):
+    def _evaluate_from_names(self, x_unscaled, var_names, use_opt_timesteps=True):
         """Run one cycle simulation for the given decision variable vector.
 
         Args:
             x_unscaled (np.ndarray): Unscaled decision variables.
             var_names (list): Variable names matching x_unscaled.
+            use_opt_timesteps (bool): When True, override phase time steps with
+                the coarser opt values. Defaults to True.
 
         Returns:
             dict: KPI dict compatible with ``_build_wind_speed_entry``.
         """
         values_by_name = dict(zip(var_names, x_unscaled))
-        settings = self._build_settings(values_by_name)
+        settings = self._build_settings(values_by_name, use_opt_timesteps=use_opt_timesteps)
         cycle = Cycle(settings, impose_operational_limits=True)
         steady_state_config = self.simulation_settings.get('steady_state')
 
