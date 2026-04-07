@@ -281,6 +281,7 @@ class CycleOptimizer:
         )
 
         x_opt = result.x * scaling
+        self.last_x_opt = x_opt
         # Final evaluation uses the full-resolution phase time steps so that
         # time histories and KPIs are computed at the same fidelity as a direct
         # simulation, not at the coarser steps used during optimization.

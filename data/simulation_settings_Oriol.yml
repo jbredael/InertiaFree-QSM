@@ -47,7 +47,7 @@ optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s]
-    cut_in: 15.0
+    cut_in: 6.0
     # Maximum wind speed [m/s]
     cut_out: 25.0
     # Number of points to calculate (determines spacing)
@@ -70,7 +70,7 @@ optimization:
       reeling_speed_retraction: true
       fraction_tether_length_retraction_start: true
       fraction_tether_length_retraction_end: true
-      elevation_angle_traction: true
+      elevation_angle_traction: false
 
     opt_phase_timestep:
       retraction: 2.5
@@ -78,9 +78,9 @@ optimization:
       traction: 2.5
 
     # Maximum number of iterations per wind speed point
-    max_iterations: 100
+    max_iterations: 50
     # Function tolerance for convergence
-    ftol: 1.0e-6
+    ftol: 1.0e-5
     # Finite difference step size for gradient estimation
     eps: 1.0e-4
     # Optimizer starting point: [reeling_speed_out, reeling_speed_in,

@@ -390,6 +390,48 @@ class PowerCurveConstructor:
 
         return output
 
+    def _prepare_warm_start(self, x_opt, var_names):
+        """Build an updated x0 list from the previous optimal solution for a warm start.
+
+        Maps the unscaled optimal decision variable values back to the x0 array
+        format consumed by CycleOptimizer, so the next wind speed starts its
+        optimization close to the previous solution.
+
+        For elevation angle variables (``elevation_0``, ``elevation_1``, …) the
+        mean of all optimised angles is used as the single scalar x0[4], which
+        is the convention expected by CycleOptimizer.
+
+        Args:
+            x_opt (np.ndarray): Unscaled optimal variable values from the previous
+                optimization.
+            var_names (list): Variable names matching x_opt, as returned by
+                ``CycleOptimizer.last_var_names``.
+
+        Returns:
+            list: Updated x0 list in the same index order as
+                ``simulation_settings['optimization']['optimizer']['x0']``.
+        """
+        x0 = list(self.simulation_settings['optimization']['optimizer']['x0'])
+        val_by_name = dict(zip(var_names, x_opt))
+
+        name_to_idx = {
+            'reeling_speed_out': 0,
+            'reeling_speed_in': 1,
+            'frac_end': 2,
+            'frac_start': 3,
+        }
+        for name, idx in name_to_idx.items():
+            if name in val_by_name and idx < len(x0):
+                x0[idx] = float(val_by_name[name])
+
+        # Elevation angles: use the mean of all optimised values as the scalar
+        # starting angle (x0[4]) for the next wind speed.
+        elev_vals = [v for n, v in val_by_name.items() if n.startswith('elevation_')]
+        if elev_vals and len(x0) > 4:
+            x0[4] = float(np.mean(elev_vals))
+
+        return x0
+
     def _calculate_power_curve_optimized(self, cluster_id, wind_speeds, verbose):
         """Calculate power curve for a single wind cluster using optimization.
 
@@ -406,6 +448,9 @@ class PowerCurveConstructor:
         if verbose:
             print(f"Optimizing power curve for cluster {cluster_id}...")
 
+        # Save original x0 so it can be restored after the loop.
+        original_x0 = list(self.simulation_settings['optimization']['optimizer']['x0'])
+
         wind_speed_data = []
         for i, ws in enumerate(wind_speeds):
             if verbose:
@@ -413,6 +458,16 @@ class PowerCurveConstructor:
             wind_speed_data.append(
                 self._run_single_simulation_optimized(ws, env_state, verbose=verbose)
             )
+
+            # Warm start: seed x0 for the next wind speed with the current optimal.
+            x_opt = getattr(self, 'last_x_opt', None)
+            var_names = getattr(self, 'last_optimization_var_names', None)
+            if x_opt is not None and var_names is not None:
+                warm_x0 = self._prepare_warm_start(x_opt, var_names)
+                self.simulation_settings['optimization']['optimizer']['x0'] = warm_x0
+
+        # Restore original x0 so subsequent calls are unaffected.
+        self.simulation_settings['optimization']['optimizer']['x0'] = original_x0
 
         return wind_speed_data
 
@@ -544,6 +599,7 @@ class PowerCurveConstructor:
 
         self.last_optimization_history = optimizer.history
         self.last_optimization_var_names = getattr(optimizer, 'last_var_names', None)
+        self.last_x_opt = getattr(optimizer, 'last_x_opt', None)
         return self._build_wind_speed_entry(wind_speed, kpi)
 
 
