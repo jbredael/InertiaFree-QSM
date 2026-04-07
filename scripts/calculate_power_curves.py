@@ -69,7 +69,7 @@ if __name__ == "__main__":
     # )
 
     result = constructor.simulate_single_wind_speed(
-        wind_speed=10, method="optimization",
+        wind_speed=13, method="optimization",
         output_path=OUTPUT_PATH_OPTIMIZED_SINGLE_POINT,
         verbose=True, show_plot=True, save_plot=True,
         validate_file=True

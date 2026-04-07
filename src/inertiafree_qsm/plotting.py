@@ -96,6 +96,7 @@ def load_power_curve_data(file_path):
             TIME_HISTORY_CHANNELS = (
                 'time', 'altitude', 'tether_force', 'power',
                 'reel_speed', 'tether_length', 'elevation_angle', 'wind_speed',
+                'kite_wind_speed', 'kite_tangential_speed', 'kite_apparent_wind_speed',
             )
             npz = np.load(npz_path)
             for pc in data.get('power_curves', []):
@@ -344,21 +345,30 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     elevationAngleDeg = np.degrees(elevationAngleRad)
 
     windSpeedArr = np.array(timeHistory.get('wind_speed', []))
+    kiteWindSpeedArr    = np.array(timeHistory.get('kite_wind_speed', []))
+    kiteTangentialArr   = np.array(timeHistory.get('kite_tangential_speed', []))
+    kiteApparentWindArr = np.array(timeHistory.get('kite_apparent_wind_speed', []))
 
+    # kite_wind_speed is identical to the already-stored wind_speed channel
+    # (both are ss.wind_speed at the kite's altitude). Fall back so that old
+    # data files without the new channel still show the wind speed line.
+    if kiteWindSpeedArr.size != time.size and windSpeedArr.size == time.size:
+        kiteWindSpeedArr = windSpeedArr
 
     fig = plt.figure(figsize=(16, 8))
     gs = mpl.gridspec.GridSpec(3, 3, figure=fig)
 
-    axAlt  = fig.add_subplot(gs[0:1, 0:1])
-    axTf   = fig.add_subplot(gs[0:1, 1:2])
-    axPow  = fig.add_subplot(gs[0:1, 2:3])
-    axReel = fig.add_subplot(gs[1:2, 0:1])
-    axTL   = fig.add_subplot(gs[1:2, 1:2])
-    axElev = fig.add_subplot(gs[1:2, 2:3])
-    axTraj = fig.add_subplot(gs[2:3, 0:1])
-    axWind = fig.add_subplot(gs[2:3, 1:2])
-    axes   = np.array([[axAlt, axTf], [axPow, axReel],
-                       [axTL, axElev], [axTraj, axWind]])
+    axAlt   = fig.add_subplot(gs[0:1, 0:1])
+    axTf    = fig.add_subplot(gs[0:1, 1:2])
+    axPow   = fig.add_subplot(gs[0:1, 2:3])
+    axReel  = fig.add_subplot(gs[1:2, 0:1])
+    axTL    = fig.add_subplot(gs[1:2, 1:2])
+    axElev  = fig.add_subplot(gs[1:2, 2:3])
+    axTraj  = fig.add_subplot(gs[2:3, 0:1])
+    axWind  = fig.add_subplot(gs[2:3, 1:2])
+    axSpeeds = fig.add_subplot(gs[2:3, 2:3])
+    axes    = np.array([[axAlt, axTf], [axPow, axReel],
+                        [axTL, axElev], [axTraj, axWind]])
 
     title = (
         f'Detailed Cycle Analysis - Wind Speed: {wind_speed} m/s '
@@ -514,6 +524,49 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     # Sync wind-profile y-axis to trajectory (both start at 0).
     ax.set_ylim(axTraj.get_ylim())
+
+    # Kite speeds: wind speed at kite height on left axis;
+    # tangential and apparent wind speed on right axis (larger variation).
+    ax = axSpeeds
+    hasKiteWindSpeed = kiteWindSpeedArr.size == time.size
+    hasTangential    = kiteTangentialArr.size == time.size
+    hasApparent      = kiteApparentWindArr.size == time.size
+
+    linesLeft, linesRight = [], []
+
+    if hasKiteWindSpeed:
+        l, = ax.plot(time, kiteWindSpeedArr, color='steelblue',
+                     label='Wind speed at kite')
+        linesLeft.append(l)
+
+    ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Wind speed at kite (m/s)', color='steelblue')
+    ax.tick_params(axis='y', labelcolor='steelblue')
+    ax.set_title('Kite Speeds', fontweight='bold')
+    ax.grid(True, alpha=0.3)
+
+    if hasTangential or hasApparent:
+        axR = ax.twinx()
+        if hasTangential:
+            l, = axR.plot(time, kiteTangentialArr, color='darkorange', linestyle='--',
+                          label='Tangential speed')
+            linesRight.append(l)
+        if hasApparent:
+            l, = axR.plot(time, kiteApparentWindArr, color='darkgreen', linestyle='-.',
+                          label='Apparent wind speed')
+            linesRight.append(l)
+        axR.set_ylabel('Speed (m/s)', color='dimgray')
+        axR.tick_params(axis='y', labelcolor='dimgray')
+
+    if not any([hasKiteWindSpeed, hasTangential, hasApparent]):
+        ax.text(0.5, 0.5, 'Speed data\nnot available',
+                ha='center', va='center', transform=ax.transAxes)
+
+    allLines = linesLeft + linesRight
+    if allLines:
+        ax.legend(allLines, [l.get_label() for l in allLines])
 
     plt.tight_layout()
 

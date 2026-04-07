@@ -660,6 +660,7 @@ class PowerCurveConstructor:
             TIME_HISTORY_CHANNELS = (
                 'time', 'altitude', 'tether_force', 'power',
                 'reel_speed', 'tether_length', 'elevation_angle', 'wind_speed',
+                'kite_wind_speed', 'kite_tangential_speed', 'kite_apparent_wind_speed',
             )
             npz_arrays = {}
             for pc in output['power_curves']:
@@ -800,6 +801,9 @@ class PowerCurveConstructor:
         tether_length_full = []
         elevation_angle_full = []
         wind_speed_full = []
+        kite_wind_speed_full = []
+        kite_tangential_speed_full = []
+        kite_apparent_wind_speed_full = []
 
         for kin, ss in zip(kinematics, steady_states):
             altitude_full.append(float(kin.z))
@@ -810,6 +814,12 @@ class PowerCurveConstructor:
             elevation_angle_full.append(float(kin.elevation_angle))
             ws_val = ss.wind_speed if ss.wind_speed is not None else wind_speed
             wind_speed_full.append(float(ws_val) if ws_val is not None else float('nan'))
+            kws = getattr(ss, 'wind_speed', None)
+            kite_wind_speed_full.append(float(kws) if kws is not None else float('nan'))
+            kts = getattr(ss, 'kite_tangential_speed', None)
+            kite_tangential_speed_full.append(float(kts) if kts is not None else float('nan'))
+            aws = getattr(ss, 'apparent_wind_speed', None)
+            kite_apparent_wind_speed_full.append(float(aws) if aws is not None else float('nan'))
 
         return {
             'time': time_full,
@@ -820,6 +830,9 @@ class PowerCurveConstructor:
             'tether_length': tether_length_full,
             'elevation_angle': elevation_angle_full,
             'wind_speed': wind_speed_full,
+            'kite_wind_speed': kite_wind_speed_full,
+            'kite_tangential_speed': kite_tangential_speed_full,
+            'kite_apparent_wind_speed': kite_apparent_wind_speed_full,
         }
 
     @staticmethod
