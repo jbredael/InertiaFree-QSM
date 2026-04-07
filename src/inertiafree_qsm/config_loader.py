@@ -346,8 +346,13 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
           f"({cycle['tether_length_start_retraction']:.1f} m)")
     print(f"    Tether length end retraction         : {endFraction:.2f}  "
           f"({cycle['tether_length_end_retraction']:.1f} m)")
-    print(f"    Elevation angle traction             : "
-          f"{np.degrees(cycle['elevation_angle_traction']):.1f} deg")
+    elev_trac = cycle['elevation_angle_traction']
+    elev_trac_arr = np.asarray(elev_trac).flatten()
+    if elev_trac_arr.size == 1:
+        elev_trac_str = f"{np.degrees(elev_trac_arr[0]):.1f} deg"
+    else:
+        elev_trac_str = "[" + ", ".join(f"{v:.1f}" for v in np.degrees(elev_trac_arr)) + "] deg"
+    print(f"    Elevation angle traction             : {elev_trac_str}")
 
     # -- Phase controls ------------------------------------------------------
     print("\n  Retraction:")

@@ -110,7 +110,10 @@ cycle:
   # Elevation angle during traction phase [degrees]
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
-  elevation_angle_traction: 30
+
+  minimum_height: 100.0 # Minimum height of the kite during the cycle (m)
+
+  elevation_angle_traction: [30.0, 27.5, 25.0, 22.5, 22.0]
 
   # Tether length at start of retraction as fraction of max tether length [-]
   # (null = 1.0, uses full tether length from system config)
@@ -187,7 +190,7 @@ phase_solver:
 # CROSSWIND PATTERN SETTINGS
 # ============================================================================
 # Settings for the crosswind pattern estimation (TractionPhaseHybrid)
-
+# CURRENTLY NOT IN USE, NEEDS TO BE INTEGRATED
 crosswind_pattern:
   # Number of representative traction points for pattern estimation
   n_traction_points: 6

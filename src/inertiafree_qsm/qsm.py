@@ -1493,17 +1493,26 @@ class TransitionPhase(Phase):
 
 
 class TractionElevation:
-    def __init__(self, elevation_angle):
+    def __init__(self, elevation_angle, tether_length_start=None, tether_length_end=None):
         self.elevation_angle = elevation_angle
+        self.tether_length_start = tether_length_start
+        self.tether_length_end = tether_length_end
 
     def calculate(self, tether_length):
         """Calculate the elevation angle as function of the tether length.
+
+        Args:
+            tether_length (float): Current tether length [m].
 
         Returns:
             float: Elevation angle [rad].
 
         """
-        return self.elevation_angle
+        elev = np.asarray(self.elevation_angle).flatten()
+        if elev.size == 1:
+            return float(elev[0])
+        tether_lengths = np.linspace(self.tether_length_start, self.tether_length_end, elev.size)
+        return float(np.interp(tether_length, tether_lengths, elev))
 
 
 class TractionPhase(Phase):
@@ -2107,7 +2116,11 @@ class Cycle(TimeSeries):
 
         # Configure the traction phase attributes that get_elevation_angle depends on,
         # so the retraction start elevation can be derived before running any phase.
-        self.traction_phase.elevation_angle = TractionElevation(self.elevation_angle_traction)
+        self.traction_phase.elevation_angle = TractionElevation(
+            self.elevation_angle_traction,
+            self.tether_length_end_retraction,
+            self.tether_length_start_retraction,
+        )
         self.traction_phase.tether_length_end = self.tether_length_start_retraction
 
         # Set start and stop conditions of retraction phase.
@@ -2141,9 +2154,11 @@ class Cycle(TimeSeries):
         timer_start = 0 if reorder else last_time
 
         trac = self.traction_phase
+        elev_traction = np.asarray(self.elevation_angle_traction).flatten()
+        nominal_elevation_angle = float(elev_traction[0])
         trans.run_simulation_converged(
             trac, system_properties, env_trans, env_trac,
-            steady_state_config, timer_start, self.elevation_angle_traction,
+            steady_state_config, timer_start, nominal_elevation_angle,
         )
 
         last_kinematics = trans.kinematics[-1]
