@@ -65,17 +65,27 @@ optimization:
 
   # SLSQP optimizer configuration
   optimizer:
+    optimize_variables:
+      reeling_speed_traction: true
+      reeling_speed_retraction: true
+      fraction_tether_length_retraction_start: true
+      fraction_tether_length_retraction_end: true
+      elevation_angle_traction: true
+
     # Maximum number of iterations per wind speed point
     max_iterations: 30
     # Function tolerance for convergence
-    ftol: 1.0e-4
+    ftol: 1.0e-5
     # Finite difference step size for gradient estimation
     eps: 1.0e-4
-    # Optimizer starting point: [reeling_speed_out, reeling_speed_in, 
-    #   fraction_tether_length_retraction_end, fraction_tether_length_retraction_start]
-    x0: [2, -2,  0.5, 0.9]
-    # Variable scaling factors (maps variables to similar search ranges)
-    scaling: [1, 1, 1, 1]
+    # Optimizer starting point: [reeling_speed_out, reeling_speed_in,
+    #   fraction_tether_length_retraction_end, fraction_tether_length_retraction_start,
+    #   elevation_angle_traction (degrees, applied equally to all N points in the array)]
+    x0: [2, -2,  0.65, 1, 30.0]
+    # Variable scaling factors — convention: x_scaled = x / scaling
+    # This normalises variables to a similar search range (~O(1)).
+    # elevation_angle_traction: scaling=30 → bounds [10°,70°]/30 = [0.33, 2.33]; x0=30°/30=1.0
+    scaling: [1, 1, 1, 1, 30]
 
   # Optimizer bounds (where not derived from system properties)
   bounds:
@@ -86,10 +96,14 @@ optimization:
     reeling_speed_retraction_max: -0.01
 
     # Tether length bounds as fractions of max_tether_length
-    fraction_tether_length_retraction_start_min: 0.7
+    fraction_tether_length_retraction_start_min: 0.8
     fraction_tether_length_retraction_start_max: 1.0
-    fraction_tether_length_retraction_end_min: 0.3
-    fraction_tether_length_retraction_end_max: 0.6
+    fraction_tether_length_retraction_end_min: 0.65
+    fraction_tether_length_retraction_end_max: 0.8
+
+    # Elevation angle bounds for traction phase [degrees]
+    elevation_angle_traction_min: 20.0
+    elevation_angle_traction_max: 50.0
   
 
   # Optimizer constraints
@@ -97,7 +111,9 @@ optimization:
     # Minimum difference between retraction start and end tether length fractions [-]
     # Ensures the cycle reels in a meaningful amount of tether:
     #   frac_start - frac_end >= min_tether_length_fraction_difference
-    min_tether_length_fraction_difference: 0.05
+    min_tether_length_fraction_difference: 0.1
+    # Maximum allowed difference in elevation angle between steps (degrees)
+    max_difference_elevation_angle_steps: 5.0
     
 
 # ============================================================================
@@ -113,14 +129,14 @@ cycle:
 
   minimum_height: 100.0 # Minimum height of the kite during the cycle (m)
 
-  elevation_angle_traction: [30.0, 27.5, 25.0, 22.5, 22.0]
+  elevation_angle_traction: [30.0, 30.0, 30.0, 30.0, 30.0]
 
   # Tether length at start of retraction as fraction of max tether length [-]
   # (null = 1.0, uses full tether length from system config)
-  tether_length_start_retraction: 0.9685493
+  tether_length_start_retraction: 1
 
   # Tether length at end of retraction as fraction of max tether length [-]
-  tether_length_end_retraction: 0.5289436
+  tether_length_end_retraction: 0.65
 
   # Include transition phase energy in cycle energy calculation
   include_transition_energy: true

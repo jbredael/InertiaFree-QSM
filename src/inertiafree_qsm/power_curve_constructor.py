@@ -233,6 +233,7 @@ class PowerCurveConstructor:
 
         if method == 'optimization' and (show_plot or save_plot):
             history = getattr(self, 'last_optimization_history', None)
+            var_names = getattr(self, 'last_optimization_var_names', None)
             if history:
                 evo_path = None
                 if save_plot and output_path is not None:
@@ -240,7 +241,8 @@ class PowerCurveConstructor:
                         Path(output_path).stem + '_opt_evolution.pdf'
                     )
                 plotting.plot_optimization_evolution(
-                    history, wind_speed, output_path=evo_path, show_plot=show_plot,
+                    history, wind_speed, var_names=var_names,
+                    output_path=evo_path, show_plot=show_plot,
                 )
 
         return output
@@ -466,6 +468,17 @@ class PowerCurveConstructor:
             retraction = getattr(cycle, 'retraction_phase')
             transition = getattr(cycle, 'transition_phase')
 
+            # Check minimum altitude constraint.
+            minimum_height = self.simulation_settings.get('cycle', {}).get('minimum_height', 0.0)
+            if minimum_height > 0 and traction.kinematics:
+                min_altitude = min(k.z for k in traction.kinematics)
+                if min_altitude < minimum_height:
+                    raise ValueError(
+                        f"Minimum altitude violated during traction phase: "
+                        f"{min_altitude:.1f} m < {minimum_height:.1f} m. "
+                        f"Adjust elevation_angle_traction or tether length settings."
+                    )
+
             kpi = {
                 'sim_successful': error_in_phase is None,
                 'average_power': {
@@ -530,6 +543,7 @@ class PowerCurveConstructor:
             print(f"    Cycle power: {kpi['average_power']['cycle']:.1f} W")
 
         self.last_optimization_history = optimizer.history
+        self.last_optimization_var_names = getattr(optimizer, 'last_var_names', None)
         return self._build_wind_speed_entry(wind_speed, kpi)
 
 

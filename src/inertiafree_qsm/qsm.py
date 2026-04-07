@@ -1055,6 +1055,7 @@ class Phase(TimeSeries):
         self.max_reeling_speed = -np.inf
         self.min_tether_force = np.inf  # Forces at ground station.
         self.max_tether_force = 0
+        self.regime3_count = 0  # Number of time steps where regime 3 (power limit) was active.
 
         # Monitoring settings.
         self.enable_limit_violation_error = True
@@ -1217,6 +1218,7 @@ class Phase(TimeSeries):
                     if new_state.power_ground > max_power or new_state.tether_force_ground > max_force:
                         self._resolve_regime3(new_state, kinematics, sys_props, env_state,
                                               max_power, max_force)
+                        self.regime3_count += 1
 
                 
             elif isinstance(self, TransitionPhase):

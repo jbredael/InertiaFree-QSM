@@ -186,6 +186,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     cycle = {
         'minimum_tether_force': force_min_limit,
+        'minimum_height': float(cycle_config.get('minimum_height', 0.0)),
         'elevation_angle_traction': np.deg2rad(
             cycle_config.get('elevation_angle_traction')
         ),
@@ -262,6 +263,11 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     rs_in_min = float(opt_bounds_cfg.get('reeling_speed_retraction_min'))
     rs_in_max = float(opt_bounds_cfg.get('reeling_speed_retraction_max'))
 
+    elev_min_deg = float(opt_bounds_cfg.get('elevation_angle_traction_min', 10.0))
+    elev_max_deg = float(opt_bounds_cfg.get('elevation_angle_traction_max', 50.0))
+
+    opt_optimize_vars = opt_optimizer.get('optimize_variables', {})
+
     optimization = {
         'wind_speeds': {
             'cut_in': opt_wind.get('cut_in'),
@@ -278,16 +284,29 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
             'eps': float(opt_optimizer.get('eps')),
             'x0': np.array(x0_list, dtype=float),
             'scaling': np.array(opt_optimizer.get('scaling', []), dtype=float),
+            'optimize_variables': {
+                'reeling_speed_traction': bool(opt_optimize_vars.get('reeling_speed_traction', True)),
+                'reeling_speed_retraction': bool(opt_optimize_vars.get('reeling_speed_retraction', True)),
+                'fraction_tether_length_retraction_start': bool(opt_optimize_vars.get('fraction_tether_length_retraction_start', True)),
+                'fraction_tether_length_retraction_end': bool(opt_optimize_vars.get('fraction_tether_length_retraction_end', True)),
+                'elevation_angle_traction': bool(opt_optimize_vars.get('elevation_angle_traction', False)),
+            },
         },
         'bounds': {
             'reeling_speed_out': (rs_out_min, rs_out_max),
             'reeling_speed_in': (rs_in_min, rs_in_max),
             'tether_length_start': (start_min, start_max),
             'tether_length_end': (end_min, end_max),
+            'elevation_angle_traction': (np.deg2rad(elev_min_deg), np.deg2rad(elev_max_deg)),
         },
         'constraints': {
             'min_crosswind_patterns': int(opt_constraints_cfg.get('min_crosswind_patterns', 1)),
             'min_tether_length_fraction_difference': float(opt_constraints_cfg.get('min_tether_length_fraction_difference', 0.05)),
+            'max_difference_elevation_angle_steps': (
+                float(opt_constraints_cfg['max_difference_elevation_angle_steps'])
+                if opt_constraints_cfg.get('max_difference_elevation_angle_steps') is not None
+                else None
+            ),
         },
     }
 

@@ -534,14 +534,44 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 # Optimization evolution plot
 # ---------------------------------------------------------------------------
 
-def plot_optimization_evolution(history, wind_speed, output_path=None,
-                                show_plot=True):
+_VAR_LABEL_MAP = {
+    'reeling_speed_out': r'$v_\mathrm{reel,out}$ (m/s)',
+    'reeling_speed_in': r'$v_\mathrm{reel,in}$ (m/s)',
+    'frac_end': r'$\ell_\mathrm{end}/\ell_\mathrm{max}$ (−)',
+    'frac_start': r'$\ell_\mathrm{start}/\ell_\mathrm{max}$ (−)',
+}
+
+
+def _build_var_label(name):
+    """Return a display label for a decision-variable name.
+
+    Args:
+        name (str): Internal variable name from ``CycleOptimizer``.
+
+    Returns:
+        str: Human-readable (LaTeX-compatible) label.
+    """
+    if name in _VAR_LABEL_MAP:
+        return _VAR_LABEL_MAP[name]
+    if name.startswith('elevation_'):
+        idx = name.split('_')[1]
+        return rf'$\beta_{{{idx}}}$ (deg)'
+    return name
+
+
+def plot_optimization_evolution(history, wind_speed, var_names=None,
+                                output_path=None, show_plot=True):
     """Plot how cycle power and decision variables evolve during optimization.
 
     Args:
         history (list): List of dicts with keys ``x`` (ndarray) and
             ``power`` (float, in W), one per objective evaluation.
         wind_speed (float): Reference wind speed [m/s] (used in title).
+        var_names (list of str, optional): Internal variable names matching
+            each element of ``h['x']``. When provided the decision-variable
+            panel uses descriptive labels and handles any number of variables
+            (including elevation angle entries). When ``None``, the four base
+            variable labels are assumed for backward compatibility.
         output_path (str or Path, optional): Path to save the figure.
         show_plot (bool): Whether to display the plot. Defaults to True.
 
@@ -560,7 +590,27 @@ def plot_optimization_evolution(history, wind_speed, output_path=None,
         currentBest = max(currentBest, p)
         bestPowers.append(currentBest)
 
-    fig, axes = plt.subplots(2, 1, figsize=(10, 7))
+    # Build labels for every decision variable.
+    # If var_names is not supplied fall back to the legacy four-variable list.
+    nVars = len(history[0]['x'])
+    if var_names is not None:
+        labels = [_build_var_label(n) for n in var_names]
+    else:
+        _legacy = [r'$f_\mathrm{out}$', r'$f_\mathrm{in}$',
+                   r'$\ell_\mathrm{end}$', r'$\ell_\mathrm{start}$']
+        labels = _legacy[:nVars]
+
+    # Separate base variables from elevation angle variables for cleaner panels.
+    elevIndices = [i for i, n in enumerate(var_names or [])
+                   if n.startswith('elevation_')]
+    baseIndices = [i for i in range(nVars) if i not in elevIndices]
+
+    nPanels = 2
+    if elevIndices:
+        nPanels = 3   # power | base vars | elevation vars
+    fig, axes = plt.subplots(nPanels, 1, figsize=(10, 4 * nPanels))
+    if nPanels == 1:
+        axes = [axes]
     fig.suptitle(
         f'Optimization Evolution — {wind_speed:.1f} m/s',
         fontsize=13, fontweight='bold',
@@ -570,23 +620,36 @@ def plot_optimization_evolution(history, wind_speed, output_path=None,
     ax = axes[0]
     ax.plot(evaluations, powers, 'o', alpha=0.35, markersize=3, label='Evaluation')
     ax.plot(evaluations, bestPowers, '-', linewidth=2, label='Best so far')
-    ax.set_ylim(bottom=-0.1 * max(powers), top=1.1 * max(powers))
+    maxPow = max(powers) if powers else 1.0
+    ax.set_ylim(bottom=-0.1 * abs(maxPow), top=1.1 * abs(maxPow))
     ax.set_xlabel('Function evaluation')
     ax.set_ylabel('Cycle power (kW)')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    # --- Decision-variable evolution ---
+    # --- Base decision-variable evolution ---
     ax = axes[1]
-    varNames = [r'$f_\mathrm{out}$', r'$f_\mathrm{in}$',
-                r'$\ell_\mathrm{end}$', r'$\ell_\mathrm{start}$']
-    for i, name in enumerate(varNames):
+    for i in baseIndices:
         values = [h['x'][i] for h in history]
-        ax.plot(evaluations, values, 'o-', alpha=0.5, markersize=3, label=name)
+        ax.plot(evaluations, values, 'o-', alpha=0.6, markersize=3, label=labels[i])
     ax.set_xlabel('Function evaluation')
     ax.set_ylabel('Variable value')
+    ax.set_title('Base decision variables', fontweight='bold')
     ax.legend()
     ax.grid(True, alpha=0.3)
+
+    # --- Elevation angle evolution (only when present) ---
+    if elevIndices:
+        ax = axes[2]
+        for i in elevIndices:
+            values = [h['x'][i] for h in history]
+            ax.plot(evaluations, values, 'o-', alpha=0.6, markersize=3,
+                    label=labels[i])
+        ax.set_xlabel('Function evaluation')
+        ax.set_ylabel('Elevation angle (deg)')
+        ax.set_title('Traction elevation angles', fontweight='bold')
+        ax.legend(ncol=max(1, len(elevIndices) // 8))
+        ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
