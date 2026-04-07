@@ -1680,6 +1680,11 @@ class TractionPhase(Phase):
             probe_ss.control_settings = self.control_settings
             probe_ss.find_state(system_properties, environment_state, probe_kin)
 
+            # Below should be the same logic as in `determine_new_steady_state` for the traction phase, 
+            # but only applied once since we are probing a single point.  
+            # We check the tether force limits first, then the power limit, 
+            # and if the power limit is violated, we try to resolve it by adjusting the elevation angle.
+            
             min_force = system_properties.tether_force_min_limit
             max_force = system_properties.tether_force_max_limit
             max_speed = system_properties.reeling_speed_max_limit
