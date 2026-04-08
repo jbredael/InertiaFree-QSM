@@ -397,9 +397,9 @@ class PowerCurveConstructor:
         format consumed by CycleOptimizer, so the next wind speed starts its
         optimization close to the previous solution.
 
-        For elevation angle variables (``elevation_0``, ``elevation_1``, …) the
-        mean of all optimised angles is used as the single scalar x0[4], which
-        is the convention expected by CycleOptimizer.
+        For elevation angle variables (``elevation_0``, ``elevation_1``, …) each
+        optimised angle is stored individually at x0[4], x0[5], … so that
+        CycleOptimizer can warm-start each angle from its own previous optimal.
 
         Args:
             x_opt (np.ndarray): Unscaled optimal variable values from the previous
@@ -424,11 +424,15 @@ class PowerCurveConstructor:
             if name in val_by_name and idx < len(x0):
                 x0[idx] = float(val_by_name[name])
 
-        # Elevation angles: use the mean of all optimised values as the scalar
-        # starting angle (x0[4]) for the next wind speed.
-        elev_vals = [v for n, v in val_by_name.items() if n.startswith('elevation_')]
-        if elev_vals and len(x0) > 4:
-            x0[4] = float(np.mean(elev_vals))
+        # Elevation angles: store each optimised value individually at x0[4+i],
+        # extending the list if necessary.
+        elev_vals = [v for n, v in sorted(val_by_name.items()) if n.startswith('elevation_')]
+        for i, v in enumerate(elev_vals):
+            idx = 4 + i
+            if idx < len(x0):
+                x0[idx] = float(v)
+            else:
+                x0.append(float(v))
 
         return x0
 

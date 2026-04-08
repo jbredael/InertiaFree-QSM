@@ -112,9 +112,19 @@ class CycleOptimizer:
         self._optimise_elevation = bool(self.opt_vars.get('elevation_angle_traction', False))
         self._elev_bounds = self.boundsDict['elevation_angle_traction']  # (lo_rad, hi_rad)
         # Elevation variables are stored in DEGREES in the optimizer.
-        # x0_base[4] is the starting angle in degrees (same for every point in the array).
+        # x0_base[4], x0_base[5], … hold the per-angle starting values (one per
+        # elevation angle in the traction phase).  When fewer entries are present
+        # in x0_base than the number of angles, the single value at index 4 is
+        # broadcast to all angles.
         # scaling convention is x_scaled = x / scaling, so scaling=30 normalises 30° → 1.
-        self._elev_x0_deg = float(x0_base[4]) if len(x0_base) > 4 else np.degrees(self._nominal_elevation[0])
+        # Per-angle starting values: x0_base[4], x0_base[5], … up to _n_elev entries.
+        # Falls back to x0_base[4] (or the nominal angle) for all angles when fewer
+        # values are provided (e.g. on the very first wind speed before any warm start).
+        _elev_x0_scalar = float(x0_base[4]) if len(x0_base) > 4 else np.degrees(self._nominal_elevation[0])
+        self._elev_x0_deg = [
+            float(x0_base[4 + i]) if len(x0_base) > 4 + i else _elev_x0_scalar
+            for i in range(self._n_elev)
+        ]
         self._elev_scaling = float(scaling_base[4]) if len(scaling_base) > 4 else 1.0
         self._elev_bounds_deg = (
             np.degrees(self._elev_bounds[0]),
@@ -175,7 +185,7 @@ class CycleOptimizer:
                 for i in range(self._n_elev):
                     var_specs.append((
                         f'elevation_{i}',
-                        self._elev_x0_deg,   # degrees, same starting point for all points
+                        self._elev_x0_deg[i],  # degrees, per-angle starting point
                         self._elev_bounds_deg,
                         self._elev_scaling,
                     ))

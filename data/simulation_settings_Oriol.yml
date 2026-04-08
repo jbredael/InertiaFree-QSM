@@ -70,7 +70,7 @@ optimization:
       reeling_speed_retraction: true
       fraction_tether_length_retraction_start: true
       fraction_tether_length_retraction_end: true
-      elevation_angle_traction: false
+      elevation_angle_traction: true
 
     opt_phase_timestep:
       retraction: 2.5
@@ -127,7 +127,7 @@ optimization:
 # Cycle parameters for simulation
 
 cycle:
-  minimum_tether_force: 1000.0 # Minimum tether force (N)
+  minimum_tether_force: 750.0 # Minimum tether force (N)
   # Elevation angle during traction phase [degrees]
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
