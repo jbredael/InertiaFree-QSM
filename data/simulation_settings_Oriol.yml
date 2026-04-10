@@ -82,7 +82,7 @@ optimization:
     # Function tolerance for convergence
     ftol: 1.0e-3
     # Finite difference step size for gradient estimation
-    eps: 1.0e-3
+    eps: 1.0e-4
     # Optimizer starting point: [reeling_speed_out, reeling_speed_in,
     #   fraction_tether_length_retraction_end, fraction_tether_length_retraction_start,
     #   elevation_angle_traction (degrees, applied equally to all N points in the array)]
@@ -103,7 +103,7 @@ optimization:
     # Tether length bounds as fractions of max_tether_length
     fraction_tether_length_retraction_start_min: 0.8
     fraction_tether_length_retraction_start_max: 1.0
-    fraction_tether_length_retraction_end_min: 0.65
+    fraction_tether_length_retraction_end_min: 0.4
     fraction_tether_length_retraction_end_max: 0.8
 
     # Elevation angle bounds for traction phase [degrees]
@@ -134,7 +134,7 @@ cycle:
 
   minimum_height: 100.0 # Minimum height of the kite during the cycle (m)
 
-  elevation_angle_traction: [30.0, 30.0]
+  elevation_angle_traction: [30.0, 30.0, 30.0, 30.0, 30.0]
 
   # Tether length at start of retraction as fraction of max tether length [-]
   # (null = 1.0, uses full tether length from system config)

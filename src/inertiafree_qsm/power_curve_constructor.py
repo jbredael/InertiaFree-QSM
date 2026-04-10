@@ -735,7 +735,10 @@ class PowerCurveConstructor:
             if npz_arrays:
                 npz_path = output_path.with_suffix('.npz')
                 np.savez_compressed(npz_path, **npz_arrays)
-                output['time_history_file'] = npz_path.name
+                output['time_history'] = {
+                    'channels': list(TIME_HISTORY_CHANNELS),
+                    'filename': npz_path.name,
+                }
                 if verbose:
                     print(f"Time histories saved to {npz_path}")
 
@@ -809,7 +812,6 @@ class PowerCurveConstructor:
 
         entry = {
             'wind_speed': float(wind_speed),
-            'success': bool(kpi.get('sim_successful', True)),
             'performance': {
                 'power': {
                     'average_cycle_power': _safe_float(kpi['average_power']['cycle']),

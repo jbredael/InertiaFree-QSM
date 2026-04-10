@@ -89,7 +89,8 @@ def load_power_curve_data(file_path):
         data = yaml.safe_load(f)
 
     # Load binary sidecar if present and inject time histories
-    npz_name = data.get('time_history_file')
+    th_meta = data.get('time_history') or {}
+    npz_name = th_meta.get('filename') or data.get('time_history_file')
     if npz_name:
         npz_path = file_path.parent / npz_name
         if npz_path.exists():
@@ -321,10 +322,6 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
         print(f"Wind speed {wind_speed} m/s not found in data")
         return None
 
-    sim_warning = None
-    if not wsData['success']:
-        sim_warning = f"Warning: simulation reported success=False for {wind_speed} m/s"
-        print(sim_warning)
 
     performance = wsData['performance']
     power = performance['power']
@@ -374,8 +371,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
         f'Detailed Cycle Analysis - Wind Speed: {wind_speed} m/s '
         f'at {referenceHeight}m{profileLabel}'
     )
-    if sim_warning:
-        title += '\n(simulation converged with relaxed errors)'
+
     fig.suptitle(title, fontsize=14, fontweight='bold')
 
     # Phase boundary indices in the reordered time series
