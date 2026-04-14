@@ -75,8 +75,9 @@ optimization:
 
     opt_phase_timestep:
       retraction: 2.5
-      transition: 0.05
+      transition_riro: 0.05
       traction: 2.5
+      transition_rori: 0.05
 
     # Maximum number of iterations per wind speed point
     max_iterations: 200
@@ -176,7 +177,7 @@ retraction:
   course_angle: 180.0
 
 transition_riro:
-  # Control setting for transition phase
+  # Control setting for Reel-In to Reel-Out (RIRO) transition phase
   control: ['reeling_speed', 0]
   # Time step for simulation [s]
   time_step: 0.05

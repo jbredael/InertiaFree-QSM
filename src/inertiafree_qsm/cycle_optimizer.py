@@ -55,10 +55,10 @@ class CycleOptimizer:
         self.minimum_height = simulation_settings.get('cycle', {}).get('minimum_height', 0.0)
 
         maxTetherLength = sys_props.max_tether_length
-        fracStartMin = self.boundsDict['tether_length_start'][0] / maxTetherLength
-        fracStartMax = self.boundsDict['tether_length_start'][1] / maxTetherLength
-        fracEndMin = self.boundsDict['tether_length_end'][0] / maxTetherLength
-        fracEndMax = self.boundsDict['tether_length_end'][1] / maxTetherLength
+        fracStartMin = self.boundsDict['tether_length_traction_end'][0] / maxTetherLength
+        fracStartMax = self.boundsDict['tether_length_traction_end'][1] / maxTetherLength
+        fracEndMin = self.boundsDict['tether_length_retraction_end'][0] / maxTetherLength
+        fracEndMax = self.boundsDict['tether_length_retraction_end'][1] / maxTetherLength
 
         # Nominal (fixed) values from settings, used when a variable is not optimised.
         self._nominal_rs_out = float(simulation_settings['traction']['control'][1])
@@ -101,8 +101,7 @@ class CycleOptimizer:
                 ('frac_end', x0_frac_end, (fracEndMin, fracEndMax), sc)
             )
 
-        if self.opt_vars.get('fraction_tether_length_traction_end',
-                              self.opt_vars.get('fraction_tether_length_retraction_start', True)):
+        if self.opt_vars.get('fraction_tether_length_traction_end', True):
             x0_frac_start = x0_base[3] if len(x0_base) > 3 else self._nominal_frac_start
             sc = scaling_base[3] if len(scaling_base) > 3 else 1.0
             self._var_specs.append(
@@ -166,8 +165,9 @@ class CycleOptimizer:
         _opt_ts = self.optimizer_config.get('opt_phase_timestep', {})
         self._opt_time_steps = {
             'retraction': _opt_ts.get('retraction'),
-            'transition': _opt_ts.get('transition'),
+            'transition_riro': _opt_ts.get('transition_riro'),
             'traction': _opt_ts.get('traction'),
+            'transition_rori': _opt_ts.get('transition_rori'),
         }
 
         # Cache for the last evaluated point (avoids double simulation from SLSQP
@@ -437,7 +437,7 @@ class CycleOptimizer:
 
         # Apply coarser time steps during optimizer iterations.
         if use_opt_timesteps:
-            for phase in ('retraction', 'transition', 'traction'):
+            for phase in ('retraction', 'transition_riro', 'traction', 'transition_rori'):
                 ts = self._opt_time_steps.get(phase)
                 if ts is not None:
                     settings[phase]['time_step'] = ts

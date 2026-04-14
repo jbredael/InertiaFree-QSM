@@ -380,7 +380,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     transRoriTime = timing.get('transition_rori_time', 0.0)
     reelInTime = timing['reel_in_time']
     # Fall back to legacy key for files produced before the RORI phase was added.
-    transRiroTime = timing.get('transition_riro_time', timing.get('transition_time', 0.0))
+    transRiroTime = timing.get('transition_riro_time', 0.0)
 
     transRoriStartIdx = np.searchsorted(time, reelOutTime)
     reelInStartIdx = np.searchsorted(time, reelOutTime + transRoriTime)

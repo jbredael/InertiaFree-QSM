@@ -1190,7 +1190,7 @@ class Phase(TimeSeries):
         # Get tether force operational limits.
         min_force = sys_props.tether_force_min_limit
         max_force = sys_props.tether_force_max_limit
-        max_speed = sys_props.reeling_speed_max_limit# Cannot reel out beyond maximum tether length.
+        max_speed = sys_props.reeling_speed_max_limit
         min_speed = sys_props.reeling_speed_min_limit
         max_power = sys_props.max_generator_power
         assert max_speed > 0 and min_speed >= 0, "Reeling speed limits should be positive."
@@ -2171,10 +2171,7 @@ class Cycle(TimeSeries):
         cycle_settings = settings.get('cycle', {})
 
         # Properties of idealized pumping cycle trajectory.
-        self.tether_length_end_traction = cycle_settings.get(
-            'tether_length_end_traction',
-            cycle_settings.get('tether_length_start_retraction'),  # backward-compat alias
-        )
+        self.tether_length_end_traction = cycle_settings.get('tether_length_end_traction')
         self.tether_length_end_retraction = cycle_settings.get('tether_length_end_retraction')
         # Setting the lower attribute imposes the traction phase to start at the given length.
         self.tether_length_start_traction = cycle_settings.get('tether_length_start_traction')
@@ -2184,7 +2181,7 @@ class Cycle(TimeSeries):
         self.transition_rori_phase = TransitionRORIPhase(settings['transition_rori'],
                                                          impose_operational_limits)
         self.retraction_phase = RetractionPhase(settings['retraction'], impose_operational_limits)
-        self.transition_riro_phase = TransitionRIROPhase(settings['transition'],
+        self.transition_riro_phase = TransitionRIROPhase(settings['transition_riro'],
                                                           impose_operational_limits)
         self.traction_phase = cycle_settings.get('traction_phase',
                                                  TractionPhase)(settings['traction'], impose_operational_limits)
@@ -2196,11 +2193,6 @@ class Cycle(TimeSeries):
 
         self.duty_cycle = None
         self.pumping_efficiency = None
-
-    @property
-    def transition_phase(self):
-        """Backward-compatible alias for `transition_riro_phase`."""
-        return self.transition_riro_phase
 
     def run_simulation(self, system_properties, environment_state, steady_state_config={},
                        enable_limit_violation_error=False, print_summary=False):
