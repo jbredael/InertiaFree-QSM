@@ -137,9 +137,9 @@ cycle:
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
   elevation_angle_traction: 35
 
-  # Tether length at start of retraction as fraction of max tether length [-]
-  # (null = 1.0, uses full tether length from system config)
-  tether_length_start_retraction: 1.0
+  # Tether length at end of traction phase as fraction of max tether length [-]
+  # (= start of RORI transition; must be < 1.0 to leave reel-out headroom)
+  tether_length_end_traction: 1.0
 
   # Tether length at end of retraction as fraction of max tether length [-]
   tether_length_end_retraction: 0.71
@@ -175,6 +175,19 @@ transition:
   azimuth_angle: 0.0
   # Course angle [degrees]
   course_angle: 0.0
+
+transition_rori:
+  # Control setting for Reel-Out to Reel-In transition phase.
+  # The kite is powered. Reels out when force is too high, reels in when force is too low.
+  control: ['reeling_speed', 0]
+  # Time step for simulation [s]
+  time_step: 0.05
+  # Azimuth angle [degrees]
+  azimuth_angle: 0.0
+  # Course angle [degrees]
+  course_angle: 180.0
+  # Prescribed elevation angle at which this phase ends and retraction begins [degrees]
+  elevation_angle_end: 40.0
 
 traction:
   # Control setting for traction phase:

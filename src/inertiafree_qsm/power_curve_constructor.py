@@ -525,7 +525,8 @@ class PowerCurveConstructor:
 
             traction = getattr(cycle, 'traction_phase')
             retraction = getattr(cycle, 'retraction_phase')
-            transition = getattr(cycle, 'transition_phase')
+            transition_riro = getattr(cycle, 'transition_riro_phase')
+            transition_rori = getattr(cycle, 'transition_rori_phase')
 
             # Check minimum altitude constraint.
             minimum_height = self.simulation_settings.get('cycle', {}).get('minimum_height', 0.0)
@@ -543,13 +544,15 @@ class PowerCurveConstructor:
                 'average_power': {
                     'cycle': cycle.average_power,
                     'in': retraction.average_power if retraction else 0.0,
-                    'trans': transition.average_power if transition else 0.0,
+                    'trans_riro': transition_riro.average_power if transition_riro else 0.0,
+                    'trans_rori': transition_rori.average_power if transition_rori else 0.0,
                     'out': traction.average_power if traction else 0.0,
                 },
                 'duration': {
                     'cycle': cycle.duration,
                     'in': retraction.duration if retraction else 0.0,
-                    'trans': transition.duration if transition else 0.0,
+                    'trans_riro': transition_riro.duration if transition_riro else 0.0,
+                    'trans_rori': transition_rori.duration if transition_rori else 0.0,
                     'out': traction.duration if traction else 0.0,
                 },
                 'time': cycle.time,
@@ -566,13 +569,15 @@ class PowerCurveConstructor:
                 'average_power': {
                     'cycle': 0.0,
                     'in': 0.0,
-                    'trans': 0.0,
+                    'trans_riro': 0.0,
+                    'trans_rori': 0.0,
                     'out': 0.0,
                 },
                 'duration': {
                     'cycle': 0.0,
                     'in': 0.0,
-                    'trans': 0.0,
+                    'trans_riro': 0.0,
+                    'trans_rori': 0.0,
                     'out': 0.0,
                 },
             }
@@ -817,11 +822,24 @@ class PowerCurveConstructor:
                     'average_cycle_power': _safe_float(kpi['average_power']['cycle']),
                     'average_reel_out_power': _safe_float(kpi['average_power']['out']),
                     'average_reel_in_power': _safe_float(kpi['average_power']['in']),
+                    'average_transition_rori_power': _safe_float(
+                        kpi['average_power'].get('trans_rori', 0.0)
+                    ),
+                    'average_transition_riro_power': _safe_float(
+                        kpi['average_power'].get('trans_riro',
+                            kpi['average_power'].get('trans', 0.0))
+                    ),
                 },
                 'timing': {
                     'reel_out_time': _safe_float(kpi['duration']['out']),
-                    'reel_in_time': (_safe_float(kpi['duration']['in'])),
-                    'transition_time': _safe_float(kpi['duration'].get('trans', 0.0)),
+                    'transition_rori_time': _safe_float(
+                        kpi['duration'].get('trans_rori', 0.0)
+                    ),
+                    'reel_in_time': _safe_float(kpi['duration']['in']),
+                    'transition_riro_time': _safe_float(
+                        kpi['duration'].get('trans_riro',
+                            kpi['duration'].get('trans', 0.0))
+                    ),
                     'cycle_time': _safe_float(kpi['duration']['cycle']),
                 },
             },

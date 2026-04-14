@@ -18,7 +18,8 @@ from .qsm import (
     SteadyState,
     Phase,
     RetractionPhase,
-    TransitionPhase,
+    TransitionRIROPhase,
+    TransitionRORIPhase,
     TractionPhase,
     Cycle,
     OperationalLimitViolation,
@@ -50,7 +51,8 @@ __all__ = [
     # Phase classes
     "Phase",
     "RetractionPhase",
-    "TransitionPhase",
+    "TransitionRIROPhase",
+    "TransitionRORIPhase",
     "TractionPhase",
     "Cycle",
     # Exceptions

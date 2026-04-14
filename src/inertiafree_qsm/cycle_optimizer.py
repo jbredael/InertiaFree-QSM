@@ -67,7 +67,7 @@ class CycleOptimizer:
             simulation_settings['cycle']['tether_length_end_retraction'] / maxTetherLength
         )
         self._nominal_frac_start = (
-            simulation_settings['cycle']['tether_length_start_retraction'] / maxTetherLength
+            simulation_settings['cycle']['tether_length_end_traction'] / maxTetherLength
         )
         self._nominal_elevation = np.asarray(
             simulation_settings['cycle']['elevation_angle_traction']
@@ -130,6 +130,27 @@ class CycleOptimizer:
             np.degrees(self._elev_bounds[0]),
             np.degrees(self._elev_bounds[1]),
         )
+
+        # Elevation angle end for RORI transition phase (variable stored in degrees).
+        self._nominal_elev_end_rori_deg = np.degrees(
+            simulation_settings.get('transition_rori', {}).get('elevation_angle_end', np.deg2rad(50.0))
+        )
+        if bool(self.opt_vars.get('elevation_angle_end_trans_rori', False)):
+            x0_end_rori = float(self.optimizer_config.get(
+                'x0_elevation_angle_end_trans_rori', self._nominal_elev_end_rori_deg
+            ))
+            sc_end_rori = float(self.optimizer_config.get('scaling_elevation_angle_end_trans_rori', 1.0))
+            bounds_end_rori = self.boundsDict.get(
+                'elevation_angle_end_trans_rori',
+                (np.deg2rad(30.0), np.deg2rad(70.0)),
+            )
+            bounds_end_rori_deg = (np.degrees(bounds_end_rori[0]), np.degrees(bounds_end_rori[1]))
+            self._var_specs.append((
+                'elevation_end_rori',
+                x0_end_rori,
+                bounds_end_rori_deg,
+                sc_end_rori,
+            ))
 
         # Coarse time steps used during optimization iterations (from opt_phase_timestep).
         # None values mean: keep the phase setting as-is.
@@ -239,7 +260,9 @@ class CycleOptimizer:
         # Maximum step difference between consecutive elevation angles.
         max_diff_elev = self.constraintsDict.get('max_difference_elevation_angle_steps')
         if max_diff_elev is not None and max_diff_elev > 0:
-            elev_indices = [i for i, n in enumerate(var_names) if n.startswith('elevation_')]
+            # Only traction elevation variables have names of the form 'elevation_<int>'.
+            elev_indices = [i for i, n in enumerate(var_names)
+                            if n.startswith('elevation_') and n.split('_')[1].isdigit()]
             elev_sc = self._elev_scaling
             for k in range(len(elev_indices) - 1):
                 j0 = elev_indices[k]
@@ -256,6 +279,33 @@ class CycleOptimizer:
                     'type': 'ineq',
                     'fun': lambda x, j0=j0, j1=j1, sc=elev_sc, md=max_diff_elev: (
                         md + (x[j1] * sc - x[j0] * sc)
+                    ),
+                })
+
+        # Constraint: elevation_end_rori >= all traction elevation angles.
+        # This ensures the RORI transition always goes upward (traction → retraction).
+        idx_end_rori = var_names.index('elevation_end_rori') if 'elevation_end_rori' in var_names else None
+        if idx_end_rori is not None:
+            sc_end_rori = scaling[idx_end_rori]
+            trac_elev_indices = [i for i, n in enumerate(var_names)
+                                 if n.startswith('elevation_') and n.split('_')[1].isdigit()]
+            if trac_elev_indices:
+                # Constrain against each optimised traction elevation angle.
+                for idx_elev in trac_elev_indices:
+                    sc_elev = scaling[idx_elev]
+                    constraints.append({
+                        'type': 'ineq',
+                        'fun': lambda x, ie=idx_end_rori, je=idx_elev, se=sc_end_rori, st=sc_elev: (
+                            x[ie] * se - x[je] * st
+                        ),
+                    })
+            else:
+                # Traction elevation not optimised: constrain against nominal maximum.
+                nominal_max_elev_deg = float(np.degrees(np.max(self._nominal_elevation)))
+                constraints.append({
+                    'type': 'ineq',
+                    'fun': lambda x, ie=idx_end_rori, se=sc_end_rori, nmax=nominal_max_elev_deg: (
+                        x[ie] * se - nmax
                     ),
                 })
 
@@ -363,7 +413,7 @@ class CycleOptimizer:
         settings['traction']['control'] = ('reeling_speed', float(rs_out))
         settings['retraction']['control'] = ('reeling_speed', float(rs_in))
         settings['cycle']['tether_length_end_retraction'] = frac_end * maxTetherLength
-        settings['cycle']['tether_length_start_retraction'] = frac_start * maxTetherLength
+        settings['cycle']['tether_length_end_traction'] = frac_start * maxTetherLength
 
         # Apply coarser time steps during optimizer iterations.
         if use_opt_timesteps:
@@ -374,13 +424,19 @@ class CycleOptimizer:
 
         # Override elevation angles if any elevation variable is in values_by_name.
         # Optimizer elevation variables are in degrees; convert to radians for simulation.
-        elev_keys = [k for k in values_by_name if k.startswith('elevation_')]
+        # Only match traction-angle variables of the form 'elevation_<int>'.
+        elev_keys = [k for k in values_by_name if k.startswith('elevation_') and k.split('_')[1].isdigit()]
         if elev_keys:
             elev_array = np.array(self._nominal_elevation, dtype=float)  # radians
             for k in elev_keys:
                 idx = int(k.split('_')[1])
                 elev_array[idx] = np.deg2rad(values_by_name[k])  # degrees → radians
             settings['cycle']['elevation_angle_traction'] = elev_array
+
+        # Apply RORI transition end elevation angle if optimised (stored in degrees).
+        elev_end_rori = values_by_name.get('elevation_end_rori')
+        if elev_end_rori is not None:
+            settings['transition_rori']['elevation_angle_end'] = np.deg2rad(float(elev_end_rori))
 
         settings['cycle']['traction_phase'] = TractionPhase
         return settings
@@ -425,7 +481,8 @@ class CycleOptimizer:
 
             traction = cycle.traction_phase
             retraction = cycle.retraction_phase
-            transition = cycle.transition_phase
+            transition_riro = cycle.transition_riro_phase
+            transition_rori = cycle.transition_rori_phase
 
             # Minimum altitude during traction.
             min_altitude = (
@@ -442,13 +499,15 @@ class CycleOptimizer:
                 'average_power': {
                     'cycle': cycle.average_power if error_in_phase is None else 0.0,
                     'in': retraction.average_power if retraction else 0.0,
-                    'trans': transition.average_power if transition else 0.0,
+                    'trans_riro': transition_riro.average_power if transition_riro else 0.0,
+                    'trans_rori': transition_rori.average_power if transition_rori else 0.0,
                     'out': traction.average_power if traction else 0.0,
                 },
                 'duration': {
                     'cycle': cycle.duration if error_in_phase is None else 0.0,
                     'in': retraction.duration if retraction else 0.0,
-                    'trans': transition.duration if transition else 0.0,
+                    'trans_riro': transition_riro.duration if transition_riro else 0.0,
+                    'trans_rori': transition_rori.duration if transition_rori else 0.0,
                     'out': traction.duration if traction else 0.0,
                 },
                 'time': cycle.time,
@@ -462,8 +521,8 @@ class CycleOptimizer:
         except Exception:
             return {
                 'sim_successful': False,
-                'average_power': {'cycle': 0.0, 'in': 0.0, 'trans': 0.0, 'out': 0.0},
-                'duration': {'cycle': 0.0, 'in': 0.0, 'trans': 0.0, 'out': 0.0},
+                'average_power': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0, 'trans_rori': 0.0, 'out': 0.0},
+                'duration': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0, 'trans_rori': 0.0, 'out': 0.0},
                 'min_altitude_traction': 0.0,
                 'traction_n_time_points': 0,
                 'traction_regime3_count': 0,

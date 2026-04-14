@@ -124,7 +124,8 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     # Parse simulation settings.
     cycle_config = sim_config.get('cycle', {})
     retraction_config = sim_config.get('retraction', {})
-    transition_config = sim_config.get('transition', {})
+    transition_config = sim_config.get('transition_riro', sim_config.get('transition', {}))
+    transition_rori_config = sim_config.get('transition_rori', {})
     traction_config = sim_config.get('traction', {})
     ss_config = sim_config.get('steady_state', {})
     phase_solver_config = sim_config.get('phase_solver', {})
@@ -175,7 +176,8 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     direct_config = sim_config.get('direct_simulation', {})
 
-    start_fraction_raw = cycle_config.get('tether_length_start_retraction')
+    start_fraction_raw = cycle_config.get('tether_length_end_traction',
+                                           cycle_config.get('tether_length_start_retraction'))
     start_fraction = float(start_fraction_raw) if start_fraction_raw is not None else 1.0
 
     end_fraction_raw = cycle_config.get('tether_length_end_retraction')
@@ -190,7 +192,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'elevation_angle_traction': np.deg2rad(
             cycle_config.get('elevation_angle_traction')
         ),
-        'tether_length_start_retraction': tetherLengthStartRetraction,
+        'tether_length_end_traction': tetherLengthStartRetraction,
         'tether_length_end_retraction': tetherLengthEndRetraction,
         'include_transition_energy': bool(cycle_config.get('include_transition_energy',)),
         'n_traction_points': int(cw_config.get('n_traction_points')),
@@ -212,6 +214,19 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'max_time_points': max_time_points,
         'azimuth_angle': np.deg2rad(transition_config.get('azimuth_angle')),
         'course_angle': np.deg2rad(transition_config.get('course_angle')),
+    }
+
+    elev_end_rori_deg = float(cycle_config.get(
+        'elevation_angle_end_trans_rori',
+        transition_rori_config.get('elevation_angle_end', 40.0),
+    ))
+    transition_rori = {
+        'control': tuple(transition_rori_config.get('control', ('reeling_speed', 0))),
+        'time_step': float(transition_rori_config.get('time_step', 0.05)),
+        'max_time_points': max_time_points,
+        'azimuth_angle': np.deg2rad(transition_rori_config.get('azimuth_angle', 0.0)),
+        'course_angle': np.deg2rad(transition_rori_config.get('course_angle', 180.0)),
+        'elevation_angle_end': np.deg2rad(elev_end_rori_deg),
     }
 
     traction = {
@@ -236,7 +251,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
                 'range_m_s': float(direct_fine.get('range_m_s', 2.0)),
             },
         },
-        'tether_length_start_retraction': tetherLengthStartRetraction,
+        'tether_length_end_traction': tetherLengthStartRetraction,
         'tether_length_end_retraction': tetherLengthEndRetraction,
     }
 
@@ -248,6 +263,10 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     opt_constraints_cfg = opt_config.get('constraints') or {}
 
     x0_list = list(opt_optimizer.get('x0', []))
+    elev_end_rori_x0_deg = float(opt_optimizer.get(
+        'x0_elevation_angle_end_trans_rori', elev_end_rori_deg
+    ))
+    elev_end_rori_scaling = float(opt_optimizer.get('scaling_elevation_angle_end_trans_rori', 1.0))
 
     start_min = float(opt_bounds_cfg.get('fraction_tether_length_retraction_start_min',
                        opt_bounds_cfg.get('tether_length_start_fraction_min'))) * max_tether_length
@@ -265,6 +284,9 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     elev_min_deg = float(opt_bounds_cfg.get('elevation_angle_traction_min', 10.0))
     elev_max_deg = float(opt_bounds_cfg.get('elevation_angle_traction_max', 50.0))
+
+    elev_end_rori_min_deg = float(opt_bounds_cfg.get('elevation_angle_end_trans_rori_min', 30.0))
+    elev_end_rori_max_deg = float(opt_bounds_cfg.get('elevation_angle_end_trans_rori_max', 70.0))
 
     opt_optimize_vars = opt_optimizer.get('optimize_variables', {})
 
@@ -294,12 +316,15 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
                 'traction': float(opt_timestep_cfg['traction'])
                     if 'traction' in opt_timestep_cfg else None,
             },
+            'x0_elevation_angle_end_trans_rori': elev_end_rori_x0_deg,
+            'scaling_elevation_angle_end_trans_rori': elev_end_rori_scaling,
             'optimize_variables': {
                 'reeling_speed_traction': bool(opt_optimize_vars.get('reeling_speed_traction', True)),
                 'reeling_speed_retraction': bool(opt_optimize_vars.get('reeling_speed_retraction', True)),
                 'fraction_tether_length_retraction_start': bool(opt_optimize_vars.get('fraction_tether_length_retraction_start', True)),
                 'fraction_tether_length_retraction_end': bool(opt_optimize_vars.get('fraction_tether_length_retraction_end', True)),
                 'elevation_angle_traction': bool(opt_optimize_vars.get('elevation_angle_traction', False)),
+                'elevation_angle_end_trans_rori': bool(opt_optimize_vars.get('elevation_angle_end_trans_rori', False)),
             },
         },
         'bounds': {
@@ -308,6 +333,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
             'tether_length_start': (start_min, start_max),
             'tether_length_end': (end_min, end_max),
             'elevation_angle_traction': (np.deg2rad(elev_min_deg), np.deg2rad(elev_max_deg)),
+            'elevation_angle_end_trans_rori': (np.deg2rad(elev_end_rori_min_deg), np.deg2rad(elev_end_rori_max_deg)),
         },
         'constraints': {
             'min_crosswind_patterns': int(opt_constraints_cfg.get('min_crosswind_patterns', 1)),
@@ -329,6 +355,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'cycle': cycle,
         'retraction': retraction,
         'transition': transition,
+        'transition_rori': transition_rori,
         'traction': traction,
         'steady_state': steady_state,
         'direct_simulation': direct_simulation,
@@ -371,8 +398,8 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
     # -- Cycle ---------------------------------------------------------------
     print("\n  Cycle:")
     print(f"    Max tether length (system config)   : {maxTetherLength:.1f} m")
-    print(f"    Tether length start retraction       : {startFraction:.2f}  "
-          f"({cycle['tether_length_start_retraction']:.1f} m)")
+    print(f"    Tether length end traction           : {startFraction:.2f}  "
+          f"({cycle['tether_length_end_traction']:.1f} m)")
     print(f"    Tether length end retraction         : {endFraction:.2f}  "
           f"({cycle['tether_length_end_retraction']:.1f} m)")
     elev_trac = cycle['elevation_angle_traction']

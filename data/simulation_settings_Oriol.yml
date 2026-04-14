@@ -71,6 +71,7 @@ optimization:
       fraction_tether_length_retraction_start: true
       fraction_tether_length_retraction_end: true
       elevation_angle_traction: true
+      elevation_angle_end_trans_rori: true
 
     opt_phase_timestep:
       retraction: 2.5
@@ -91,6 +92,9 @@ optimization:
     # This normalises variables to a similar search range (~O(1)).
     # elevation_angle_traction: scaling=30 → bounds [10°,70°]/30 = [0.33, 2.33]; x0=30°/30=1.0
     scaling: [1, 1, 1, 1, 30]
+    # Starting point and scaling for elevation_angle_end_trans_rori [degrees]
+    x0_elevation_angle_end_trans_rori: 50.0
+    scaling_elevation_angle_end_trans_rori: 1.0
 
   # Optimizer bounds (where not derived from system properties)
   bounds:
@@ -102,13 +106,17 @@ optimization:
 
     # Tether length bounds as fractions of max_tether_length
     fraction_tether_length_retraction_start_min: 0.8
-    fraction_tether_length_retraction_start_max: 1.0
+    fraction_tether_length_retraction_start_max: 0.95
     fraction_tether_length_retraction_end_min: 0.4
     fraction_tether_length_retraction_end_max: 0.8
 
     # Elevation angle bounds for traction phase [degrees]
     elevation_angle_traction_min: 20.0
     elevation_angle_traction_max: 50.0
+
+    # Elevation angle bounds for RORI transition phase end [degrees]
+    elevation_angle_end_trans_rori_min: 30.0
+    elevation_angle_end_trans_rori_max: 80.0
   
 
   # Optimizer constraints
@@ -136,15 +144,18 @@ cycle:
 
   elevation_angle_traction: [30.0, 30.0, 30.0, 30.0, 30.0]
 
-  # Tether length at start of retraction as fraction of max tether length [-]
-  # (null = 1.0, uses full tether length from system config)
-  tether_length_start_retraction: 1
+  # Tether length at end of traction phase as fraction of max tether length [-]
+  # (= start of RORI transition; must be < 1.0 to leave reel-out headroom)
+  tether_length_end_traction: 0.95
 
   # Tether length at end of retraction as fraction of max tether length [-]
   tether_length_end_retraction: 0.65
 
   # Include transition phase energy in cycle energy calculation
   include_transition_energy: true
+
+  # Prescribed elevation angle at which the RORI transition phase ends and retraction begins [degrees]
+  elevation_angle_end_trans_rori: 50.0
 
 # ============================================================================
 # PHASE SETTINGS
@@ -165,7 +176,7 @@ retraction:
   # Course angle [degrees]
   course_angle: 180.0
 
-transition:
+transition_riro:
   # Control setting for transition phase
   control: ['reeling_speed', 0]
   # Time step for simulation [s]
@@ -174,6 +185,17 @@ transition:
   azimuth_angle: 0.0
   # Course angle [degrees]
   course_angle: 0.0
+
+transition_rori:
+  # Control setting for Reel-Out to Reel-In transition phase.
+  # The kite is powered. Reels out when force is too high, reels in when force is too low.
+  control: ['reeling_speed', 0]
+  # Time step for simulation [s]
+  time_step: 0.05
+  # Azimuth angle [degrees]
+  azimuth_angle: 0.0
+  # Course angle [degrees]
+  course_angle: 180.0
 
 traction:
   # Control setting for traction phase:

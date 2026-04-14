@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from copy import copy
 from scipy.optimize import brentq
+from scipy.interpolate import make_interp_spline
 
 try:
     from .utils import zip_el, plot_traces
@@ -1189,7 +1190,7 @@ class Phase(TimeSeries):
         # Get tether force operational limits.
         min_force = sys_props.tether_force_min_limit
         max_force = sys_props.tether_force_max_limit
-        max_speed = sys_props.reeling_speed_max_limit
+        max_speed = sys_props.reeling_speed_max_limit# Cannot reel out beyond maximum tether length.
         min_speed = sys_props.reeling_speed_min_limit
         max_power = sys_props.max_generator_power
         assert max_speed > 0 and min_speed >= 0, "Reeling speed limits should be positive."
@@ -1221,7 +1222,7 @@ class Phase(TimeSeries):
                         self.regime3_count += 1
 
                 
-            elif isinstance(self, TransitionPhase):
+            elif isinstance(self, (TransitionRIROPhase, TransitionRORIPhase)):
                 # Transition phase: if speed-controlled, clamp tether force to limits.
                 if 'tether_force' not in self.control_settings[0]:
                     if max_force is not None and new_state.tether_force_ground > max_force:
@@ -1377,13 +1378,14 @@ class RetractionPhase(Phase):
         return end_phase, kin
 
 
-class TransitionPhase(Phase):
-    """The solution to the quasi-steady motion simulation conform the idealized trajectory assumption for the transition
-    phase. Inherits from `Phase`.
+class TransitionRIROPhase(Phase):
+    """Reel-In to Reel-Out transition phase. Occurs between the retraction phase and the traction
+    phase. Elevation decreases from the retraction end angle down to the traction operating angle.
+    Inherits from `Phase`.
 
     Attributes:
-        AZIMUTH_ANGLE (float): Constant azimuth angle [rad] of representative flight state.
-        COURSE_ANGLE (float): Constant course angle [rad] of representative flight state.
+        azimuth_angle (float): Constant azimuth angle [rad] of representative flight state.
+        course_angle (float): Constant course angle [rad] of representative flight state.
         tether_length_start (float): Tether length [m] used for initial state.
         elevation_angle_start (float): Elevation angle [rad] used for initial state.
         elevation_angle_end (float): Elevation angle [rad] used for phase ending criteria.
@@ -1494,6 +1496,87 @@ class TransitionPhase(Phase):
             self.elevation_angle_end = required_elevation
 
 
+class TransitionRORIPhase(Phase):
+    """Reel-Out to Reel-In transition phase (powered). Occurs between the traction phase and the
+    retraction phase. The kite transitions from the traction condition upward to a prescribed
+    elevation angle at which the retraction phase begins. The kite is powered throughout.
+    Inherits from `Phase`.
+
+    Attributes:
+        azimuth_angle (float): Constant azimuth angle [rad] of representative flight state.
+        course_angle (float): Constant course angle [rad] of representative flight state.
+        tether_length_start (float): Tether length [m] used for initial state.
+        elevation_angle_start (float): Elevation angle [rad] used for initial state (set from
+            traction phase end condition before running).
+        elevation_angle_end (float): Prescribed elevation angle [rad] at which this phase ends
+            and the retraction phase begins (read from simulation settings).
+
+    """
+
+    def __init__(self, phase_settings, impose_operational_limits):
+        """
+        Args:
+            phase_settings (dict): Phase settings including control, time_step, azimuth_angle,
+                course_angle, and elevation_angle_end.
+            impose_operational_limits (bool): Setting parent's `impose_operational_limits`
+                attribute.
+
+        """
+        super().__init__(phase_settings, impose_operational_limits)
+
+        # Kite is powered during the RORI transition.
+        self.kite_powered = True
+
+        self.azimuth_angle = phase_settings.get('azimuth_angle')
+        self.course_angle = phase_settings.get('course_angle')
+        self.elevation_angle_end = phase_settings.get('elevation_angle_end')
+
+    def finalize_start_and_end_kite_obj(self):
+        """Finalize the initial state and ending criteria before running the simulation."""
+        self.kinematics_start = KiteKinematics(self.tether_length_start, self.azimuth_angle,
+                                               self.elevation_angle_start, self.course_angle)
+        self.position_end = KitePosition(elevation_angle=self.elevation_angle_end)
+
+    def determine_new_kinematics(self, last_kinematics, last_steady_state):
+        """Determine kinematic state of the kite for the new time point based on the previous
+        kinematic and steady state properties. For the RORI transition, elevation increases
+        from the traction end elevation up to the prescribed end elevation.
+
+        Args:
+            last_kinematics (`KiteKinematics`): Kinematics object of previous time point.
+            last_steady_state (`SteadyState`): Steady state of previous time point.
+
+        Returns:
+            bool: Flag indicating meeting phase ending criteria.
+            `KiteKinematics`: Kinematic state of the kite for the new time point.
+
+        """
+        kin = copy(last_kinematics)
+
+        d_tether_length = last_steady_state.reeling_speed * self.time_step
+        d_elevation = last_steady_state.elevation_rate * self.time_step
+
+        # Phase ends when elevation reaches (or exceeds) the prescribed target from below.
+        if kin.elevation_angle + d_elevation < self.position_end.elevation_angle:
+            # Target not yet reached: take full time step.
+            self.timer += self.time_step
+            kin.straight_tether_length += d_tether_length
+            kin.elevation_angle += d_elevation
+            kin.update()
+            end_phase = False
+        else:
+            # About to meet or exceed target: reduce time step to land on target.
+            d_elevation_remaining = self.position_end.elevation_angle - kin.elevation_angle
+            reduced_time_step = d_elevation_remaining / last_steady_state.elevation_rate
+
+            self.timer += reduced_time_step
+            kin.straight_tether_length += last_steady_state.reeling_speed * reduced_time_step
+            kin.elevation_angle += d_elevation_remaining
+            kin.update()
+            end_phase = True
+        return end_phase, kin
+
+
 class TractionElevation:
     def __init__(self, elevation_angle, tether_length_start=None, tether_length_end=None):
         self.elevation_angle = elevation_angle
@@ -1514,7 +1597,11 @@ class TractionElevation:
         if elev.size == 1:
             return float(elev[0])
         tether_lengths = np.linspace(self.tether_length_start, self.tether_length_end, elev.size)
-        return float(np.interp(tether_length, tether_lengths, elev))
+        # Clamp query point to the interpolation domain before evaluating.
+        tether_length_clamped = float(np.clip(tether_length, tether_lengths[0], tether_lengths[-1]))
+        k = min(3, elev.size - 1)  # cubic where possible, linear for 2 points
+        spline = make_interp_spline(tether_lengths, elev, k=k)
+        return float(spline(tether_length_clamped))
 
 
 class TractionPhase(Phase):
@@ -2044,42 +2131,52 @@ class EvaluatePattern(Phase):  # Determine performance along cross wind pattern 
 
 
 class Cycle(TimeSeries):
-    """Combination of phases: `RetractionPhase`, `TransitionPhase`, and `TractionPhase`, which together make a pumping
-    cycle. Inherits from `TimeSeries`. The retraction phase is simulated first and the traction phase last. The results
-    are however manipulated such that the cycle starts with the traction phase.
+    """Combination of four phases forming a pumping cycle: `TransitionRORIPhase`,
+    `RetractionPhase`, `TransitionRIROPhase`, and `TractionPhase`. Inherits from `TimeSeries`.
+
+    Simulation order: TransitionRORIPhase → RetractionPhase → TransitionRIROPhase → TractionPhase.
+    The results are reassembled so the cycle starts with the traction phase for display.
 
     Attributes:
-        tether_length_start_retraction (float): Tether length [m] at the start of the retraction phase.
-        tether_length_end_retraction (float): Tether length [m] at the end of the retraction phase.
-        elevation_angle_traction (float): Elevation angle [rad] of the traction phase.
+        tether_length_end_traction (float): Tether length [m] at the end of the traction phase
+            (= start of RORI transition phase).
+        tether_length_end_retraction (float): Tether length [m] at the end of the retraction
+            phase (= start of RIRO transition).
+        elevation_angle_traction (float or array): Elevation angle(s) [rad] of the traction phase.
+        transition_rori_phase (`TransitionRORIPhase`): Reel-Out to Reel-In transition phase object.
         retraction_phase (`RetractionPhase`): Retraction phase simulation object.
-        transition_phase (`TransitionPhase`): Transition phase simulation object.
+        transition_riro_phase (`TransitionRIROPhase`): Reel-In to Reel-Out transition phase object.
         traction_phase (`TractionPhase`): Traction phase simulation object.
-        follow_wind (bool): Specifies whether kite is 'aligned' with the wind. Controlled azimuth angle is expressed
-            w.r.t. wind reference frame if True, or ground reference frame if False.
+        follow_wind (bool): Specifies whether kite is 'aligned' with the wind.
 
     """
     def __init__(self, settings=None, impose_operational_limits=True):
         """
         Args:
-            control_settings (dict, optional): Collection of the `control_settings` attributes for the 3 phases.
-            impose_operational_limits (bool, optional): Setting `impose_operational_limits` attribute of retraction and
-                traction phase.
+            settings (dict, optional): Collection of phase settings for all four phases.
+            impose_operational_limits (bool, optional): Setting `impose_operational_limits`
+                attribute of retraction and traction phase.
 
         """
         super().__init__()
         cycle_settings = settings.get('cycle', {})
 
         # Properties of idealized pumping cycle trajectory.
-        self.tether_length_start_retraction = cycle_settings.get('tether_length_start_retraction')
+        self.tether_length_end_traction = cycle_settings.get(
+            'tether_length_end_traction',
+            cycle_settings.get('tether_length_start_retraction'),  # backward-compat alias
+        )
         self.tether_length_end_retraction = cycle_settings.get('tether_length_end_retraction')
         # Setting the lower attribute imposes the traction phase to start at the given length.
         self.tether_length_start_traction = cycle_settings.get('tether_length_start_traction')
         self.elevation_angle_traction = cycle_settings.get('elevation_angle_traction')
 
-        # Initiating phases, allows manipulating its attribute before running the simulation.
+        # Initiating phases, allows manipulating attributes before running the simulation.
+        self.transition_rori_phase = TransitionRORIPhase(settings['transition_rori'],
+                                                         impose_operational_limits)
         self.retraction_phase = RetractionPhase(settings['retraction'], impose_operational_limits)
-        self.transition_phase = TransitionPhase(settings['transition'], impose_operational_limits)
+        self.transition_riro_phase = TransitionRIROPhase(settings['transition'],
+                                                          impose_operational_limits)
         self.traction_phase = cycle_settings.get('traction_phase',
                                                  TractionPhase)(settings['traction'], impose_operational_limits)
 
@@ -2091,21 +2188,30 @@ class Cycle(TimeSeries):
         self.duty_cycle = None
         self.pumping_efficiency = None
 
+    @property
+    def transition_phase(self):
+        """Backward-compatible alias for `transition_riro_phase`."""
+        return self.transition_riro_phase
+
     def run_simulation(self, system_properties, environment_state, steady_state_config={},
                        enable_limit_violation_error=False, print_summary=False):
-        """Consecutively run the simulations of the 3 phases.
+        """Consecutively run the simulations of the four phases.
+
+        Simulation order: TransitionRORIPhase → RetractionPhase → TransitionRIROPhase →
+        TractionPhase.
 
         Args:
             system_properties (`SystemProperties`): Collection of system properties.
             environment_state (`Environment` or child): Specification of environment.
-            steady_state_config (dict, optional): Iterative procedure settings for finding the steady state.
-            enable_limit_violation_error (bool, optional): Flag specifying whether to raise an error when the reeling
-                speed or tether force limit is violated in retraction and traction phase.
+            steady_state_config (dict, optional): Iterative procedure settings for finding the
+                steady state.
+            enable_limit_violation_error (bool, optional): Flag specifying whether to raise an
+                error when the reeling speed or tether force limit is violated in retraction and
+                traction phase.
             print_summary (bool, optional): Print cycle performance summary to screen if True.
 
         Returns:
-            str: Phase for which the simulation does not seem to reach end criteria, should be either: 'retraction' or
-                'traction'.
+            str: Phase for which the simulation does not seem to reach end criteria.
             float: Time average of the produced power [W].
 
         """
@@ -2116,30 +2222,63 @@ class Cycle(TimeSeries):
         error_in_phase = None
         reorder = True
 
-        # Start with running the retraction phase, since its start and stop conditions are predefined.
-        retr = self.retraction_phase
-        retr.follow_wind = self.follow_wind
-        retr.enable_limit_violation_error = enable_limit_violation_error
-
         # Configure the traction phase attributes that get_elevation_angle depends on,
-        # so the retraction start elevation can be derived before running any phase.
+        # so the traction end elevation can be derived analytically before running any phase.
         self.traction_phase.elevation_angle = TractionElevation(
             self.elevation_angle_traction,
             self.tether_length_end_retraction,
-            self.tether_length_start_retraction,
+            self.tether_length_end_traction,
         )
-        self.traction_phase.tether_length_end = self.tether_length_start_retraction
+        self.traction_phase.tether_length_end = self.tether_length_end_traction
 
-        # Set start and stop conditions of retraction phase.
-        retr.tether_length_start = self.tether_length_start_retraction
-        retr.tether_length_end = self.tether_length_end_retraction
-        retr.elevation_angle_start = self.traction_phase.get_elevation_angle(
+        # --- Step 1: Run TransitionRORIPhase ---
+        # Start at the traction end elevation (same check as previously used for retraction start).
+        trans_rori = self.transition_rori_phase
+        trans_rori.follow_wind = self.follow_wind
+        trans_rori.enable_limit_violation_error = False
+        trans_rori.tether_length_start = self.tether_length_end_traction
+        trans_rori.elevation_angle_start = self.traction_phase.get_elevation_angle(
             system_properties, env_trac, steady_state_config
         )
-        retr.finalize_start_and_end_kite_obj()
+        trans_rori.finalize_start_and_end_kite_obj()
 
         try:
-            retr.run_simulation(system_properties, env_retr, steady_state_config, 0.)
+            trans_rori.run_simulation(system_properties, env_trans, steady_state_config, 0.)
+        except PhaseError as e:
+            if e.code not in [1, 3]:
+                raise
+            trans_rori.energy = 0.
+            trans_rori.duration = 0.01
+        last_kinematics = trans_rori.kinematics[-1]
+        last_straight_tether_length = last_kinematics.straight_tether_length
+
+        # Warn if the RORI transition reeled out past the physical drum limit.
+        max_tether_length = system_properties.max_tether_length
+        if max_tether_length is not None and last_straight_tether_length > max_tether_length + 1e-3:
+            import warnings
+            warnings.warn(
+                f"TransitionRORIPhase exceeded max tether length: "
+                f"end tether length = {last_straight_tether_length:.2f} m > "
+                f"max = {max_tether_length:.2f} m. "
+                f"Reduce 'tether_length_end_traction' (currently "
+                f"{self.tether_length_end_traction:.2f} m = "
+                f"{self.tether_length_end_traction / max_tether_length:.2f} × max) "
+                f"to leave headroom for the powered RORI transition.",
+                stacklevel=2,
+            )
+
+        # --- Step 2: Run RetractionPhase ---
+        retr = self.retraction_phase
+        retr.follow_wind = self.follow_wind
+        retr.enable_limit_violation_error = enable_limit_violation_error
+        retr.tether_length_start = last_straight_tether_length
+        retr.tether_length_end = self.tether_length_end_retraction
+        retr.elevation_angle_start = last_kinematics.elevation_angle
+        retr.finalize_start_and_end_kite_obj()
+
+        timer_start = 0 if reorder else trans_rori.time[-1]
+        try:
+            retr.run_simulation(system_properties, env_retr, steady_state_config, timer_start)
             last_straight_tether_length = retr.kinematics[-1].straight_tether_length
         except PhaseError as e:
             if e.code not in [1, 3]:  # Simulation does not seem to reach end criteria.
@@ -2149,29 +2288,27 @@ class Cycle(TimeSeries):
             retr.duration = 100.
             error_in_phase = "retraction"
         last_kinematics = retr.kinematics[-1]
-        last_time = retr.time[-1]
 
-        # Second, run the transition phase.
-        trans = self.transition_phase
-        trans.follow_wind = self.follow_wind
-        trans.enable_limit_violation_error = False
-        trans.tether_length_start = last_straight_tether_length
-        trans.elevation_angle_start = last_kinematics.elevation_angle
+        # --- Step 3: Run TransitionRIROPhase ---
+        trans_riro = self.transition_riro_phase
+        trans_riro.follow_wind = self.follow_wind
+        trans_riro.enable_limit_violation_error = False
+        trans_riro.tether_length_start = last_straight_tether_length
+        trans_riro.elevation_angle_start = last_kinematics.elevation_angle
 
-        timer_start = 0 if reorder else last_time
+        timer_start = 0 if reorder else retr.time[-1]
 
         trac = self.traction_phase
         elev_traction = np.asarray(self.elevation_angle_traction).flatten()
         nominal_elevation_angle = float(elev_traction[0])
-        trans.run_simulation_converged(
+        trans_riro.run_simulation_converged(
             trac, system_properties, env_trans, env_trac,
             steady_state_config, timer_start, nominal_elevation_angle,
         )
 
-        last_kinematics = trans.kinematics[-1]
-        last_time = trans.time[-1]
+        last_kinematics = trans_riro.kinematics[-1]
 
-        # Third, run the traction phase.
+        # --- Step 4: Run TractionPhase ---
         trac.follow_wind = self.follow_wind
         trac.enable_limit_violation_error = enable_limit_violation_error
 
@@ -2185,6 +2322,7 @@ class Cycle(TimeSeries):
             trac.tether_length_start = self.tether_length_start_traction
         trac.finalize_start_and_end_kite_obj()
 
+        last_time = trans_riro.time[-1]
         try:
             if trac.__class__.__name__ == "TractionPhaseHybrid":
                 trac.run_simulation(system_properties, env_trac, steady_state_config, last_time,
@@ -2198,38 +2336,44 @@ class Cycle(TimeSeries):
             trac.energy = -1e2
             trac.duration = 1.
             error_in_phase = "traction"
-        last_time = trac.time[-1]
 
-        # Resulting time series
+        # Resulting time series: reassemble to start with traction phase.
         if reorder:
-            # Reassemble cycle to start with traction while keeping a continuous time axis.
             trac_time = [t - trac.time[0] for t in trac.time]
-            retr_time = [t - retr.time[0] + trac_time[-1] for t in retr.time]
-            trans_time = [t - trans.time[0] + retr_time[-1] for t in trans.time]
+            trans_rori_time = [t - trans_rori.time[0] + trac_time[-1] for t in trans_rori.time]
+            retr_time = [t - retr.time[0] + trans_rori_time[-1] for t in retr.time]
+            trans_riro_time = [t - trans_riro.time[0] + retr_time[-1] for t in trans_riro.time]
 
-            self.time = trac_time + retr_time + trans_time
-            self.kinematics = trac.kinematics + retr.kinematics + trans.kinematics
-            self.steady_states = trac.steady_states + retr.steady_states + trans.steady_states
+            self.time = trac_time + trans_rori_time + retr_time + trans_riro_time
+            self.kinematics = (trac.kinematics + trans_rori.kinematics
+                               + retr.kinematics + trans_riro.kinematics)
+            self.steady_states = (trac.steady_states + trans_rori.steady_states
+                                  + retr.steady_states + trans_riro.steady_states)
         else:
-            self.time = retr.time + trans.time + trac.time
-            self.kinematics = retr.kinematics + trans.kinematics + trac.kinematics
-            self.steady_states = retr.steady_states + trans.steady_states + trac.steady_states
+            self.time = trans_rori.time + retr.time + trans_riro.time + trac.time
+            self.kinematics = (trans_rori.kinematics + retr.kinematics
+                               + trans_riro.kinematics + trac.kinematics)
+            self.steady_states = (trans_rori.steady_states + retr.steady_states
+                                  + trans_riro.steady_states + trac.steady_states)
+
         self.energy = trac.energy + retr.energy
         if self.include_transition_energy:
-            self.energy += trans.energy
+            self.energy += trans_riro.energy + trans_rori.energy
         self.duration = self.time[-1]
         self.average_power = self.energy / self.time[-1]
 
         if print_summary:
-            print("Total cycle: {:.1f} seconds in which {:.0f}J energy produced.".format(self.time[-1], self.energy))
+            print("Total cycle: {:.1f} seconds in which {:.0f}J energy produced.".format(
+                self.time[-1], self.energy))
             print("Mean cycle power: {:.1f}W".format(self.average_power))
-            print("Retraction power: {:.1f}W".format(retr.average_power))
-            print("Transition power: {:.1f}W".format(trans.average_power))
             print("Traction power: {:.1f}W".format(trac.average_power))
+            print("TransitionRORIPhase power: {:.1f}W".format(trans_rori.average_power))
+            print("Retraction power: {:.1f}W".format(retr.average_power))
+            print("TransitionRIROPhase power: {:.1f}W".format(trans_riro.average_power))
 
-        self.duty_cycle = trac.duration/self.duration
+        self.duty_cycle = trac.duration / self.duration
         try:
-            self.pumping_efficiency = self.energy/trac.energy
+            self.pumping_efficiency = self.energy / trac.energy
         except FloatingPointError:
             self.pumping_efficiency = 0.
 
@@ -2246,6 +2390,7 @@ class Cycle(TimeSeries):
             plt.figure()
         fig_num = plt.gcf().number
         plot_kwargs = {'color': 'k'}
-        self.retraction_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
-        self.transition_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
         self.traction_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
+        self.transition_rori_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
+        self.retraction_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)
+        self.transition_riro_phase.trajectory_plot3d(fig_num=fig_num, animation=False, plot_kwargs=plot_kwargs)

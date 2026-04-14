@@ -374,12 +374,17 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     fig.suptitle(title, fontsize=14, fontweight='bold')
 
-    # Phase boundary indices in the reordered time series
-    # (traction -> retraction -> transition).
+    # Phase boundary indices in the reordered time series:
+    # traction → transition_rori → retraction → transition_riro
     reelOutTime = timing['reel_out_time']
+    transRoriTime = timing.get('transition_rori_time', 0.0)
     reelInTime = timing['reel_in_time']
-    reelInStartIdx = np.searchsorted(time, reelOutTime)
-    transitionStartIdx = np.searchsorted(time, reelOutTime + reelInTime)
+    # Fall back to legacy key for files produced before the RORI phase was added.
+    transRiroTime = timing.get('transition_riro_time', timing.get('transition_time', 0.0))
+
+    transRoriStartIdx = np.searchsorted(time, reelOutTime)
+    reelInStartIdx = np.searchsorted(time, reelOutTime + transRoriTime)
+    transRiroStartIdx = np.searchsorted(time, reelOutTime + transRoriTime + reelInTime)
 
     # Altitude
     ax = axAlt
@@ -388,19 +393,19 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.set_ylabel('Altitude (m)')
     ax.set_title('Kite Altitude', fontweight='bold')
     ax.grid(True, alpha=0.3)
+    ax.axvline(x=time[transRoriStartIdx], color='darkorange', linestyle=':', alpha=0.5, label='Start trans. RORI')
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5, label='Start reel-in')
-    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5, label='Start transition')
+    ax.axvline(x=time[transRiroStartIdx], color='green', linestyle=':', alpha=0.5, label='Start trans. RIRO')
     ax.legend()
-
-    # Tether force
     ax = axTf
     ax.plot(time, tetherForce / 1000, color='orangered', label='Tether force')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Tether Force (kN)')
     ax.set_title('Tether Force', fontweight='bold')
     ax.grid(True, alpha=0.3)
+    ax.axvline(x=time[transRoriStartIdx], color='darkorange', linestyle=':', alpha=0.5)
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transRiroStartIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend()
 
     # Instantaneous power
@@ -410,8 +415,9 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.set_ylabel('Power (kW)')
     ax.set_title('Instantaneous Power', fontweight='bold')
     ax.grid(True, alpha=0.3)
+    ax.axvline(x=time[transRoriStartIdx], color='darkorange', linestyle=':', alpha=0.5)
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transRiroStartIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend()
 
     # Reel speed (left axis) + reeling factor (right axis)
@@ -421,8 +427,9 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.set_ylabel('Reel Speed (m/s)')
     ax.set_title('Tether Reel Speed', fontweight='bold')
     ax.grid(True, alpha=0.3)
+    ax.axvline(x=time[transRoriStartIdx], color='darkorange', linestyle=':', alpha=0.5)
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transRiroStartIdx], color='green', linestyle=':', alpha=0.5)
 
     if windSpeedArr.size == reelSpeed.size and np.all(windSpeedArr > 0):
         reelingFactor = reelSpeed / windSpeedArr
@@ -444,8 +451,9 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.set_ylabel('Tether Length (m)')
     ax.set_title('Tether Length', fontweight='bold')
     ax.grid(True, alpha=0.3)
+    ax.axvline(x=time[transRoriStartIdx], color='darkorange', linestyle=':', alpha=0.5)
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transRiroStartIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend()
 
     # Elevation angle
@@ -455,8 +463,9 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     ax.set_ylabel('Elevation Angle (deg)')
     ax.set_title('Elevation Angle', fontweight='bold')
     ax.grid(True, alpha=0.3)
+    ax.axvline(x=time[transRoriStartIdx], color='darkorange', linestyle=':', alpha=0.5)
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transRiroStartIdx], color='green', linestyle=':', alpha=0.5)
     ax.legend()
 
     # 2-D trajectory (side view): horizontal distance vs altitude
@@ -464,19 +473,24 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     ax = axTraj
     ax.plot(
-        horizontalDist[:reelInStartIdx + 1],
-        altitude[:reelInStartIdx + 1],
+        horizontalDist[:transRoriStartIdx + 1],
+        altitude[:transRoriStartIdx + 1],
         color='steelblue', label='Reel-out', marker='o', markersize=2
     )
     ax.plot(
-        horizontalDist[reelInStartIdx:transitionStartIdx + 1],
-        altitude[reelInStartIdx:transitionStartIdx + 1],
+        horizontalDist[transRoriStartIdx:reelInStartIdx + 1],
+        altitude[transRoriStartIdx:reelInStartIdx + 1],
+        color='darkorange', label='Trans. RORI', linestyle='-', marker='D', markersize=2
+    )
+    ax.plot(
+        horizontalDist[reelInStartIdx:transRiroStartIdx + 1],
+        altitude[reelInStartIdx:transRiroStartIdx + 1],
         color='orangered', label='Reel-in', linestyle='--', marker='s', markersize=2
     )
     ax.plot(
-        horizontalDist[transitionStartIdx:],
-        altitude[transitionStartIdx:],
-        color='green', label='Transition', linestyle='-', marker='^', markersize=2
+        horizontalDist[transRiroStartIdx:],
+        altitude[transRiroStartIdx:],
+        color='green', label='Trans. RIRO', linestyle='-', marker='^', markersize=2
     )
     ax.set_xlabel('Horizontal Distance (m)')
     ax.set_ylabel('Altitude (m)')
@@ -535,8 +549,9 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
                      label='Wind speed at kite')
         linesLeft.append(l)
 
+    ax.axvline(x=time[transRoriStartIdx], color='darkorange', linestyle=':', alpha=0.5)
     ax.axvline(x=time[reelInStartIdx], color='blue', linestyle=':', alpha=0.5)
-    ax.axvline(x=time[transitionStartIdx], color='green', linestyle=':', alpha=0.5)
+    ax.axvline(x=time[transRiroStartIdx], color='green', linestyle=':', alpha=0.5)
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Wind speed at kite (m/s)', color='steelblue')
     ax.tick_params(axis='y', labelcolor='steelblue')
