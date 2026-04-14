@@ -6,7 +6,7 @@ simulation or sequential optimization with warm starts. It includes constraint
 handling and detailed diagnostics.
 
 All wind speeds are referenced at the height specified in the wind_resource.yml
-metadata (reference_height_m). The model uses the wind profile to derive wind
+metadata (reference_height). The model uses the wind profile to derive wind
 speeds at operating altitudes.
 """
 
@@ -83,7 +83,7 @@ class PowerCurveConstructor:
 
         # Reference height from wind resource metadata
         self.reference_height = self.wind_resource.get('metadata', {}).get(
-            'reference_height_m'
+            'reference_height'
         )
 
         # Number of clusters
@@ -128,7 +128,7 @@ class PowerCurveConstructor:
             cluster = clusters[cluster_id]
 
         env_state = NormalisedWindTable1D()
-        env_state.h_ref = self.wind_resource.get('metadata', {}).get('reference_height_m')
+        env_state.h_ref = self.wind_resource.get('metadata', {}).get('reference_height')
         env_state.heights = list(self.wind_resource['altitudes'])
         env_state.normalised_wind_speeds = list(np.array(cluster.get('u_normalized', [])))
         env_state.set_reference_height(env_state.h_ref)

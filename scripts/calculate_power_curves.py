@@ -43,14 +43,24 @@ if __name__ == "__main__":
     
     # constructor.print_summary()
     
-    # # Generate power curves using direct simulation
-    # result = constructor.generate_power_curves_direct(
+    # Generate power curves using direct simulation
+    result = constructor.generate_power_curves_direct(
+        cluster_ids=None,
+        output_path=OUTPUT_PATH_DIRECT,
+        verbose=True,
+        show_plot=False,
+        save_plot=True, 
+        validate_file=True
+    )
+
+    # # Generate power curves using optimized simulation
+    # result = constructor.generate_power_curves_optimized(
     #     cluster_ids=None,
-    #     output_path=OUTPUT_PATH_DIRECT,
+    #     output_path=OUTPUT_PATH_OPTIMIZED,
     #     verbose=True,
     #     show_plot=False,
-    #     save_plot=True, 
-    #     validate_file=True
+    #     save_plot=True,
+    #     validate_file=True,
     # )
 
     # # Generate power curves using optimized simulation
