@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from copy import copy
 from scipy.optimize import brentq
-from scipy.interpolate import make_interp_spline
+from scipy.interpolate import BSpline
 
 try:
     from .utils import zip_el, plot_traces
@@ -1596,12 +1596,21 @@ class TractionElevation:
         elev = np.asarray(self.elevation_angle).flatten()
         if elev.size == 1:
             return float(elev[0])
-        tether_lengths = np.linspace(self.tether_length_start, self.tether_length_end, elev.size)
-        # Clamp query point to the interpolation domain before evaluating.
-        tether_length_clamped = float(np.clip(tether_length, tether_lengths[0], tether_lengths[-1]))
-        k = min(3, elev.size - 1)  # cubic where possible, linear for 2 points
-        spline = make_interp_spline(tether_lengths, elev, k=k)
-        return float(spline(tether_length_clamped))
+        n = elev.size
+        k = min(3, n - 1)
+        tl0 = float(self.tether_length_start)
+        tl1 = float(self.tether_length_end)
+        # Build a clamped uniform B-spline knot vector.
+        # The curve starts/ends exactly at the first/last control point (clamped)
+        # and smoothly blends through interior control points without necessarily
+        # passing through them — giving a globally smooth elevation profile.
+        # The convex hull property guarantees the curve stays within the bounds
+        # of the control values.
+        n_interior = max(0, n - k - 1)
+        interior_knots = np.linspace(tl0, tl1, n_interior + 2)[1:-1]
+        t = np.concatenate([[tl0] * (k + 1), interior_knots, [tl1] * (k + 1)])
+        tether_length_clamped = float(np.clip(tether_length, tl0, tl1))
+        return float(BSpline(t, elev, k)(tether_length_clamped))
 
 
 class TractionPhase(Phase):

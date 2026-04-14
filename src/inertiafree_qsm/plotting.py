@@ -603,6 +603,7 @@ _VAR_LABEL_MAP = {
     'reeling_speed_in': r'$v_\mathrm{reel,in}$ (m/s)',
     'frac_end': r'$\ell_\mathrm{end}/\ell_\mathrm{max}$ (−)',
     'frac_start': r'$\ell_\mathrm{start}/\ell_\mathrm{max}$ (−)',
+    'elevation_end_rori': r'$\beta_\mathrm{end,RORI}$ (deg)',
 }
 
 
@@ -664,14 +665,16 @@ def plot_optimization_evolution(history, wind_speed, var_names=None,
                    r'$\ell_\mathrm{end}$', r'$\ell_\mathrm{start}$']
         labels = _legacy[:nVars]
 
-    # Separate base variables from elevation angle variables for cleaner panels.
-    elevIndices = [i for i, n in enumerate(var_names or [])
-                   if n.startswith('elevation_')]
-    baseIndices = [i for i in range(nVars) if i not in elevIndices]
+    # Separate traction elevation angles from all other variables.
+    # Only names of the form 'elevation_<int>' are traction angles; elevation_end_rori
+    # is a base variable and goes in the base-variables panel.
+    tracElev_indices = [i for i, n in enumerate(var_names or [])
+                        if n.startswith('elevation_') and n.split('_')[1].isdigit()]
+    baseIndices = [i for i in range(nVars) if i not in tracElev_indices]
 
     nPanels = 2
-    if elevIndices:
-        nPanels = 3   # power | base vars | elevation vars
+    if tracElev_indices:
+        nPanels = 3   # power | base vars | traction elevation angles
     fig, axes = plt.subplots(nPanels, 1, figsize=(10, 4 * nPanels))
     if nPanels == 1:
         axes = [axes]
@@ -698,21 +701,21 @@ def plot_optimization_evolution(history, wind_speed, var_names=None,
         ax.plot(evaluations, values, 'o-', alpha=0.6, markersize=3, label=labels[i])
     ax.set_xlabel('Function evaluation')
     ax.set_ylabel('Variable value')
-    ax.set_title('Base decision variables', fontweight='bold')
+    ax.set_title('Decision variables', fontweight='bold')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    # --- Elevation angle evolution (only when present) ---
-    if elevIndices:
+    # --- Traction elevation angle evolution (only when present) ---
+    if tracElev_indices:
         ax = axes[2]
-        for i in elevIndices:
+        for i in tracElev_indices:
             values = [h['x'][i] for h in history]
             ax.plot(evaluations, values, 'o-', alpha=0.6, markersize=3,
                     label=labels[i])
         ax.set_xlabel('Function evaluation')
         ax.set_ylabel('Elevation angle (deg)')
         ax.set_title('Traction elevation angles', fontweight='bold')
-        ax.legend(ncol=max(1, len(elevIndices) // 8))
+        ax.legend(ncol=max(1, len(tracElev_indices) // 8))
         ax.grid(True, alpha=0.3)
 
     plt.tight_layout()

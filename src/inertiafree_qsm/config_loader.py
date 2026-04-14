@@ -115,7 +115,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'tether_diameter': tether_structure.get('diameter'),
         'tether_force_min_limit': tether_force_min_limit,
         'tether_force_max_limit': tether_force_max_limit,
-        'reeling_speed_min_limit': drum.get('min_tether_speed'),
+        'reeling_speed_min_limit': 0,
         'reeling_speed_max_limit': drum.get('max_tether_speed'),
         'max_tether_length': tether_structure.get('length'),
         'max_generator_power': ground_station.get('generator', {}).get('max_power'),
@@ -263,15 +263,13 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     opt_constraints_cfg = opt_config.get('constraints') or {}
 
     x0_list = list(opt_optimizer.get('x0', []))
-    elev_end_rori_x0_deg = float(opt_optimizer.get(
-        'x0_elevation_angle_end_trans_rori', elev_end_rori_deg
-    ))
-    elev_end_rori_scaling = float(opt_optimizer.get('scaling_elevation_angle_end_trans_rori', 1.0))
 
-    start_min = float(opt_bounds_cfg.get('fraction_tether_length_retraction_start_min',
-                       opt_bounds_cfg.get('tether_length_start_fraction_min'))) * max_tether_length
-    start_max = float(opt_bounds_cfg.get('fraction_tether_length_retraction_start_max',
-                       opt_bounds_cfg.get('tether_length_start_fraction_max'))) * max_tether_length
+    start_min = float(opt_bounds_cfg.get('fraction_tether_length_traction_end_min',
+                       opt_bounds_cfg.get('fraction_tether_length_retraction_start_min',
+                       opt_bounds_cfg.get('tether_length_start_fraction_min')))) * max_tether_length
+    start_max = float(opt_bounds_cfg.get('fraction_tether_length_traction_end_max',
+                       opt_bounds_cfg.get('fraction_tether_length_retraction_start_max',
+                       opt_bounds_cfg.get('tether_length_start_fraction_max')))) * max_tether_length
     end_min = float(opt_bounds_cfg.get('fraction_tether_length_retraction_end_min',
                      opt_bounds_cfg.get('tether_length_end_fraction_min'))) * max_tether_length
     end_max = float(opt_bounds_cfg.get('fraction_tether_length_retraction_end_max',
@@ -316,12 +314,10 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
                 'traction': float(opt_timestep_cfg['traction'])
                     if 'traction' in opt_timestep_cfg else None,
             },
-            'x0_elevation_angle_end_trans_rori': elev_end_rori_x0_deg,
-            'scaling_elevation_angle_end_trans_rori': elev_end_rori_scaling,
             'optimize_variables': {
                 'reeling_speed_traction': bool(opt_optimize_vars.get('reeling_speed_traction', True)),
                 'reeling_speed_retraction': bool(opt_optimize_vars.get('reeling_speed_retraction', True)),
-                'fraction_tether_length_retraction_start': bool(opt_optimize_vars.get('fraction_tether_length_retraction_start', True)),
+                'fraction_tether_length_traction_end': bool(opt_optimize_vars.get('fraction_tether_length_traction_end', opt_optimize_vars.get('fraction_tether_length_retraction_start', True))),
                 'fraction_tether_length_retraction_end': bool(opt_optimize_vars.get('fraction_tether_length_retraction_end', True)),
                 'elevation_angle_traction': bool(opt_optimize_vars.get('elevation_angle_traction', False)),
                 'elevation_angle_end_trans_rori': bool(opt_optimize_vars.get('elevation_angle_end_trans_rori', False)),

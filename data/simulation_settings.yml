@@ -5,26 +5,26 @@
 # AERODYNAMIC SETTINGS
 # ============================================================================
 aerodynamics:
-  kite_lift_coefficient_reel_out: 0.71
-  kite_drag_coefficient_reel_out: 0.18
-  kite_lift_coefficient_reel_in: 0.39 
+  kite_lift_coefficient_reel_out: 0.63
+  kite_drag_coefficient_reel_out: 0.14
+  kite_lift_coefficient_reel_in: 0.4 
   kite_drag_coefficient_reel_in: 0.12
   tether_drag_coefficient: 1.1
 # ============================================================================
 # DIRECT SIMULATION SETTINGS
 # ============================================================================
 # Settings for the non-optimized direct simulation method
-# This method is faster but uses pre-defined cycle parameters
+# This method is faster but uses pre-defined cycle parameters set in CYCLE SETTINGS
 
 direct_simulation:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s]
-    cut_in: 3.0
+    cut_in: 6.0
     # Maximum wind speed [m/s]
-    cut_out: 20.0
+    cut_out: 25.0
     # Number of points to calculate (determines spacing)
-    n_points: 30
+    n_points: 20
 
     # Fine resolution settings near cut-out wind speed
     # These add extra points near the cut-out to capture system behavior
@@ -36,6 +36,7 @@ direct_simulation:
       # Fine points will span from (cut_out - range_m_s) to (cut_out - 0.05)
       range_m_s: 2.0
 
+
 # ============================================================================
 # OPTIMIZATION SETTINGS
 # ============================================================================
@@ -46,11 +47,11 @@ optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s]
-    cut_in: 3.0
+    cut_in: 6.0
     # Maximum wind speed [m/s]
-    cut_out: 20.0
+    cut_out: 25.0
     # Number of points to calculate (determines spacing)
-    n_points: 5
+    n_points: 20
 
     # Fine resolution settings near cut-out wind speed
     # These add extra points near the cut-out to capture system behavior
@@ -64,65 +65,68 @@ optimization:
 
   # SLSQP optimizer configuration
   optimizer:
+    optimize_variables:
+      reeling_speed_traction: true
+      reeling_speed_retraction: true
+      fraction_tether_length_traction_end: true
+      fraction_tether_length_retraction_end: true
+      elevation_angle_traction: true
+      elevation_angle_end_trans_rori: true
+
+    opt_phase_timestep:
+      retraction: 2.5
+      transition: 0.05
+      traction: 2.5
+
     # Maximum number of iterations per wind speed point
-    max_iterations: 30
+    max_iterations: 200
     # Function tolerance for convergence
-    ftol: 1.0e-4
+    ftol: 1.0e-3
     # Finite difference step size for gradient estimation
-    eps: 1.0e-3
-    # Optimizer starting point: [force_out_N, force_in_N, elevation_deg,
-    #   tether_length_start_m, tether_length_end_m]
-    x0: [5000, 300, 30.0, 270, 150]
-    # Variable scaling factors (maps variables to similar search ranges)
-    scaling: [1.0e-4, 1.0e-4, 0.1, 1.0e-3, 1.0e-3]
+    eps: 1.0e-4
+    # Optimizer starting point: [reeling_speed_out, reeling_speed_in,
+    #   fraction_tether_length_retraction_end, fraction_tether_length_traction_end,
+    #   elevation_angle_traction (degrees, applied equally to all N points in the array),
+    #   elevation_angle_end_trans_rori (degrees)]
+    x0: [2, -2, 0.65, 0.9, 30.0, 50.0]
+    # Variable scaling factors — convention: x_scaled = x / scaling
+    # This normalises variables to a similar search range (~O(1)).
+    # elevation_angle_traction: scaling=30 → bounds [10°,70°]/30 = [0.33, 2.33]; x0=30°/30=1.0
+    # elevation_angle_end_trans_rori: scaling=1 → bounds [30°,80°]/1
+    scaling: [1, 1, 1, 1, 30, 1]
 
   # Optimizer bounds (where not derived from system properties)
   bounds:
-    # Elevation angle bounds [degrees]
-    elevation_angle_min: 20.0
-    elevation_angle_max: 80.0
+    # Reeling speed bounds for traction and retraction phases
+    reeling_speed_traction_min: 0.5
+    reeling_speed_traction_max: 6.0
+    reeling_speed_retraction_min: -8.0
+    reeling_speed_retraction_max: -0.5
+
     # Tether length bounds as fractions of max_tether_length
-    tether_length_start_fraction_min: 0.7
-    tether_length_start_fraction_max: 1.0
-    tether_length_end_fraction_min: 0.3
-    tether_length_end_fraction_max: 0.5
+    fraction_tether_length_traction_end_min: 0.8
+    fraction_tether_length_traction_end_max: 0.95
+    fraction_tether_length_retraction_end_min: 0.4
+    fraction_tether_length_retraction_end_max: 0.8
 
-  # Optimizer inequality constraints
-  # All four constraints are of the form g_i(x) >= 0 (SLSQP convention).
+    # Elevation angle bounds for traction phase [degrees]
+    elevation_angle_traction_min: 5.0
+    elevation_angle_traction_max: 50.0
+
+    # Elevation angle bounds for RORI transition phase end [degrees]
+    elevation_angle_end_trans_rori_min: 30.0
+    elevation_angle_end_trans_rori_max: 80.0
+  
+
+  # Optimizer constraints
   constraints:
-    # Constraint 0 – Reel-out force setpoint tracking
-    #   When the maximum reel-out speed limit overrides the tether force
-    #   setpoint, the x0 force variable no longer affects the simulation.
-    #   This constraint anchors it to the minimum tether force actually
-    #   observed during traction:
-    #     (F_out_min_actual - F_out_setpoint) * 1e-2 + 1e-6 >= 0
-    #   The scaling factor (1e-2) and tolerance (1e-6) are fixed numerics
-    #   and are not user-configurable.
-
-    # Constraint 1 – Reel-in force setpoint tracking
-    #   Same principle for retraction: when the maximum reel-in speed limit
-    #   overrides the force setpoint, this drives x1 toward the maximum
-    #   tether force observed during retraction:
-    #     (F_in_max_actual - F_in_setpoint) * 1e-2 + 1e-6 >= 0
-
-    # Constraint 2 – Peak tether force within structural limit
-    #   Prevents the peak tether force during traction from exceeding the
-    #   system's maximum tether force limit (tether_force_max_limit from the
-    #   system config). The limit itself is a system property and is not
-    #   repeated here:
-    #     -(F_out_max_actual - F_max_limit) / F_max_limit + 1e-6 >= 0
-
-    # Constraint 3 – Minimum crosswind patterns during traction
-    #   Ensures the reel-out phase contains at least this many complete
-    #   figure-of-eight crosswind patterns, which is used as a physical
-    #   realism guard:
-    #     n_crosswind_patterns - min_crosswind_patterns >= 0
-    # Constraint 4 – Minimum tether length excursion
-    #   Ensures the cycle reels in a meaningful amount of tether, preventing
-    #   the optimizer from collapsing the retraction phase:
-    #     frac_start - frac_end >= min_tether_length_fraction_difference
-    min_tether_length_fraction_difference: 0.05
-    min_crosswind_patterns: 1
+    # Minimum difference between retraction start and end tether length fractions [-]
+    # Ensures the cycle reels in a meaningful amount of tether:
+    #   frac_start - frac_end >= min_tether_length_fraction_difference
+    min_tether_length_fraction_difference: 0.1
+    # Maximum allowed difference in elevation angle between steps (degrees)
+    max_difference_elevation_angle_steps: 10.0
+    
 
 # ============================================================================
 # CYCLE CONFIGURATION
@@ -130,22 +134,27 @@ optimization:
 # Cycle parameters for simulation
 
 cycle:
-
-  minimum_tether_force: 1000.0 # Minimum tether force (N)
+  minimum_tether_force: 750.0 # Minimum tether force (N)
   # Elevation angle during traction phase [degrees]
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
-  elevation_angle_traction: 35
+
+  minimum_height: 50.0 # Minimum height of the kite during the cycle (m)
+
+  elevation_angle_traction: [30.0, 30.0, 30.0]
 
   # Tether length at end of traction phase as fraction of max tether length [-]
   # (= start of RORI transition; must be < 1.0 to leave reel-out headroom)
-  tether_length_end_traction: 1.0
+  tether_length_end_traction: 0.95
 
   # Tether length at end of retraction as fraction of max tether length [-]
-  tether_length_end_retraction: 0.71
+  tether_length_end_retraction: 0.65
 
   # Include transition phase energy in cycle energy calculation
   include_transition_energy: true
+
+  # Prescribed elevation angle at which the RORI transition phase ends and retraction begins [degrees]
+  elevation_angle_end_trans_rori: 50.0
 
 # ============================================================================
 # PHASE SETTINGS
@@ -158,15 +167,15 @@ retraction:
   #   or [control_parameter, setpoint_value]
   # Options: 'tether_force_ground', 'tether_force_kite', 'reeling_factor', 'reeling_speed'
   # Speed-controlled reel-in followed by force-control when the lower limit is reached.
-  control: ['reeling_speed', -1.75]
+  control: ['reeling_speed', -2.0]
   # Time step for simulation [s]
-  time_step: 0.05
+  time_step: 0.25
   # Azimuth angle [degrees]
   azimuth_angle: 0.0
   # Course angle [degrees]
   course_angle: 180.0
 
-transition:
+transition_riro:
   # Control setting for transition phase
   control: ['reeling_speed', 0]
   # Time step for simulation [s]
@@ -186,16 +195,14 @@ transition_rori:
   azimuth_angle: 0.0
   # Course angle [degrees]
   course_angle: 180.0
-  # Prescribed elevation angle at which this phase ends and retraction begins [degrees]
-  elevation_angle_end: 40.0
 
 traction:
   # Control setting for traction phase:
   #   [control_parameter, setpoint_value]
   #   or [control_parameter, setpoint_value]
-  control: ['reeling_factor', 0.2]
+  control: ['reeling_speed', 2.0]
   # Time step for simulation [s]
-  time_step: 0.05
+  time_step: 0.25
   # Azimuth angle [degrees]
   azimuth_angle: 11.5
   # Course angle [degrees]
@@ -225,7 +232,7 @@ phase_solver:
 # CROSSWIND PATTERN SETTINGS
 # ============================================================================
 # Settings for the crosswind pattern estimation (TractionPhaseHybrid)
-
+# CURRENTLY NOT IN USE, NEEDS TO BE INTEGRATED
 crosswind_pattern:
   # Number of representative traction points for pattern estimation
   n_traction_points: 6

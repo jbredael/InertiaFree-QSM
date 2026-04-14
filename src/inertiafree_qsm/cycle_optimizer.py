@@ -23,7 +23,7 @@ class CycleOptimizer:
     simulation settings.  The four base variables are:
         [reeling_speed_out, reeling_speed_in,
          fraction_tether_length_retraction_end,
-         fraction_tether_length_retraction_start]
+         fraction_tether_length_traction_end]
     When ``elevation_angle_traction`` is enabled (and regime 3 does not
     dominate the full traction phase), N additional elevation angle values
     (one per entry in ``cycle.elevation_angle_traction``) are appended.
@@ -101,7 +101,8 @@ class CycleOptimizer:
                 ('frac_end', x0_frac_end, (fracEndMin, fracEndMax), sc)
             )
 
-        if self.opt_vars.get('fraction_tether_length_retraction_start', True):
+        if self.opt_vars.get('fraction_tether_length_traction_end',
+                              self.opt_vars.get('fraction_tether_length_retraction_start', True)):
             x0_frac_start = x0_base[3] if len(x0_base) > 3 else self._nominal_frac_start
             sc = scaling_base[3] if len(scaling_base) > 3 else 1.0
             self._var_specs.append(
@@ -112,17 +113,21 @@ class CycleOptimizer:
         self._optimise_elevation = bool(self.opt_vars.get('elevation_angle_traction', False))
         self._elev_bounds = self.boundsDict['elevation_angle_traction']  # (lo_rad, hi_rad)
         # Elevation variables are stored in DEGREES in the optimizer.
-        # x0_base[4], x0_base[5], … hold the per-angle starting values (one per
-        # elevation angle in the traction phase).  When fewer entries are present
-        # in x0_base than the number of angles, the single value at index 4 is
-        # broadcast to all angles.
-        # scaling convention is x_scaled = x / scaling, so scaling=30 normalises 30° → 1.
-        # Per-angle starting values: x0_base[4], x0_base[5], … up to _n_elev entries.
-        # Falls back to x0_base[4] (or the nominal angle) for all angles when fewer
-        # values are provided (e.g. on the very first wind speed before any warm start).
+        # x0_base[4..4+N-1] hold the per-angle starting values; x0_base[-1] holds
+        # elevation_end_rori when that variable is optimised and embedded in the array.
+        # Determine if RORI end elevation is embedded as the last element of x0_base.
+        # When elevation_angle_end_trans_rori is optimised AND the x0 array has been
+        # extended (len > 5), the last entry encodes that variable's starting value.
+        _rori_in_x0 = (
+            bool(self.opt_vars.get('elevation_angle_end_trans_rori', False))
+            and len(x0_base) > 5
+        )
+        # Traction elevation entries occupy positions 4..len-2 (or 4..len-1 when RORI is
+        # not embedded).  A single value at index 4 is broadcast to all angles.
+        _n_trac_in_x0 = len(x0_base) - 4 - (1 if _rori_in_x0 else 0)
         _elev_x0_scalar = float(x0_base[4]) if len(x0_base) > 4 else np.degrees(self._nominal_elevation[0])
         self._elev_x0_deg = [
-            float(x0_base[4 + i]) if len(x0_base) > 4 + i else _elev_x0_scalar
+            float(x0_base[4 + i]) if i < _n_trac_in_x0 else _elev_x0_scalar
             for i in range(self._n_elev)
         ]
         self._elev_scaling = float(scaling_base[4]) if len(scaling_base) > 4 else 1.0
@@ -136,10 +141,14 @@ class CycleOptimizer:
             simulation_settings.get('transition_rori', {}).get('elevation_angle_end', np.deg2rad(50.0))
         )
         if bool(self.opt_vars.get('elevation_angle_end_trans_rori', False)):
-            x0_end_rori = float(self.optimizer_config.get(
-                'x0_elevation_angle_end_trans_rori', self._nominal_elev_end_rori_deg
-            ))
-            sc_end_rori = float(self.optimizer_config.get('scaling_elevation_angle_end_trans_rori', 1.0))
+            if _rori_in_x0:
+                x0_end_rori = float(x0_base[-1])
+                sc_end_rori = float(scaling_base[-1]) if len(scaling_base) >= len(x0_base) else 1.0
+            else:
+                x0_end_rori = float(self.optimizer_config.get(
+                    'x0_elevation_angle_end_trans_rori', self._nominal_elev_end_rori_deg
+                ))
+                sc_end_rori = float(self.optimizer_config.get('scaling_elevation_angle_end_trans_rori', 1.0))
             bounds_end_rori = self.boundsDict.get(
                 'elevation_angle_end_trans_rori',
                 (np.deg2rad(30.0), np.deg2rad(70.0)),
@@ -256,6 +265,17 @@ class CycleOptimizer:
                     - self.minimum_height
                 ),
             })
+
+        # Max tether length constraint for RORI transition phase.
+        # Enforces that the tether does not exceed the physical maximum during the
+        # RORI phase, where the kite is powered and can reel out past frac_start.
+        max_tl = self.sys_props.max_tether_length
+        constraints.append({
+            'type': 'ineq',
+            'fun': lambda x, s=scaling, vn=var_names, mtl=max_tl: (
+                mtl - self._cached_evaluate(x * s, vn).get('max_tether_length_rori', 0.0)
+            ),
+        })
 
         # Maximum step difference between consecutive elevation angles.
         max_diff_elev = self.constraintsDict.get('max_difference_elevation_angle_steps')
@@ -490,6 +510,13 @@ class CycleOptimizer:
                 if traction.kinematics else 0.0
             )
 
+            # Maximum tether length reached during RORI transition phase.
+            max_tether_rori = (
+                max(k.straight_tether_length for k in transition_rori.kinematics)
+                if transition_rori is not None and transition_rori.kinematics
+                else 0.0
+            )
+
             # Regime 3 statistics for traction phase.
             traction_n = len(traction.steady_states)
             traction_regime3 = getattr(traction, 'regime3_count', 0)
@@ -514,6 +541,7 @@ class CycleOptimizer:
                 'kinematics': cycle.kinematics,
                 'steady_states': cycle.steady_states,
                 'min_altitude_traction': min_altitude,
+                'max_tether_length_rori': max_tether_rori,
                 'traction_n_time_points': traction_n,
                 'traction_regime3_count': traction_regime3,
             }
@@ -524,6 +552,7 @@ class CycleOptimizer:
                 'average_power': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0, 'trans_rori': 0.0, 'out': 0.0},
                 'duration': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0, 'trans_rori': 0.0, 'out': 0.0},
                 'min_altitude_traction': 0.0,
+                'max_tether_length_rori': 0.0,
                 'traction_n_time_points': 0,
                 'traction_regime3_count': 0,
             }
