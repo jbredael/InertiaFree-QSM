@@ -14,8 +14,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from copy import copy
+from scipy.interpolate import PchipInterpolator
 from scipy.optimize import brentq
-from scipy.interpolate import BSpline
+
 
 try:
     from .utils import zip_el, plot_traces
@@ -1597,20 +1598,16 @@ class TractionElevation:
         if elev.size == 1:
             return float(elev[0])
         n = elev.size
-        k = min(3, n - 1)
         tl0 = float(self.tether_length_start)
         tl1 = float(self.tether_length_end)
-        # Build a clamped uniform B-spline knot vector.
-        # The curve starts/ends exactly at the first/last control point (clamped)
-        # and smoothly blends through interior control points without necessarily
-        # passing through them — giving a globally smooth elevation profile.
-        # The convex hull property guarantees the curve stays within the bounds
-        # of the control values.
-        n_interior = max(0, n - k - 1)
-        interior_knots = np.linspace(tl0, tl1, n_interior + 2)[1:-1]
-        t = np.concatenate([[tl0] * (k + 1), interior_knots, [tl1] * (k + 1)])
         tether_length_clamped = float(np.clip(tether_length, tl0, tl1))
-        return float(BSpline(t, elev, k)(tether_length_clamped))
+
+        # Uniform knot positions; PCHIP passes through all control points,
+        # is C1 smooth at every knot, and preserves monotonicity on each
+        # segment — so flat sections stay flat and transitions are gradual
+        # without oscillation.
+        ts = np.linspace(tl0, tl1, n)
+        return float(PchipInterpolator(ts, elev)(tether_length_clamped))
 
 
 class TractionPhase(Phase):

@@ -1,6 +1,10 @@
 # Simulation settings for the inertia-free quasi-steady model
 # All angles are in degrees
 
+general:
+  # Method for simulation: 'direct_simulation' or 'optimization'
+  method: 'direct_simulation'
+
 # ============================================================================
 # AERODYNAMIC SETTINGS
 # ============================================================================
@@ -111,8 +115,8 @@ optimization:
     fraction_tether_length_retraction_end_max: 0.8
 
     # Elevation angle bounds for traction phase [degrees]
-    elevation_angle_traction_min: 5.0
-    elevation_angle_traction_max: 50.0
+    elevation_angle_traction_min: 10.0
+    elevation_angle_traction_max: 60.0
 
     # Elevation angle bounds for RORI transition phase end [degrees]
     elevation_angle_end_trans_rori_min: 30.0
@@ -140,9 +144,9 @@ cycle:
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
 
-  minimum_height: 50.0 # Minimum height of the kite during the cycle (m)
+  minimum_height: 100.0 # Minimum height of the kite during the cycle (m)
 
-  elevation_angle_traction: [30.0, 30.0, 30.0]
+  elevation_angle_traction: [30.0, 30.0, 30.0, 30.0]
 
   # Tether length at end of traction phase as fraction of max tether length [-]
   # (= start of RORI transition; must be < 1.0 to leave reel-out headroom)

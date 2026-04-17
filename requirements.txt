@@ -7,3 +7,5 @@ PyYAML>=5.4
 
 # Plotting utilities
 matplotlib>=3.4
+
+awesio @ git+https://github.com/awegroup/awesIO.git

@@ -13,6 +13,7 @@ dependencies = [
     "scipy>=1.7",
     "PyYAML>=5.4",
     "matplotlib>=3.4",
+    "awesio @ git+https://github.com/awegroup/awesIO.git"
 ]
 
 [project.optional-dependencies]

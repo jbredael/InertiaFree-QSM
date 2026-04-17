@@ -17,20 +17,42 @@ InertiaFree-QSM/
 
 ## Installation
 
-### Option 1: pip
+1. Clone the repository:
+    ```bash
+    git clone https://github.com/jbredael/InertiaFree-QSM.git
+    cd InertiaFree-QSM
+    ```
 
-```bash
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
+2. Create and activate a virtual environment:
 
-### Option 2: conda
+    Linux / macOS:
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
 
-```bash
-conda create -n inertiafree-qsm python=3.11 -y
-conda activate inertiafree-qsm
-pip install -r requirements.txt
-```
+    Windows (PowerShell):
+    ```bash
+    python -m venv venv
+    .\venv\Scripts\Activate
+    ```
+
+3. Install the package:
+
+    For users (run the example scripts):
+    ```bash
+    pip install .
+    ```
+
+    For developers (editable install with dev tools):
+    ```bash
+    pip install -e .[dev]
+    ```
+
+4. To deactivate the virtual environment when you are done:
+    ```bash
+    deactivate
+    ```
 
 
 ## References
