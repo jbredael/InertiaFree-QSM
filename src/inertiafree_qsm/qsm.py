@@ -260,52 +260,6 @@ class NormalisedWindTable1D(EnvAtmosphericPressure):
         plt.grid(True)
 
 
-class WindTable2D(EnvAtmosphericPressure):
-    """Environment state class introducing a 2 component wind profile specified by 2 wind speed look-up tables. Inherits
-    from `EnvAtmosphericPressure`.
-
-    Attributes:
-        h_ref (float): Reference height [m].
-        height_table (list of floats): Heights [m] for which the wind speeds are specified.
-        wind_speed_x_table (list of floats): Wind speeds in GRF's x-direction [m/s] corresponding to `height_table`.
-        wind_speed_y_table (list of floats): Wind speeds in GRF's y-direction [m/s] corresponding to `height_table`.
-
-    """
-    def __init__(self):
-        super().__init__(None)
-        self.h_ref = 100.
-        self.height_table = [50., 75., 100., 150., 200., 300., 400., 500.]
-        self.wind_speed_x_table = [6.51, 7.33, 7.99, 9.06, 9.91, 11.06, 11.60, 11.70]
-        self.wind_speed_y_table = [0.28, 0.16, 0., -0.39, -0.85, -1.94, -3.06, -4.04]
-
-    def calculate(self, height, altitude_ground=0.):
-        altitude = height + altitude_ground
-        self.calculate_wind(height)
-        self.calculate_density(altitude)
-
-    def calculate_wind(self, height):
-        # Linear interpolation is used to determine the wind speed components between points along the height.
-        v_x = np.interp(height, self.height_table, self.wind_speed_x_table)
-        v_y = np.interp(height, self.height_table, self.wind_speed_y_table)
-        if height <= 0. or height > self.height_table[-1]:
-            raise OperationalLimitViolation("Invalid height is given: {:.1f}.".format(height))
-
-        # The absolute wind speed and direction follow from the 2 wind speed components.
-        self.wind_speed = np.sqrt(v_x**2 + v_y**2)
-        self.downwind_direction = np.arctan2(v_y, v_x)
-        return self.wind_speed
-
-    def plot_wind_profile(self):
-        """Plot the wind speed versus the height above ground."""
-        plt.plot(self.wind_speed_x_table, self.height_table, label="x-component")
-        plt.plot(self.wind_speed_y_table, self.height_table, label="y-component")
-        plt.xlabel('Wind speed [m/s]')
-        plt.ylabel('Height [m]')
-        plt.ylim([0., 500.])
-        plt.legend()
-        plt.grid(True)
-
-
 class SystemProperties:
     """System properties class defining the properties of the airborne components and introducing binary
     aerodynamic characteristics: a powered and de-powered state of the kite.
@@ -1013,8 +967,6 @@ class Phase(TimeSeries):
         impose_operational_limits (bool): Specifies whether to automatically switch the control settings when they lead
             to violating the operational limits.
         kite_powered (bool): Use powered aerodynamic characteristics of the kite if True.
-        follow_wind (bool): Specifies whether kite is 'aligned' with the wind. Controlled azimuth angle is expressed
-            w.r.t. wind reference frame if True, or ground reference frame if False.
         kinematics_start (`KiteKinematics`): Kinematics of kite at start of phase.
         position_end (`KitePosition`): Kite position criteria for ending the phase.
         timer (float): Time spent in phase [s] - updated after calculating a new time point.
@@ -1049,7 +1001,6 @@ class Phase(TimeSeries):
         self.control_settings = phase_settings['control']
         self.impose_operational_limits = impose_operational_limits
         self.kite_powered = True
-        self.follow_wind = False
 
         # Start and stop conditions of phase.
         self.kinematics_start = None
@@ -1097,9 +1048,6 @@ class Phase(TimeSeries):
         # Add first time point, kite kinematics, and steady state to corresponding result lists.
         self.timer = timer_start
         environment_state.calculate(self.kinematics_start.z)
-        if self.follow_wind:
-            self.kinematics_start.azimuth_angle += environment_state.downwind_direction
-            self.kinematics_start.update()
         steady_state_start = self.determine_new_steady_state(self.kinematics_start)
         self.time.append(self.timer)
         self.kinematics.append(self.kinematics_start)
@@ -1110,9 +1058,6 @@ class Phase(TimeSeries):
         while not end_phase:
             end_phase, new_kinematics = self.determine_new_kinematics(self.kinematics[-1], self.steady_states[-1])
             environment_state.calculate(new_kinematics.z)
-            if self.follow_wind:
-                new_kinematics.azimuth_angle += environment_state.downwind_direction
-                new_kinematics.update()
 
             # Add new time, kinematics, and steady state to corresponding result lists.
             new_steady_state = self.determine_new_steady_state(new_kinematics)
@@ -2021,7 +1966,6 @@ class EvaluatePattern(Phase):  # Determine performance along cross wind pattern 
         self.control_settings = settings['control']
         self.impose_operational_limits = impose_operational_limits
         self.kite_powered = True
-        self.follow_wind = False
 
         # Monitoring parameters.
         self.timer = None
@@ -2058,9 +2002,6 @@ class EvaluatePattern(Phase):  # Determine performance along cross wind pattern 
 
             # Add first time point, kite kinematics, and steady state to corresponding result lists.
             environment_state.calculate(kin.z)
-            if self.follow_wind:
-                kin.azimuth_angle += environment_state.downwind_direction
-                kin.update()
             ss = self.determine_new_steady_state(kin)
             self.steady_states.append(ss)
 
@@ -2154,7 +2095,6 @@ class Cycle(TimeSeries):
         retraction_phase (`RetractionPhase`): Retraction phase simulation object.
         transition_riro_phase (`TransitionRIROPhase`): Reel-In to Reel-Out transition phase object.
         traction_phase (`TractionPhase`): Traction phase simulation object.
-        follow_wind (bool): Specifies whether kite is 'aligned' with the wind.
 
     """
     def __init__(self, settings=None, impose_operational_limits=True):
@@ -2184,7 +2124,6 @@ class Cycle(TimeSeries):
         self.traction_phase = cycle_settings.get('traction_phase',
                                                  TractionPhase)(settings['traction'], impose_operational_limits)
 
-        self.follow_wind = cycle_settings.get('follow_wind')
         self.include_transition_energy = cycle_settings.get('include_transition_energy')
         self.n_traction_points = cycle_settings.get('n_traction_points')
         self.n_pattern_eval_points = cycle_settings.get('n_pattern_eval_points')
@@ -2233,7 +2172,6 @@ class Cycle(TimeSeries):
         # --- Step 1: Run TransitionRORIPhase ---
         # Start at the traction end elevation (same check as previously used for retraction start).
         trans_rori = self.transition_rori_phase
-        trans_rori.follow_wind = self.follow_wind
         trans_rori.enable_limit_violation_error = False
         trans_rori.tether_length_start = self.tether_length_end_traction
         trans_rori.elevation_angle_start = self.traction_phase.get_elevation_angle(
@@ -2268,7 +2206,6 @@ class Cycle(TimeSeries):
 
         # --- Step 2: Run RetractionPhase ---
         retr = self.retraction_phase
-        retr.follow_wind = self.follow_wind
         retr.enable_limit_violation_error = enable_limit_violation_error
         retr.tether_length_start = last_straight_tether_length
         retr.tether_length_end = self.tether_length_end_retraction
@@ -2290,7 +2227,6 @@ class Cycle(TimeSeries):
 
         # --- Step 3: Run TransitionRIROPhase ---
         trans_riro = self.transition_riro_phase
-        trans_riro.follow_wind = self.follow_wind
         trans_riro.enable_limit_violation_error = False
         trans_riro.tether_length_start = last_straight_tether_length
         trans_riro.elevation_angle_start = last_kinematics.elevation_angle
@@ -2308,7 +2244,6 @@ class Cycle(TimeSeries):
         last_kinematics = trans_riro.kinematics[-1]
 
         # --- Step 4: Run TractionPhase ---
-        trac.follow_wind = self.follow_wind
         trac.enable_limit_violation_error = enable_limit_violation_error
 
         # Start and stop conditions of traction phase. Note that the traction phase uses an azimuth angle in contrast to
