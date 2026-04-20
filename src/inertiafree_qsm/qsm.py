@@ -1012,6 +1012,7 @@ class Phase(TimeSeries):
         self.max_reeling_speed = -np.inf
         self.min_tether_force = np.inf  # Forces at ground station.
         self.max_tether_force = 0
+        self.regime2_count = 0  # Number of time steps where regime 2 (force limit) was active.
         self.regime3_count = 0  # Number of time steps where regime 3 (power limit) was active.
 
         # Monitoring settings.
@@ -1170,6 +1171,14 @@ class Phase(TimeSeries):
                         self._resolve_regime3(new_state, kinematics, sys_props, env_state,
                                               max_power, max_force)
                         self.regime3_count += 1
+
+                # Count regime 2 steps: max-force-controlled but not power-limited (not regime 3).
+                # Distinguish from min-force override by checking that the setpoint equals max_force.
+                if (new_state.control_settings[0] == 'tether_force_ground'
+                        and max_force is not None
+                        and new_state.control_settings[1] == max_force
+                        and not (max_power is not None and new_state.power_ground > max_power)):
+                    self.regime2_count += 1
 
                 
             elif isinstance(self, (TransitionRIROPhase, TransitionRORIPhase)):
@@ -1858,11 +1867,12 @@ class Cycle(TimeSeries):
         last_kinematics = trans_rori.kinematics[-1]
         last_straight_tether_length = last_kinematics.straight_tether_length
 
-        # Warn if the RORI transition reeled out past the physical drum limit.
+        # Check if the RORI transition reeled out past the physical drum limit.
         max_tether_length = system_properties.max_tether_length
-        if max_tether_length is not None and last_straight_tether_length > max_tether_length + 1e-3:
-            import warnings
-            warnings.warn(
+        if (enable_limit_violation_error
+                and max_tether_length is not None
+                and last_straight_tether_length > max_tether_length + 1e-3):
+            raise OperationalLimitViolation(
                 f"TransitionRORIPhase exceeded max tether length: "
                 f"end tether length = {last_straight_tether_length:.2f} m > "
                 f"max = {max_tether_length:.2f} m. "
@@ -1870,7 +1880,7 @@ class Cycle(TimeSeries):
                 f"{self.tether_length_end_traction:.2f} m = "
                 f"{self.tether_length_end_traction / max_tether_length:.2f} × max) "
                 f"to leave headroom for the powered RORI transition.",
-                stacklevel=2,
+                code=6,
             )
 
         # --- Step 2: Run RetractionPhase ---

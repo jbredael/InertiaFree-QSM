@@ -524,7 +524,7 @@ class PowerCurveConstructor:
         steady_state_config = self.simulation_settings.get('steady_state')
         try:
             error_in_phase, _ = cycle.run_simulation(
-                self.sys_props, env_state, steady_state_config, print_summary=False
+                self.sys_props, env_state, steady_state_config, print_summary=False, enable_limit_violation_error=True
             )
 
             traction = getattr(cycle, 'traction_phase')
@@ -828,7 +828,7 @@ class PowerCurveConstructor:
 
         entry = {
             'wind_speed': float(wind_speed),
-            'success': bool(kpi.get('sim_successful', False)),
+            'successful': bool(kpi.get('sim_successful', False)),
             'performance': {
                 'power': {
                     'average_cycle_power': _safe_float(kpi['average_power']['cycle']),

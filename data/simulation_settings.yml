@@ -53,9 +53,9 @@ optimization:
     # Minimum wind speed [m/s]
     cut_in: 3.0
     # Maximum wind speed [m/s]
-    cut_out: 7
+    cut_out: 25.0
     # Number of points to calculate (determines spacing)
-    n_points: 20
+    n_points: 50
 
     # Fine resolution settings near cut-out wind speed
     # These add extra points near the cut-out to capture system behavior

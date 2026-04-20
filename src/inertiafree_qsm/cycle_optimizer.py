@@ -207,6 +207,7 @@ class CycleOptimizer:
         if self._optimise_elevation:
             probe_kpi = self._evaluate_from_specs(var_specs)
             traction_n = probe_kpi.get('traction_n_time_points', 1)
+            regime2_n = probe_kpi.get('traction_regime2_count', 0)
             regime3_n = probe_kpi.get('traction_regime3_count', 0)
             full_regime3 = traction_n > 0 and regime3_n >= traction_n
             if full_regime3:
@@ -222,6 +223,22 @@ class CycleOptimizer:
                         self._elev_bounds_deg,
                         self._elev_scaling,
                     ))
+        else:
+            probe_kpi = self._evaluate_from_specs(var_specs)
+            traction_n = probe_kpi.get('traction_n_time_points', 1)
+            regime2_n = probe_kpi.get('traction_regime2_count', 0)
+            regime3_n = probe_kpi.get('traction_regime3_count', 0)
+
+        # Disable reeling speed optimisation when the full traction phase is in regime 2
+        # (force-controlled): the reeling speed setpoint has no effect on the outcome.
+        full_regime2 = traction_n > 0 and regime2_n >= traction_n
+        if full_regime2:
+            rs_out_name = 'reeling_speed_out'
+            var_specs = [s for s in var_specs if s[0] != rs_out_name]
+            print(
+                "    Reeling speed (traction) optimisation disabled: "
+                "entire traction phase is in regime 2 (force-controlled)."
+            )
 
         # If no variables remain active (e.g. all base vars disabled AND regime 3
         # disabled elevation), skip the optimizer and return the nominal result.
@@ -653,6 +670,7 @@ class CycleOptimizer:
 
             # Regime 3 statistics for traction phase.
             traction_n = len(traction.steady_states)
+            traction_regime2 = getattr(traction, 'regime2_count', 0)
             traction_regime3 = getattr(traction, 'regime3_count', 0)
 
             return {
@@ -677,6 +695,7 @@ class CycleOptimizer:
                 'min_altitude_traction': min_altitude,
                 'max_tether_length_rori': max_tether_rori,
                 'traction_n_time_points': traction_n,
+                'traction_regime2_count': traction_regime2,
                 'traction_regime3_count': traction_regime3,
             }
 
@@ -688,5 +707,6 @@ class CycleOptimizer:
                 'min_altitude_traction': 0.0,
                 'max_tether_length_rori': 0.0,
                 'traction_n_time_points': 0,
+                'traction_regime2_count': 0,
                 'traction_regime3_count': 0,
             }
