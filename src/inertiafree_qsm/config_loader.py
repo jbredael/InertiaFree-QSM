@@ -306,6 +306,8 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
                     if 'transition_riro' in opt_timestep_cfg else None,
                 'traction': float(opt_timestep_cfg['traction'])
                     if 'traction' in opt_timestep_cfg else None,
+                'transition_rori': float(opt_timestep_cfg['transition_rori'])
+                    if 'transition_rori' in opt_timestep_cfg else None,
             },
             'optimize_variables': {
                 'reeling_speed_traction': bool(opt_optimize_vars.get('reeling_speed_traction', True)),

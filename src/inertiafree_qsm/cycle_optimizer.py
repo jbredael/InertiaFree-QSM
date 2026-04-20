@@ -15,18 +15,23 @@ from .qsm import Cycle, TractionPhase
 class CycleOptimizer:
     """SLSQP-based optimizer for AWE pumping cycle parameters.
 
-    Optimizes reeling speeds, tether lengths, and optionally the traction
-    elevation angle array to maximize average cycle power while respecting
-    operational bounds.
+    Optimizes reeling speeds, tether lengths, traction elevation angles,
+    and the RORI transition end elevation angle to maximize average cycle
+    power while respecting operational bounds.
 
-    The active decision variable vector depends on ``optimize_variables`` in the
-    simulation settings.  The four base variables are:
+    The active decision variable vector depends on ``optimize_variables`` in
+    the simulation settings.  The variables are:
         [reeling_speed_out, reeling_speed_in,
          fraction_tether_length_retraction_end,
-         fraction_tether_length_traction_end]
-    When ``elevation_angle_traction`` is enabled (and regime 3 does not
-    dominate the full traction phase), N additional elevation angle values
-    (one per entry in ``cycle.elevation_angle_traction``) are appended.
+         fraction_tether_length_traction_end,
+         elevation_0, ..., elevation_{N-1},
+         elevation_end_rori]
+    Traction elevation angles (``elevation_0`` ... ``elevation_{N-1}``) are
+    included when ``elevation_angle_traction`` is enabled and regime 3 does
+    not dominate the full traction phase.  ``elevation_end_rori`` is included
+    when ``elevation_angle_end_trans_rori`` is enabled.  All elevation
+    variables are stored in degrees inside the optimizer and converted to
+    radians for simulation.
 
     Args:
         simulation_settings (dict): Full simulation settings dict (as returned
@@ -36,11 +41,9 @@ class CycleOptimizer:
 
     Attributes:
         history (list): List of dicts recording every objective evaluation,
-            each with keys ``x`` (variable vector) and ``power`` (cycle power [W]).
+            each with keys ``x`` (variable vector), ``power`` (cycle power [W]),
+            and ``feasible`` (bool).
     """
-    # Large penalty for failed simulations to steer the optimizer away.
-    PENALTY = 1e6
-
     def __init__(self, simulation_settings, sys_props, env_state):
         self.simulation_settings = simulation_settings
         self.sys_props = sys_props
@@ -233,14 +236,35 @@ class CycleOptimizer:
         scaling = np.array([spec[3] for spec in var_specs], dtype=float)
         bounds = [spec[2] for spec in var_specs]
 
-        # Scaling convention: x_scaled = x_physical / scaling
-        # (divide), so x_physical = x_scaled * scaling.
-        # With scaling=1 this is identical to the unscaled case.
+        # Build list of variable names for decoding.
+        var_names = [spec[0] for spec in var_specs]
+
+        # Wind-speed-adaptive x0: at low wind speeds, the default reeling
+        # speed x0 may put the kite in a regime where tether force is below
+        # the minimum limit and operational limits override the control,
+        # making the gradient in the reeling-speed direction effectively zero.
+        # Cap initial reel-out at ~20% of wind speed and reel-in at ~30%.
+        for i, name in enumerate(var_names):
+            lo, hi = bounds[i]
+            if name == 'reeling_speed_out':
+                x0[i] = np.clip(min(x0[i], wind_speed * 0.2), lo, hi)
+            elif name == 'reeling_speed_in':
+                x0[i] = np.clip(max(x0[i], -wind_speed * 0.3), lo, hi)
+
+        # Scaling convention: x_scaled = x_physical / scaling.
         x0_scaled = x0 / scaling
         scaled_bounds = [(lo / s, hi / s) for (lo, hi), s in zip(bounds, scaling)]
 
-        # Build list of variable names for decoding.
-        var_names = [spec[0] for spec in var_specs]
+        # Pre-check: evaluate x0 and try to repair if infeasible or
+        # nearly zero power (flat gradient region).
+        kpi_x0 = self._evaluate_from_names(x0, var_names)
+        if (not kpi_x0['sim_successful']
+                or kpi_x0['average_power']['cycle'] < 10.0):
+            x0_repaired = self._repair_x0(x0, var_names, bounds, wind_speed)
+            if x0_repaired is not None:
+                x0 = x0_repaired
+                x0_scaled = x0 / scaling
+                print("    Repaired infeasible/low-power x0 for this wind speed.")
 
         # Indices of frac_end and frac_start for the tether-length constraint.
         idx_frac_end = var_names.index('frac_end') if 'frac_end' in var_names else None
@@ -345,6 +369,12 @@ class CycleOptimizer:
                     base_str += f"  {name}={val:+.4f}"
                 print(base_str)
 
+        # Enforce a minimum eps for gradient estimation.  With coarser
+        # optimisation time steps the simulation output has limited
+        # sensitivity to tiny perturbations, producing noise-dominated
+        # finite-difference gradients when eps is too small.
+        eps = max(self.optimizer_config['eps'], 1e-3)
+
         result = op.minimize(
             _objective_scaled,
             x0_scaled,
@@ -355,18 +385,44 @@ class CycleOptimizer:
             options={
                 'maxiter': self.optimizer_config['max_iterations'],
                 'ftol': self.optimizer_config['ftol'],
-                'eps': self.optimizer_config['eps'],
+                'eps': eps,
                 'disp': False,
             },
         )
 
         x_opt = result.x * scaling
         self.last_x_opt = x_opt
-        # Final evaluation uses the full-resolution phase time steps so that
-        # time histories and KPIs are computed at the same fidelity as a direct
-        # simulation, not at the coarser steps used during optimization.
+
+        # Rescue: check if any feasible history point outperforms the
+        # SLSQP result.  SLSQP can walk off the optimum when noisy FD
+        # gradients cause a step into an infeasible region followed by
+        # over-correction.
+        best_hist = max(
+            (e for e in self.history if e.get('feasible', False)),
+            key=lambda e: e['power'],
+            default=None,
+        )
+
+        # Final evaluation at full-resolution time steps.
         print("    Re-evaluating optimal solution with full-resolution time steps...")
         kpi = self._evaluate_from_names(x_opt, var_names, use_opt_timesteps=False)
+        slsqp_power = kpi['average_power']['cycle']
+
+        if (best_hist is not None
+                and best_hist['power'] > slsqp_power + 1.0):
+            kpi_rescue = self._evaluate_from_names(
+                best_hist['x'], var_names, use_opt_timesteps=False,
+            )
+            if (kpi_rescue['sim_successful']
+                    and kpi_rescue['average_power']['cycle'] > slsqp_power):
+                gain = kpi_rescue['average_power']['cycle'] - slsqp_power
+                print(f"    Rescue: best-of-history yields "
+                      f"{kpi_rescue['average_power']['cycle']:.1f}W "
+                      f"(+{gain:.1f}W over SLSQP result)")
+                x_opt = best_hist['x']
+                kpi = kpi_rescue
+                self.last_x_opt = x_opt
+
         kpi['optimization_result'] = result
         self.last_var_names = var_names
         return kpi
@@ -378,18 +434,24 @@ class CycleOptimizer:
     def _objective(self, x_unscaled, var_names):
         """Negative average cycle power (SLSQP minimises).
 
+        Failed simulations return 0 instead of a large penalty.  This
+        creates a smooth floor so that finite-difference gradients near
+        the feasibility boundary stay well-behaved, avoiding the
+        gradient explosions that cause SLSQP to overshoot.
+
         Args:
             x_unscaled (np.ndarray): Unscaled decision variables.
             var_names (list): Variable name list matching x_unscaled.
 
         Returns:
-            float: Negative cycle power or large penalty on failure.
+            float: Negative cycle power (0 for failed simulations).
         """
         kpi = self._cached_evaluate(x_unscaled, var_names)
-        power = kpi['average_power']['cycle']
-        if not kpi['sim_successful']:
-            power = -self.PENALTY
-        self.history.append({'x': x_unscaled.copy(), 'power': power})
+        is_feasible = kpi['sim_successful']
+        power = kpi['average_power']['cycle'] if is_feasible else 0.0
+        self.history.append({
+            'x': x_unscaled.copy(), 'power': power, 'feasible': is_feasible,
+        })
         return -power
 
     def _cached_evaluate(self, x_unscaled, var_names):
@@ -408,6 +470,65 @@ class CycleOptimizer:
         self._cache_x = x_unscaled.copy()
         self._cache_kpi = kpi
         return kpi
+
+    def _repair_x0(self, x0, var_names, bounds, wind_speed=None):
+        """Try to produce a feasible starting point when x0 fails or gives near-zero power.
+
+        Progressively makes cycle parameters more conservative (lower reeling
+        speed, higher elevation, shorter tether stroke) and returns the first
+        combination that produces a successful simulation with positive power.
+
+        Args:
+            x0 (np.ndarray): Original starting point (unscaled).
+            var_names (list): Variable names matching x0.
+            bounds (list): (lo, hi) tuples for each variable.
+            wind_speed (float, optional): Current wind speed for adaptive scaling.
+
+        Returns:
+            np.ndarray or None: Repaired x0 if successful, None otherwise.
+        """
+        # Candidate repair strategies: (reel_out_speed, reel_in_speed, elev_factor, frac_end_override)
+        candidates = []
+        if wind_speed is not None:
+            # Wind-speed-proportional candidates.
+            for rf_out in [0.15, 0.10, 0.25]:
+                for rf_in in [0.25, 0.15, 0.40]:
+                    rs_out = max(wind_speed * rf_out, 0.5)
+                    rs_in = min(-wind_speed * rf_in, -0.5)
+                    candidates.append((rs_out, rs_in, 1.0, None))
+                    candidates.append((rs_out, rs_in, 1.3, None))
+        # Fallback fixed candidates.
+        for rsFrac, elevFactor in [(0.5, 1.0), (0.5, 1.3), (0.3, 1.0), (0.3, 1.6)]:
+            candidates.append((None, None, elevFactor, None))
+
+        best_x = None
+        best_power = -np.inf
+
+        for candidate in candidates:
+            rs_out_val, rs_in_val, elevFactor, frac_end_val = candidate
+            xTry = x0.copy()
+            for i, name in enumerate(var_names):
+                lo, hi = bounds[i]
+                if name == 'reeling_speed_out':
+                    if rs_out_val is not None:
+                        xTry[i] = np.clip(rs_out_val, lo, hi)
+                    else:
+                        xTry[i] = np.clip(x0[i] * 0.5, lo, hi)
+                elif name == 'reeling_speed_in':
+                    if rs_in_val is not None:
+                        xTry[i] = np.clip(rs_in_val, lo, hi)
+                    else:
+                        xTry[i] = np.clip(x0[i] * 0.5, lo, hi)
+                elif name.startswith('elevation_') and name.split('_')[1].isdigit():
+                    xTry[i] = np.clip(x0[i] * elevFactor, lo, hi)
+            kpi = self._evaluate_from_names(xTry, var_names)
+            if kpi['sim_successful'] and kpi['average_power']['cycle'] > best_power:
+                best_power = kpi['average_power']['cycle']
+                best_x = xTry.copy()
+                if best_power > 100.0:
+                    # Good enough — don't keep searching.
+                    break
+        return best_x
 
     def _build_settings(self, values_by_name, use_opt_timesteps=True):
         """Build a settings dict with decision variables applied.
@@ -510,6 +631,19 @@ class CycleOptimizer:
                 if traction.kinematics else 0.0
             )
 
+            # Treat minimum height violations as failed simulations so that
+            # both the objective and the SLSQP constraint steer away.
+            altitude_ok = (self.minimum_height <= 0 or min_altitude >= self.minimum_height)
+
+            # Reject any traction steady state with a negative apparent wind speed
+            # (physically impossible during reel-out — means the kite outruns the wind).
+            apparent_wind_ok = not any(
+                ss.apparent_wind_speed is not None and ss.apparent_wind_speed < 0
+                for ss in traction.steady_states
+            ) if traction.steady_states else True
+
+            cycle_ok = error_in_phase is None and altitude_ok and apparent_wind_ok
+
             # Maximum tether length reached during RORI transition phase.
             max_tether_rori = (
                 max(k.straight_tether_length for k in transition_rori.kinematics)
@@ -522,16 +656,16 @@ class CycleOptimizer:
             traction_regime3 = getattr(traction, 'regime3_count', 0)
 
             return {
-                'sim_successful': error_in_phase is None,
+                'sim_successful': cycle_ok,
                 'average_power': {
-                    'cycle': cycle.average_power if error_in_phase is None else 0.0,
+                    'cycle': cycle.average_power if cycle_ok else 0.0,
                     'in': retraction.average_power if retraction else 0.0,
                     'trans_riro': transition_riro.average_power if transition_riro else 0.0,
                     'trans_rori': transition_rori.average_power if transition_rori else 0.0,
                     'out': traction.average_power if traction else 0.0,
                 },
                 'duration': {
-                    'cycle': cycle.duration if error_in_phase is None else 0.0,
+                    'cycle': cycle.duration if cycle_ok else 0.0,
                     'in': retraction.duration if retraction else 0.0,
                     'trans_riro': transition_riro.duration if transition_riro else 0.0,
                     'trans_rori': transition_rori.duration if transition_rori else 0.0,

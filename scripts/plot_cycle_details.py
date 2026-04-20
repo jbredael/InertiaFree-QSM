@@ -14,7 +14,7 @@ from inertiafree_qsm.plotting import load_power_curve_data, plot_cycle_detail
 # ── INPUT ─────────────────────────────────────────────────────────────────────
 # POWER_CURVE_FILE = Path("results/power_curves_direct_simulation.yml")
 POWER_CURVE_FILE = Path("results/power_curves_optimized.yml")
-PROFILE_ID = 3           # int profile_id to filter on; None = use all profiles
+PROFILE_ID = 1           # int profile_id to filter on; None = use all profiles
 WIND_SPEED_MIN = None    # float [m/s], None = no lower limit
 WIND_SPEED_MAX = None    # float [m/s], None = no upper limit
 OUTPUT_DIR = Path("results/cycle_details_optimized")  # folder to save PDFs; None = show only

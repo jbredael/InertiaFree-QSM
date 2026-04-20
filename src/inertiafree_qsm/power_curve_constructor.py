@@ -459,16 +459,21 @@ class PowerCurveConstructor:
         for i, ws in enumerate(wind_speeds):
             if verbose:
                 print(f"  Wind speed {ws:.1f} m/s ({i+1}/{len(wind_speeds)})")
-            wind_speed_data.append(
-                self._run_single_simulation_optimized(ws, env_state, verbose=verbose)
-            )
+            entry = self._run_single_simulation_optimized(ws, env_state, verbose=verbose)
+            wind_speed_data.append(entry)
 
-            # Warm start: seed x0 for the next wind speed with the current optimal.
-            x_opt = getattr(self, 'last_x_opt', None)
-            var_names = getattr(self, 'last_optimization_var_names', None)
-            if x_opt is not None and var_names is not None:
-                warm_x0 = self._prepare_warm_start(x_opt, var_names)
-                self.simulation_settings['optimization']['optimizer']['x0'] = warm_x0
+            sim_successful = entry.get('success', False)
+
+            # Warm start: only seed x0 from the previous optimal if that run succeeded.
+            if sim_successful:
+                x_opt = getattr(self, 'last_x_opt', None)
+                var_names = getattr(self, 'last_optimization_var_names', None)
+                if x_opt is not None and var_names is not None:
+                    warm_x0 = self._prepare_warm_start(x_opt, var_names)
+                    self.simulation_settings['optimization']['optimizer']['x0'] = warm_x0
+            else:
+                # Reset to original x0 so the next wind speed starts cold.
+                self.simulation_settings['optimization']['optimizer']['x0'] = list(original_x0)
 
         # Restore original x0 so subsequent calls are unaffected.
         self.simulation_settings['optimization']['optimizer']['x0'] = original_x0
@@ -603,12 +608,17 @@ class PowerCurveConstructor:
         if optResult is not None:
             print(f"    Optimizer status: {optResult.message}  "
                   f"(nit={optResult.nit}, nfev={optResult.nfev})")
-            print(f"    Optimal x: {optResult.x}")
+            print(f"    Optimal x: {optimizer.last_x_opt}")
             print(f"    Cycle power: {kpi['average_power']['cycle']:.1f} W")
 
         self.last_optimization_history = optimizer.history
         self.last_optimization_var_names = getattr(optimizer, 'last_var_names', None)
         self.last_x_opt = getattr(optimizer, 'last_x_opt', None)
+
+        sim_ok = kpi.get('sim_successful', False)
+        if not sim_ok:
+            print(f"    Wind speed {wind_speed:.1f} m/s: simulation was not successful.")
+
         return self._build_wind_speed_entry(wind_speed, kpi)
 
 
@@ -803,7 +813,9 @@ class PowerCurveConstructor:
             return float(val)
 
         time_history = None
-        if ('kinematics' in kpi and kpi['kinematics']
+        sim_successful = kpi.get('sim_successful', False)
+        if (sim_successful
+                and 'kinematics' in kpi and kpi['kinematics']
                 and 'steady_states' in kpi and kpi['steady_states']):
             if 'time' in kpi and kpi['time']:
                 time_list = list(kpi['time'])
@@ -817,6 +829,7 @@ class PowerCurveConstructor:
 
         entry = {
             'wind_speed': float(wind_speed),
+            'success': bool(kpi.get('sim_successful', False)),
             'performance': {
                 'power': {
                     'average_cycle_power': _safe_float(kpi['average_power']['cycle']),

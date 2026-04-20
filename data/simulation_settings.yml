@@ -51,9 +51,9 @@ optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s]
-    cut_in: 6.0
+    cut_in: 3.0
     # Maximum wind speed [m/s]
-    cut_out: 25.0
+    cut_out: 7
     # Number of points to calculate (determines spacing)
     n_points: 20
 
@@ -78,17 +78,17 @@ optimization:
       elevation_angle_end_trans_rori: true
 
     opt_phase_timestep:
-      retraction: 2.5
+      retraction: 1.5
       transition_riro: 0.05
       traction: 2.5
       transition_rori: 0.05
 
     # Maximum number of iterations per wind speed point
     max_iterations: 200
-    # Function tolerance for convergence
-    ftol: 1.0e-3
+    # Function tolerance for convergence (absolute, in watts)
+    ftol: 5.0e-1
     # Finite difference step size for gradient estimation
-    eps: 1.0e-4
+    eps: 5.0e-3
     # Optimizer starting point: [reeling_speed_out, reeling_speed_in,
     #   fraction_tether_length_retraction_end, fraction_tether_length_traction_end,
     #   elevation_angle_traction (degrees, applied equally to all N points in the array),
@@ -96,17 +96,19 @@ optimization:
     x0: [2, -2, 0.65, 0.9, 30.0, 50.0]
     # Variable scaling factors — convention: x_scaled = x / scaling
     # This normalises variables to a similar search range (~O(1)).
-    # elevation_angle_traction: scaling=30 → bounds [10°,70°]/30 = [0.33, 2.33]; x0=30°/30=1.0
-    # elevation_angle_end_trans_rori: scaling=1 → bounds [30°,80°]/1
+    # reeling_speed_out/in: scaling=1 → used directly in m/s
+    # frac_end/frac_start: scaling=1 → ~O(1) already
+    # elevation_angle_traction: scaling=30 → bounds [10°,60°]/30 = [0.33, 2.0]; x0=30°/30=1.0
+    # elevation_angle_end_trans_rori: scaling=1 → bounds [30°,80°]; x0=50°
     scaling: [1, 1, 1, 1, 30, 1]
 
   # Optimizer bounds (where not derived from system properties)
   bounds:
     # Reeling speed bounds for traction and retraction phases
-    reeling_speed_traction_min: 0.5
-    reeling_speed_traction_max: 6.0
-    reeling_speed_retraction_min: -8.0
-    reeling_speed_retraction_max: -0.5
+    reeling_speed_traction_min: 0.01
+    reeling_speed_traction_max: 15.0
+    reeling_speed_retraction_min: -15.0
+    reeling_speed_retraction_max: -0.01
 
     # Tether length bounds as fractions of max_tether_length
     fraction_tether_length_traction_end_min: 0.8
@@ -146,7 +148,7 @@ cycle:
 
   minimum_height: 100.0 # Minimum height of the kite during the cycle (m)
 
-  elevation_angle_traction: [30.0, 30.0, 30.0, 30.0]
+  elevation_angle_traction: [30.0, 30.0, 30.0]
 
   # Tether length at end of traction phase as fraction of max tether length [-]
   # (= start of RORI transition; must be < 1.0 to leave reel-out headroom)
@@ -160,6 +162,7 @@ cycle:
 
   # Prescribed elevation angle at which the RORI transition phase ends and retraction begins [degrees]
   elevation_angle_end_trans_rori: 50.0
+
 
 # ============================================================================
 # PHASE SETTINGS

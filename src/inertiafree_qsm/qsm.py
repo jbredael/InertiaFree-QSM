@@ -14,7 +14,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from copy import copy
-from scipy.interpolate import PchipInterpolator
 from scipy.optimize import brentq
 
 
@@ -58,6 +57,12 @@ class PhaseError(Exception):
     Attributes:
         msg (str): Human readable string describing the exception.
         code (int, optional): Exception error code. 0 is reserved as default error code.
+
+    Error codes:
+        0: Default / unspecified error.
+        1: Maximum number of time points (iterations) reached in phase.
+        2: Reeling in during reel-out phase (traction or hybrid traction).
+        3: Reeling out at constant elevation angle during reel-in (retraction) phase.
 
     """
     def __init__(self, msg, code=0):
@@ -771,7 +776,7 @@ class SteadyState:
                 v_app = vapp_r * math.sqrt(1 + kappa**2)  # == |v_app_vector| for this geometry
 
                 if v_app < 1e-6:
-                    self.process_error("Unrealistic apparent wind speed.", 7, print_details)
+                    self.process_error("Unrealistic apparent wind speed (zero or negative).", 7, print_details)
                 else:
                     # Evaluate the convergence of the calculated to the actual lift-to-drag ratio.
                     # dot(f_aero_vector, v_app_vector) using scalar components (phi-component of f_aero is 0).
@@ -1602,12 +1607,8 @@ class TractionElevation:
         tl1 = float(self.tether_length_end)
         tether_length_clamped = float(np.clip(tether_length, tl0, tl1))
 
-        # Uniform knot positions; PCHIP passes through all control points,
-        # is C1 smooth at every knot, and preserves monotonicity on each
-        # segment — so flat sections stay flat and transitions are gradual
-        # without oscillation.
         ts = np.linspace(tl0, tl1, n)
-        return float(PchipInterpolator(ts, elev)(tether_length_clamped))
+        return float(np.interp(tether_length_clamped, ts, elev))
 
 
 class TractionPhase(Phase):
@@ -1675,7 +1676,7 @@ class TractionPhase(Phase):
 
         if d_tether_length < 0.:
             raise PhaseError("Reeling in during reel-out phase.", 2)
-        elif last_steady_state.reeling_speed < 1e-6:
+        elif last_steady_state.reeling_speed < 1e-3:
             raise PhaseError("Reeling speed too low.")
 
         # Check if target tether length is not exceeded next iteration.
@@ -2321,19 +2322,16 @@ class Cycle(TimeSeries):
         trac.finalize_start_and_end_kite_obj()
 
         last_time = trans_riro.time[-1]
-        try:
-            if trac.__class__.__name__ == "TractionPhaseHybrid":
-                trac.run_simulation(system_properties, env_trac, steady_state_config, last_time,
-                                    n_patterns=self.n_traction_points,
-                                    n_pattern_eval_points=self.n_pattern_eval_points)
-            else:
-                trac.run_simulation(system_properties, env_trac, steady_state_config, last_time)
-        except PhaseError as e:
-            if e.code not in [1, 2]:  # Simulation does not seem to reach end criteria.
-                raise
-            trac.energy = -1e2
-            trac.duration = 1.
-            error_in_phase = "traction"
+        if trac.__class__.__name__ == "TractionPhaseHybrid":
+            trac.run_simulation(system_properties, env_trac, steady_state_config, last_time,
+                                n_patterns=self.n_traction_points,
+                                n_pattern_eval_points=self.n_pattern_eval_points)
+        else:
+            trac.run_simulation(system_properties, env_trac, steady_state_config, last_time)
+
+        # Require at least one traction time step; zero steps means wind is too low.
+        if trac.n_time_points == 0:
+            raise PhaseError("Traction phase produced no time steps: wind speed too low.", 1)
 
         # Resulting time series: reassemble to start with traction phase.
         if reorder:
