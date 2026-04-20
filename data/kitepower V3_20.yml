@@ -32,7 +32,7 @@ components:
     type: non_conductive_tether
     version: 1.0
     structure:
-      length: 340
+      length: 600
       diameter: 0.006
       density: 724.0
       max_tether_force: 8200.0 # N

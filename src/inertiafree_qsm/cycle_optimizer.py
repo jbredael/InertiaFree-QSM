@@ -26,12 +26,12 @@ class CycleOptimizer:
          fraction_tether_length_traction_end,
          elevation_0, ..., elevation_{N-1},
          elevation_end_rori]
-    Traction elevation angles (``elevation_0`` ... ``elevation_{N-1}``) are
-    included when ``elevation_angle_traction`` is enabled and regime 3 does
-    not dominate the full traction phase.  ``elevation_end_rori`` is included
-    when ``elevation_angle_end_trans_rori`` is enabled.  All elevation
-    variables are stored in degrees inside the optimizer and converted to
-    radians for simulation.
+
+    Traction elevation angles are included when ``elevation_angle_traction``
+    is enabled and regime 3 does not dominate the full traction phase.
+    ``elevation_end_rori`` is included when ``elevation_angle_end_trans_rori``
+    is enabled.  All elevation variables are stored in degrees inside the
+    optimizer and converted to radians for simulation.
 
     Args:
         simulation_settings (dict): Full simulation settings dict (as returned
@@ -44,6 +44,11 @@ class CycleOptimizer:
             each with keys ``x`` (variable vector), ``power`` (cycle power [W]),
             and ``feasible`` (bool).
     """
+
+    # ------------------------------------------------------------------
+    # Construction
+    # ------------------------------------------------------------------
+
     def __init__(self, simulation_settings, sys_props, env_state):
         self.simulation_settings = simulation_settings
         self.sys_props = sys_props
@@ -52,138 +57,421 @@ class CycleOptimizer:
 
         opt_config = simulation_settings['optimization']
         self.optimizer_config = opt_config['optimizer']
-        self.boundsDict = opt_config['bounds']
-        self.constraintsDict = opt_config['constraints']
+        self.bounds_dict = opt_config['bounds']
+        self.constraints_dict = opt_config['constraints']
         self.opt_vars = self.optimizer_config.get('optimize_variables', {})
         self.minimum_height = simulation_settings.get('cycle', {}).get('minimum_height', 0.0)
 
-        maxTetherLength = sys_props.max_tether_length
-        fracStartMin = self.boundsDict['tether_length_traction_end'][0] / maxTetherLength
-        fracStartMax = self.boundsDict['tether_length_traction_end'][1] / maxTetherLength
-        fracEndMin = self.boundsDict['tether_length_retraction_end'][0] / maxTetherLength
-        fracEndMax = self.boundsDict['tether_length_retraction_end'][1] / maxTetherLength
+        max_tether_length = sys_props.max_tether_length
+        self._max_tether_length = max_tether_length
 
-        # Nominal (fixed) values from settings, used when a variable is not optimised.
+        # --- Nominal (fixed) values from settings ---
         self._nominal_rs_out = float(simulation_settings['traction']['control'][1])
         self._nominal_rs_in = float(simulation_settings['retraction']['control'][1])
         self._nominal_frac_end = (
-            simulation_settings['cycle']['tether_length_end_retraction'] / maxTetherLength
+            simulation_settings['cycle']['tether_length_end_retraction'] / max_tether_length
         )
         self._nominal_frac_start = (
-            simulation_settings['cycle']['tether_length_end_traction'] / maxTetherLength
+            simulation_settings['cycle']['tether_length_end_traction'] / max_tether_length
         )
         self._nominal_elevation = np.asarray(
             simulation_settings['cycle']['elevation_angle_traction']
         ).flatten()  # radians
         self._n_elev = self._nominal_elevation.size
+        self._nominal_elev_end_rori_deg = np.degrees(
+            simulation_settings.get('transition_rori', {}).get(
+                'elevation_angle_end', np.deg2rad(50.0)
+            )
+        )
 
-        # Build the initial list of active optimisation variables.
-        # Each entry: (name, x0_value, (lo_bound, hi_bound), scaling)
-        self._var_specs = []
+        # --- Parse optimizer arrays ---
         x0_base = np.array(self.optimizer_config['x0'], dtype=float)
         scaling_base = np.array(self.optimizer_config['scaling'], dtype=float)
 
+        # --- Build base variable specs (no elevation angles yet) ---
+        self._base_var_specs = self._build_base_var_specs(
+            x0_base, scaling_base, max_tether_length,
+        )
+
+        # --- Parse elevation angle config ---
+        self._optimise_elevation = bool(self.opt_vars.get('elevation_angle_traction', False))
+        self._elev_bounds_rad = self.bounds_dict['elevation_angle_traction']
+        self._elev_bounds_deg = (
+            np.degrees(self._elev_bounds_rad[0]),
+            np.degrees(self._elev_bounds_rad[1]),
+        )
+        self._elev_scaling = float(scaling_base[4]) if len(scaling_base) > 4 else 1.0
+        self._elev_x0_deg = self._parse_elevation_x0(x0_base)
+
+        # --- Parse RORI end elevation config ---
+        self._rori_var_spec = self._parse_rori_var_spec(x0_base, scaling_base)
+
+        # --- Parse coarse time steps for optimizer iterations ---
+        opt_ts = self.optimizer_config.get('opt_phase_timestep', {})
+        self._opt_time_steps = {
+            'retraction': opt_ts.get('retraction'),
+            'transition_riro': opt_ts.get('transition_riro'),
+            'traction': opt_ts.get('traction'),
+            'transition_rori': opt_ts.get('transition_rori'),
+        }
+
+        # --- Evaluation cache ---
+        self._cache_x = None
+        self._cache_kpi = None
+
+    # ------------------------------------------------------------------
+    # Variable specification helpers
+    # ------------------------------------------------------------------
+
+    def _build_base_var_specs(self, x0_base, scaling_base, max_tether_length):
+        """Build variable specs for the four base decision variables.
+
+        Args:
+            x0_base (np.ndarray): Raw x0 array from config.
+            scaling_base (np.ndarray): Raw scaling array from config.
+            max_tether_length (float): Maximum tether length [m].
+
+        Returns:
+            list: List of (name, x0, (lo, hi), scaling) tuples.
+        """
+        specs = []
+        fracStartMin = self.bounds_dict['tether_length_traction_end'][0] / max_tether_length
+        fracStartMax = self.bounds_dict['tether_length_traction_end'][1] / max_tether_length
+        fracEndMin = self.bounds_dict['tether_length_retraction_end'][0] / max_tether_length
+        fracEndMax = self.bounds_dict['tether_length_retraction_end'][1] / max_tether_length
+
         if self.opt_vars.get('reeling_speed_traction', True):
-            x0_rs_out = x0_base[0] if len(x0_base) > 0 else self._nominal_rs_out
+            x0_val = x0_base[0] if len(x0_base) > 0 else self._nominal_rs_out
             sc = scaling_base[0] if len(scaling_base) > 0 else 1.0
-            self._var_specs.append(
-                ('reeling_speed_out', x0_rs_out, self.boundsDict['reeling_speed_out'], sc)
-            )
+            specs.append(('reeling_speed_out', float(x0_val),
+                          self.bounds_dict['reeling_speed_out'], float(sc)))
 
         if self.opt_vars.get('reeling_speed_retraction', True):
-            x0_rs_in = x0_base[1] if len(x0_base) > 1 else self._nominal_rs_in
+            x0_val = x0_base[1] if len(x0_base) > 1 else self._nominal_rs_in
             sc = scaling_base[1] if len(scaling_base) > 1 else 1.0
-            self._var_specs.append(
-                ('reeling_speed_in', x0_rs_in, self.boundsDict['reeling_speed_in'], sc)
-            )
+            specs.append(('reeling_speed_in', float(x0_val),
+                          self.bounds_dict['reeling_speed_in'], float(sc)))
 
         if self.opt_vars.get('fraction_tether_length_retraction_end', True):
-            x0_frac_end = x0_base[2] if len(x0_base) > 2 else self._nominal_frac_end
+            x0_val = x0_base[2] if len(x0_base) > 2 else self._nominal_frac_end
             sc = scaling_base[2] if len(scaling_base) > 2 else 1.0
-            self._var_specs.append(
-                ('frac_end', x0_frac_end, (fracEndMin, fracEndMax), sc)
-            )
+            specs.append(('frac_end', float(x0_val), (fracEndMin, fracEndMax), float(sc)))
 
         if self.opt_vars.get('fraction_tether_length_traction_end', True):
-            x0_frac_start = x0_base[3] if len(x0_base) > 3 else self._nominal_frac_start
+            x0_val = x0_base[3] if len(x0_base) > 3 else self._nominal_frac_start
             sc = scaling_base[3] if len(scaling_base) > 3 else 1.0
-            self._var_specs.append(
-                ('frac_start', x0_frac_start, (fracStartMin, fracStartMax), sc)
-            )
+            specs.append(('frac_start', float(x0_val), (fracStartMin, fracStartMax), float(sc)))
 
-        # Elevation angle variables are added after checking for full regime 3 in optimize().
-        self._optimise_elevation = bool(self.opt_vars.get('elevation_angle_traction', False))
-        self._elev_bounds = self.boundsDict['elevation_angle_traction']  # (lo_rad, hi_rad)
-        # Elevation variables are stored in DEGREES in the optimizer.
-        # x0_base[4..4+N-1] hold the per-angle starting values; x0_base[-1] holds
-        # elevation_end_rori when that variable is optimised and embedded in the array.
-        # Determine if RORI end elevation is embedded as the last element of x0_base.
-        # When elevation_angle_end_trans_rori is optimised AND the x0 array has been
-        # extended (len > 5), the last entry encodes that variable's starting value.
-        _rori_in_x0 = (
+        return specs
+
+    def _parse_elevation_x0(self, x0_base):
+        """Parse per-angle starting values for traction elevation from x0_base.
+
+        Args:
+            x0_base (np.ndarray): Raw x0 array from config.
+
+        Returns:
+            list: Per-angle x0 values in degrees.
+        """
+        roriInX0 = (
             bool(self.opt_vars.get('elevation_angle_end_trans_rori', False))
             and len(x0_base) > 5
         )
-        # Traction elevation entries occupy positions 4..len-2 (or 4..len-1 when RORI is
-        # not embedded).  A single value at index 4 is broadcast to all angles.
-        _n_trac_in_x0 = len(x0_base) - 4 - (1 if _rori_in_x0 else 0)
-        _elev_x0_scalar = float(x0_base[4]) if len(x0_base) > 4 else np.degrees(self._nominal_elevation[0])
-        self._elev_x0_deg = [
-            float(x0_base[4 + i]) if i < _n_trac_in_x0 else _elev_x0_scalar
+        nTracInX0 = len(x0_base) - 4 - (1 if roriInX0 else 0)
+        scalarDeg = float(x0_base[4]) if len(x0_base) > 4 else np.degrees(self._nominal_elevation[0])
+        return [
+            float(x0_base[4 + i]) if i < nTracInX0 else scalarDeg
             for i in range(self._n_elev)
         ]
-        self._elev_scaling = float(scaling_base[4]) if len(scaling_base) > 4 else 1.0
-        self._elev_bounds_deg = (
-            np.degrees(self._elev_bounds[0]),
-            np.degrees(self._elev_bounds[1]),
-        )
 
-        # Elevation angle end for RORI transition phase (variable stored in degrees).
-        self._nominal_elev_end_rori_deg = np.degrees(
-            simulation_settings.get('transition_rori', {}).get('elevation_angle_end', np.deg2rad(50.0))
-        )
-        if bool(self.opt_vars.get('elevation_angle_end_trans_rori', False)):
-            if _rori_in_x0:
-                x0_end_rori = float(x0_base[-1])
-                sc_end_rori = float(scaling_base[-1]) if len(scaling_base) >= len(x0_base) else 1.0
+    def _parse_rori_var_spec(self, x0_base, scaling_base):
+        """Parse the RORI end-elevation variable spec if enabled.
+
+        Args:
+            x0_base (np.ndarray): Raw x0 array from config.
+            scaling_base (np.ndarray): Raw scaling array from config.
+
+        Returns:
+            tuple or None: (name, x0, (lo_deg, hi_deg), scaling) or None.
+        """
+        if not bool(self.opt_vars.get('elevation_angle_end_trans_rori', False)):
+            return None
+
+        roriInX0 = len(x0_base) > 5
+        if roriInX0:
+            x0_val = float(x0_base[-1])
+            sc = float(scaling_base[-1]) if len(scaling_base) >= len(x0_base) else 1.0
+        else:
+            x0_val = float(self.optimizer_config.get(
+                'x0_elevation_angle_end_trans_rori', self._nominal_elev_end_rori_deg))
+            sc = float(self.optimizer_config.get('scaling_elevation_angle_end_trans_rori', 1.0))
+
+        bounds_rad = self.bounds_dict.get(
+            'elevation_angle_end_trans_rori', (np.deg2rad(30.0), np.deg2rad(70.0)))
+        bounds_deg = (np.degrees(bounds_rad[0]), np.degrees(bounds_rad[1]))
+        return ('elevation_end_rori', x0_val, bounds_deg, sc)
+
+    def _assemble_var_specs(self, probe_kpi):
+        """Assemble the full variable-spec list for this optimisation call.
+
+        Starts from the base specs, conditionally adds elevation angles
+        and RORI end elevation, and removes reeling_speed_out when the
+        full traction phase is in regime 2.
+
+        Args:
+            probe_kpi (dict): KPI from a probe evaluation at nominal x0.
+
+        Returns:
+            list: Final variable spec list.
+        """
+        var_specs = list(self._base_var_specs)
+
+        traction_n = probe_kpi.get('traction_n_time_points', 1)
+        regime2_n = probe_kpi.get('traction_regime2_count', 0)
+        regime3_n = probe_kpi.get('traction_regime3_count', 0)
+
+        # Elevation angles (traction).
+        if self._optimise_elevation:
+            full_regime3 = traction_n > 0 and regime3_n >= traction_n
+            if full_regime3:
+                print("    Elevation angle optimisation disabled: "
+                      "entire traction phase is in regime 3 (power limit active).")
             else:
-                x0_end_rori = float(self.optimizer_config.get(
-                    'x0_elevation_angle_end_trans_rori', self._nominal_elev_end_rori_deg
-                ))
-                sc_end_rori = float(self.optimizer_config.get('scaling_elevation_angle_end_trans_rori', 1.0))
-            bounds_end_rori = self.boundsDict.get(
-                'elevation_angle_end_trans_rori',
-                (np.deg2rad(30.0), np.deg2rad(70.0)),
-            )
-            bounds_end_rori_deg = (np.degrees(bounds_end_rori[0]), np.degrees(bounds_end_rori[1]))
-            self._var_specs.append((
-                'elevation_end_rori',
-                x0_end_rori,
-                bounds_end_rori_deg,
-                sc_end_rori,
-            ))
+                for i in range(self._n_elev):
+                    var_specs.append((
+                        f'elevation_{i}',
+                        self._elev_x0_deg[i],
+                        self._elev_bounds_deg,
+                        self._elev_scaling,
+                    ))
 
-        # Coarse time steps used during optimization iterations (from opt_phase_timestep).
-        # None values mean: keep the phase setting as-is.
-        _opt_ts = self.optimizer_config.get('opt_phase_timestep', {})
-        self._opt_time_steps = {
-            'retraction': _opt_ts.get('retraction'),
-            'transition_riro': _opt_ts.get('transition_riro'),
-            'traction': _opt_ts.get('traction'),
-            'transition_rori': _opt_ts.get('transition_rori'),
-        }
+        # RORI end elevation.
+        if self._rori_var_spec is not None:
+            var_specs.append(self._rori_var_spec)
 
-        # Cache for the last evaluated point (avoids double simulation from SLSQP
-        # calling the objective and constraint functions at the same x).
-        self._cache_x = None
-        self._cache_kpi = None
+        # Disable reel-out speed when full regime 2.
+        full_regime2 = traction_n > 0 and regime2_n >= traction_n
+        if full_regime2:
+            var_specs = [s for s in var_specs if s[0] != 'reeling_speed_out']
+            print("    Reeling speed (traction) optimisation disabled: "
+                  "entire traction phase is in regime 2 (force-controlled).")
+
+        return var_specs
+
+    # ------------------------------------------------------------------
+    # x0 adaptation and repair
+    # ------------------------------------------------------------------
+
+    def _adapt_x0(self, x0, var_names, bounds, wind_speed):
+        """Adapt the starting point to the current wind speed.
+
+        For cold starts the YAML x0 may specify a reel-out speed that exceeds
+        one-third of the wind speed, which would place the kite close to its
+        stall condition and produce a poor starting point.  The one-third cap
+        is the theoretical Betz-limit reeling factor for maximum power, so any
+        reasonable optimum lies below it.  Warm-start values that already lie
+        below the cap are passed through unchanged.
+
+        Args:
+            x0 (np.ndarray): Unscaled starting point (modified in place).
+            var_names (list): Variable names matching x0.
+            bounds (list): (lo, hi) tuples.
+            wind_speed (float): Reference wind speed [m/s].
+        """
+        for i, name in enumerate(var_names):
+            lo, hi = bounds[i]
+            if name == 'reeling_speed_out':
+                x0[i] = np.clip(min(x0[i], wind_speed / 3.0), lo, hi)
+
+    def _repair_x0(self, x0, var_names, bounds, wind_speed=None):
+        """Try to produce a feasible starting point when x0 fails.
+
+        Args:
+            x0 (np.ndarray): Original starting point (unscaled).
+            var_names (list): Variable names matching x0.
+            bounds (list): (lo, hi) tuples for each variable.
+            wind_speed (float, optional): Current wind speed for adaptive scaling.
+
+        Returns:
+            np.ndarray or None: Repaired x0 if successful, None otherwise.
+        """
+        candidates = []
+        if wind_speed is not None:
+            for rfOut in [0.15, 0.10, 0.25]:
+                for rfIn in [0.25, 0.15, 0.40]:
+                    rsOut = max(wind_speed * rfOut, 0.5)
+                    rsIn = min(-wind_speed * rfIn, -0.5)
+                    candidates.append((rsOut, rsIn, 1.0))
+                    candidates.append((rsOut, rsIn, 1.3))
+        for elevFactor in [1.0, 1.3, 1.6]:
+            candidates.append((None, None, elevFactor))
+
+        best_x = None
+        best_power = -np.inf
+
+        for rsOutVal, rsInVal, elevFactor in candidates:
+            xTry = x0.copy()
+            for i, name in enumerate(var_names):
+                lo, hi = bounds[i]
+                if name == 'reeling_speed_out':
+                    xTry[i] = np.clip(rsOutVal if rsOutVal is not None else x0[i] * 0.5, lo, hi)
+                elif name == 'reeling_speed_in':
+                    xTry[i] = np.clip(rsInVal if rsInVal is not None else x0[i] * 0.5, lo, hi)
+                elif name.startswith('elevation_') and name.split('_')[1].isdigit():
+                    xTry[i] = np.clip(x0[i] * elevFactor, lo, hi)
+            kpi = self._run_cycle(xTry, var_names)
+            if kpi['sim_successful'] and kpi['average_power']['cycle'] > best_power:
+                best_power = kpi['average_power']['cycle']
+                best_x = xTry.copy()
+                if best_power > 100.0:
+                    break
+        return best_x
+
+    # ------------------------------------------------------------------
+    # Constraint assembly
+    # ------------------------------------------------------------------
+
+    def _build_constraints(self, var_names, scaling):
+        """Build the list of SLSQP constraint dicts.
+
+        Args:
+            var_names (list): Active variable names.
+            scaling (np.ndarray): Scaling vector.
+
+        Returns:
+            list: Constraint dicts for ``scipy.optimize.minimize``.
+        """
+        constraints = []
+
+        # Tether fraction ordering.
+        idx_frac_end = var_names.index('frac_end') if 'frac_end' in var_names else None
+        idx_frac_start = var_names.index('frac_start') if 'frac_start' in var_names else None
+        min_frac_diff = self.constraints_dict['min_tether_length_fraction_difference']
+        if idx_frac_end is not None and idx_frac_start is not None:
+            constraints.append({
+                'type': 'ineq',
+                'fun': lambda x, ie=idx_frac_end, ist=idx_frac_start, s=scaling: (
+                    x[ist] * s[ist] - x[ie] * s[ie] - min_frac_diff
+                ),
+            })
+
+        # Minimum altitude.
+        if self.minimum_height > 0:
+            constraints.append({
+                'type': 'ineq',
+                'fun': lambda x, s=scaling, vn=var_names: (
+                    self._cached_run_cycle(x * s, vn).get('min_altitude_traction', 0.0)
+                    - self.minimum_height
+                ),
+            })
+
+        # Max tether length during RORI.
+        max_tl = self._max_tether_length
+        constraints.append({
+            'type': 'ineq',
+            'fun': lambda x, s=scaling, vn=var_names, mtl=max_tl: (
+                mtl - self._cached_run_cycle(x * s, vn).get('max_tether_length_rori', 0.0)
+            ),
+        })
+
+        # Max step difference between consecutive elevation angles.
+        max_diff_elev = self.constraints_dict.get('max_difference_elevation_angle_steps')
+        if max_diff_elev is not None and max_diff_elev > 0:
+            elev_indices = [i for i, n in enumerate(var_names)
+                           if n.startswith('elevation_') and n.split('_')[1].isdigit()]
+            elev_sc = self._elev_scaling
+            for k in range(len(elev_indices) - 1):
+                j0 = elev_indices[k]
+                j1 = elev_indices[k + 1]
+                constraints.append({
+                    'type': 'ineq',
+                    'fun': lambda x, j0=j0, j1=j1, sc=elev_sc, md=max_diff_elev: (
+                        md - (x[j1] * sc - x[j0] * sc)
+                    ),
+                })
+                constraints.append({
+                    'type': 'ineq',
+                    'fun': lambda x, j0=j0, j1=j1, sc=elev_sc, md=max_diff_elev: (
+                        md + (x[j1] * sc - x[j0] * sc)
+                    ),
+                })
+
+        # elevation_end_rori >= all traction elevation angles.
+        idx_end_rori = var_names.index('elevation_end_rori') if 'elevation_end_rori' in var_names else None
+        if idx_end_rori is not None:
+            sc_end_rori = scaling[idx_end_rori]
+            trac_elev_indices = [i for i, n in enumerate(var_names)
+                                 if n.startswith('elevation_') and n.split('_')[1].isdigit()]
+            if trac_elev_indices:
+                for idx_elev in trac_elev_indices:
+                    sc_elev = scaling[idx_elev]
+                    constraints.append({
+                        'type': 'ineq',
+                        'fun': lambda x, ie=idx_end_rori, je=idx_elev, se=sc_end_rori, st=sc_elev: (
+                            x[ie] * se - x[je] * st
+                        ),
+                    })
+            else:
+                nominal_max_elev_deg = float(np.degrees(np.max(self._nominal_elevation)))
+                constraints.append({
+                    'type': 'ineq',
+                    'fun': lambda x, ie=idx_end_rori, se=sc_end_rori, nmax=nominal_max_elev_deg: (
+                        x[ie] * se - nmax
+                    ),
+                })
+
+        return constraints
+
+    # ------------------------------------------------------------------
+    # Post-optimisation finalisation
+    # ------------------------------------------------------------------
+
+    def _finalise_result(self, result, scaling, var_names):
+        """Re-evaluate at full resolution and rescue from history if needed.
+
+        Args:
+            result (scipy.optimize.OptimizeResult): SLSQP result.
+            scaling (np.ndarray): Scaling vector.
+            var_names (list): Active variable names.
+
+        Returns:
+            tuple: (kpi dict, optimal x vector).
+        """
+        x_opt = result.x * scaling
+
+        print("    Re-evaluating optimal solution with full-resolution time steps...")
+        kpi = self._run_cycle(x_opt, var_names, use_opt_timesteps=False)
+        slsqp_power = kpi['average_power']['cycle']
+
+        # Always evaluate the best-of-history point at full resolution.
+        # Coarse-timestep history powers are not directly comparable to the
+        # full-resolution SLSQP result, so we never screen on the coarse power.
+        best_hist = max(
+            (e for e in self.history if e.get('feasible', False)),
+            key=lambda e: e['power'],
+            default=None,
+        )
+        if best_hist is not None and not np.allclose(
+            best_hist['x'], x_opt, rtol=0, atol=1e-6
+        ):
+            kpi_hist = self._run_cycle(best_hist['x'], var_names, use_opt_timesteps=False)
+            if (kpi_hist['sim_successful']
+                    and kpi_hist['average_power']['cycle'] > slsqp_power):
+                gain = kpi_hist['average_power']['cycle'] - slsqp_power
+                print(f"    Rescue: best-of-history yields "
+                      f"{kpi_hist['average_power']['cycle']:.1f}W "
+                      f"(+{gain:.1f}W over SLSQP result)")
+                x_opt = best_hist['x']
+                kpi = kpi_hist
+
+        return kpi, x_opt
 
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
 
     def optimize(self, wind_speed, verbose=False):
-        """Run SLSQP optimization for a single wind speed.
+        """Run the SLSQP optimisation for a given wind speed.
 
         Args:
             wind_speed (float): Reference wind speed [m/s].
@@ -200,197 +488,61 @@ class CycleOptimizer:
         self._cache_x = None
         self._cache_kpi = None
 
-        # Start with base variable specs (no elevation angles yet).
-        var_specs = list(self._var_specs)
+        # Probe at nominal x0.
+        probe_kpi = self._run_cycle_from_specs(self._base_var_specs)
 
-        # Probe whether elevation angle optimisation is useful.
-        if self._optimise_elevation:
-            probe_kpi = self._evaluate_from_specs(var_specs)
-            traction_n = probe_kpi.get('traction_n_time_points', 1)
-            regime2_n = probe_kpi.get('traction_regime2_count', 0)
-            regime3_n = probe_kpi.get('traction_regime3_count', 0)
-            full_regime3 = traction_n > 0 and regime3_n >= traction_n
-            if full_regime3:
-                print(
-                    "    Elevation angle optimisation disabled: "
-                    "entire traction phase is in regime 3 (power limit active)."
-                )
-            else:
-                for i in range(self._n_elev):
-                    var_specs.append((
-                        f'elevation_{i}',
-                        self._elev_x0_deg[i],  # degrees, per-angle starting point
-                        self._elev_bounds_deg,
-                        self._elev_scaling,
-                    ))
-        else:
-            probe_kpi = self._evaluate_from_specs(var_specs)
-            traction_n = probe_kpi.get('traction_n_time_points', 1)
-            regime2_n = probe_kpi.get('traction_regime2_count', 0)
-            regime3_n = probe_kpi.get('traction_regime3_count', 0)
+        # Assemble final variable list (adds elevation, RORI; drops regime-2 vars).
+        var_specs = self._assemble_var_specs(probe_kpi)
 
-        # Disable reeling speed optimisation when the full traction phase is in regime 2
-        # (force-controlled): the reeling speed setpoint has no effect on the outcome.
-        full_regime2 = traction_n > 0 and regime2_n >= traction_n
-        if full_regime2:
-            rs_out_name = 'reeling_speed_out'
-            var_specs = [s for s in var_specs if s[0] != rs_out_name]
-            print(
-                "    Reeling speed (traction) optimisation disabled: "
-                "entire traction phase is in regime 2 (force-controlled)."
-            )
-
-        # If no variables remain active (e.g. all base vars disabled AND regime 3
-        # disabled elevation), skip the optimizer and return the nominal result.
         if not var_specs:
-            print("    No active optimisation variables — returning nominal simulation.")
-            kpi = self._evaluate_from_specs([], use_opt_timesteps=False)
+            print("    No active optimisation variables -- returning nominal simulation.")
+            kpi = self._run_cycle_from_specs([], use_opt_timesteps=False)
             kpi['optimization_result'] = None
             self.last_var_names = []
             return kpi
 
-        x0 = np.array([spec[1] for spec in var_specs], dtype=float)
-        scaling = np.array([spec[3] for spec in var_specs], dtype=float)
-        bounds = [spec[2] for spec in var_specs]
+        x0 = np.array([s[1] for s in var_specs], dtype=float)
+        scaling = np.array([s[3] for s in var_specs], dtype=float)
+        bounds = [s[2] for s in var_specs]
+        var_names = [s[0] for s in var_specs]
 
-        # Build list of variable names for decoding.
-        var_names = [spec[0] for spec in var_specs]
+        # Adapt x0 to wind speed.
+        self._adapt_x0(x0, var_names, bounds, wind_speed)
 
-        # Wind-speed-adaptive x0: at low wind speeds, the default reeling
-        # speed x0 may put the kite in a regime where tether force is below
-        # the minimum limit and operational limits override the control,
-        # making the gradient in the reeling-speed direction effectively zero.
-        # Cap initial reel-out at ~20% of wind speed and reel-in at ~30%.
-        for i, name in enumerate(var_names):
-            lo, hi = bounds[i]
-            if name == 'reeling_speed_out':
-                x0[i] = np.clip(min(x0[i], wind_speed * 0.2), lo, hi)
-            elif name == 'reeling_speed_in':
-                x0[i] = np.clip(max(x0[i], -wind_speed * 0.3), lo, hi)
-
-        # Scaling convention: x_scaled = x_physical / scaling.
+        # Scale.
         x0_scaled = x0 / scaling
         scaled_bounds = [(lo / s, hi / s) for (lo, hi), s in zip(bounds, scaling)]
 
-        # Pre-check: evaluate x0 and try to repair if infeasible or
-        # nearly zero power (flat gradient region).
-        kpi_x0 = self._evaluate_from_names(x0, var_names)
-        if (not kpi_x0['sim_successful']
-                or kpi_x0['average_power']['cycle'] < 10.0):
+        # Pre-check and repair.
+        kpi_x0 = self._run_cycle(x0, var_names)
+        if not kpi_x0['sim_successful'] or kpi_x0['average_power']['cycle'] < 10.0:
             x0_repaired = self._repair_x0(x0, var_names, bounds, wind_speed)
             if x0_repaired is not None:
                 x0 = x0_repaired
                 x0_scaled = x0 / scaling
                 print("    Repaired infeasible/low-power x0 for this wind speed.")
 
-        # Indices of frac_end and frac_start for the tether-length constraint.
-        idx_frac_end = var_names.index('frac_end') if 'frac_end' in var_names else None
-        idx_frac_start = var_names.index('frac_start') if 'frac_start' in var_names else None
-
-        min_frac_diff = self.constraintsDict['min_tether_length_fraction_difference']
-        constraints = []
-        if idx_frac_end is not None and idx_frac_start is not None:
-            constraints.append({
-                'type': 'ineq',
-                'fun': lambda x, ie=idx_frac_end, ist=idx_frac_start, s=scaling: (
-                    x[ist] * s[ist] - x[ie] * s[ie] - min_frac_diff
-                ),
-            })
-
-        # Minimum altitude constraint (traction phase only).
-        if self.minimum_height > 0:
-            constraints.append({
-                'type': 'ineq',
-                'fun': lambda x, s=scaling, vn=var_names: (
-                    self._cached_evaluate(x * s, vn).get('min_altitude_traction', 0.0)
-                    - self.minimum_height
-                ),
-            })
-
-        # Max tether length constraint for RORI transition phase.
-        # Enforces that the tether does not exceed the physical maximum during the
-        # RORI phase, where the kite is powered and can reel out past frac_start.
-        max_tl = self.sys_props.max_tether_length
-        constraints.append({
-            'type': 'ineq',
-            'fun': lambda x, s=scaling, vn=var_names, mtl=max_tl: (
-                mtl - self._cached_evaluate(x * s, vn).get('max_tether_length_rori', 0.0)
-            ),
-        })
-
-        # Maximum step difference between consecutive elevation angles.
-        max_diff_elev = self.constraintsDict.get('max_difference_elevation_angle_steps')
-        if max_diff_elev is not None and max_diff_elev > 0:
-            # Only traction elevation variables have names of the form 'elevation_<int>'.
-            elev_indices = [i for i, n in enumerate(var_names)
-                            if n.startswith('elevation_') and n.split('_')[1].isdigit()]
-            elev_sc = self._elev_scaling
-            for k in range(len(elev_indices) - 1):
-                j0 = elev_indices[k]
-                j1 = elev_indices[k + 1]
-                # elevation_{k+1} - elevation_k <= max_diff_elev
-                constraints.append({
-                    'type': 'ineq',
-                    'fun': lambda x, j0=j0, j1=j1, sc=elev_sc, md=max_diff_elev: (
-                        md - (x[j1] * sc - x[j0] * sc)
-                    ),
-                })
-                # elevation_k - elevation_{k+1} <= max_diff_elev
-                constraints.append({
-                    'type': 'ineq',
-                    'fun': lambda x, j0=j0, j1=j1, sc=elev_sc, md=max_diff_elev: (
-                        md + (x[j1] * sc - x[j0] * sc)
-                    ),
-                })
-
-        # Constraint: elevation_end_rori >= all traction elevation angles.
-        # This ensures the RORI transition always goes upward (traction → retraction).
-        idx_end_rori = var_names.index('elevation_end_rori') if 'elevation_end_rori' in var_names else None
-        if idx_end_rori is not None:
-            sc_end_rori = scaling[idx_end_rori]
-            trac_elev_indices = [i for i, n in enumerate(var_names)
-                                 if n.startswith('elevation_') and n.split('_')[1].isdigit()]
-            if trac_elev_indices:
-                # Constrain against each optimised traction elevation angle.
-                for idx_elev in trac_elev_indices:
-                    sc_elev = scaling[idx_elev]
-                    constraints.append({
-                        'type': 'ineq',
-                        'fun': lambda x, ie=idx_end_rori, je=idx_elev, se=sc_end_rori, st=sc_elev: (
-                            x[ie] * se - x[je] * st
-                        ),
-                    })
-            else:
-                # Traction elevation not optimised: constrain against nominal maximum.
-                nominal_max_elev_deg = float(np.degrees(np.max(self._nominal_elevation)))
-                constraints.append({
-                    'type': 'ineq',
-                    'fun': lambda x, ie=idx_end_rori, se=sc_end_rori, nmax=nominal_max_elev_deg: (
-                        x[ie] * se - nmax
-                    ),
-                })
+        constraints = self._build_constraints(var_names, scaling)
 
         def _objective_scaled(x_scaled):
             return self._objective(x_scaled * scaling, var_names)
 
         def _callback(xk):
             self._iter_count += 1
-            x_unscaled = xk * scaling
-            current_power = self.history[-1]['power'] if self.history else float('nan')
             if verbose:
-                base_str = (
-                    f"      iter {self._iter_count:3d} | "
-                    f"power={current_power / 1000:+.3f} kW"
-                )
+                x_unscaled = xk * scaling
+                power = self.history[-1]['power'] if self.history else float('nan')
+                parts = [f"      iter {self._iter_count:3d} | power={power / 1000:+.3f} kW"]
                 for name, val in zip(var_names, x_unscaled):
-                    base_str += f"  {name}={val:+.4f}"
-                print(base_str)
+                    parts.append(f"  {name}={val:+.4f}")
+                print("".join(parts))
 
-        # Enforce a minimum eps for gradient estimation.  With coarser
-        # optimisation time steps the simulation output has limited
-        # sensitivity to tiny perturbations, producing noise-dominated
-        # finite-difference gradients when eps is too small.
-        eps = max(self.optimizer_config['eps'], 1e-3)
+        # eps is used as the finite-difference step size in scaled variable space.
+        # All variables are O(1) in scaled space (scaling values normalise them),
+        # so using base_eps directly gives consistent perturbations for all vars:
+        #   reel speeds / fractions: ~eps m/s or fraction
+        #   elevation angles: ~eps * 30 degrees
+        eps = float(self.optimizer_config['eps'])
 
         result = op.minimize(
             _objective_scaled,
@@ -407,54 +559,22 @@ class CycleOptimizer:
             },
         )
 
-        x_opt = result.x * scaling
-        self.last_x_opt = x_opt
-
-        # Rescue: check if any feasible history point outperforms the
-        # SLSQP result.  SLSQP can walk off the optimum when noisy FD
-        # gradients cause a step into an infeasible region followed by
-        # over-correction.
-        best_hist = max(
-            (e for e in self.history if e.get('feasible', False)),
-            key=lambda e: e['power'],
-            default=None,
-        )
-
-        # Final evaluation at full-resolution time steps.
-        print("    Re-evaluating optimal solution with full-resolution time steps...")
-        kpi = self._evaluate_from_names(x_opt, var_names, use_opt_timesteps=False)
-        slsqp_power = kpi['average_power']['cycle']
-
-        if (best_hist is not None
-                and best_hist['power'] > slsqp_power + 1.0):
-            kpi_rescue = self._evaluate_from_names(
-                best_hist['x'], var_names, use_opt_timesteps=False,
-            )
-            if (kpi_rescue['sim_successful']
-                    and kpi_rescue['average_power']['cycle'] > slsqp_power):
-                gain = kpi_rescue['average_power']['cycle'] - slsqp_power
-                print(f"    Rescue: best-of-history yields "
-                      f"{kpi_rescue['average_power']['cycle']:.1f}W "
-                      f"(+{gain:.1f}W over SLSQP result)")
-                x_opt = best_hist['x']
-                kpi = kpi_rescue
-                self.last_x_opt = x_opt
-
+        kpi, x_opt = self._finalise_result(result, scaling, var_names)
         kpi['optimization_result'] = result
+        self.last_x_opt = x_opt
         self.last_var_names = var_names
         return kpi
 
     # ------------------------------------------------------------------
-    # Private helpers
+    # Objective and caching
     # ------------------------------------------------------------------
 
     def _objective(self, x_unscaled, var_names):
         """Negative average cycle power (SLSQP minimises).
 
-        Failed simulations return 0 instead of a large penalty.  This
-        creates a smooth floor so that finite-difference gradients near
-        the feasibility boundary stay well-behaved, avoiding the
-        gradient explosions that cause SLSQP to overshoot.
+        Failed simulations return 0 instead of a large penalty so that
+        finite-difference gradients near the feasibility boundary stay
+        well-behaved.
 
         Args:
             x_unscaled (np.ndarray): Unscaled decision variables.
@@ -463,7 +583,7 @@ class CycleOptimizer:
         Returns:
             float: Negative cycle power (0 for failed simulations).
         """
-        kpi = self._cached_evaluate(x_unscaled, var_names)
+        kpi = self._cached_run_cycle(x_unscaled, var_names)
         is_feasible = kpi['sim_successful']
         power = kpi['average_power']['cycle'] if is_feasible else 0.0
         self.history.append({
@@ -471,7 +591,7 @@ class CycleOptimizer:
         })
         return -power
 
-    def _cached_evaluate(self, x_unscaled, var_names):
+    def _cached_run_cycle(self, x_unscaled, var_names):
         """Return evaluation result, re-using cache when x is unchanged.
 
         Args:
@@ -481,71 +601,17 @@ class CycleOptimizer:
         Returns:
             dict: KPI dict.
         """
-        if self._cache_x is not None and np.allclose(x_unscaled, self._cache_x, rtol=0, atol=1e-12):
+        if (self._cache_x is not None
+                and np.allclose(x_unscaled, self._cache_x, rtol=0, atol=1e-12)):
             return self._cache_kpi
-        kpi = self._evaluate_from_names(x_unscaled, var_names)
+        kpi = self._run_cycle(x_unscaled, var_names)
         self._cache_x = x_unscaled.copy()
         self._cache_kpi = kpi
         return kpi
 
-    def _repair_x0(self, x0, var_names, bounds, wind_speed=None):
-        """Try to produce a feasible starting point when x0 fails or gives near-zero power.
-
-        Progressively makes cycle parameters more conservative (lower reeling
-        speed, higher elevation, shorter tether stroke) and returns the first
-        combination that produces a successful simulation with positive power.
-
-        Args:
-            x0 (np.ndarray): Original starting point (unscaled).
-            var_names (list): Variable names matching x0.
-            bounds (list): (lo, hi) tuples for each variable.
-            wind_speed (float, optional): Current wind speed for adaptive scaling.
-
-        Returns:
-            np.ndarray or None: Repaired x0 if successful, None otherwise.
-        """
-        # Candidate repair strategies: (reel_out_speed, reel_in_speed, elev_factor, frac_end_override)
-        candidates = []
-        if wind_speed is not None:
-            # Wind-speed-proportional candidates.
-            for rf_out in [0.15, 0.10, 0.25]:
-                for rf_in in [0.25, 0.15, 0.40]:
-                    rs_out = max(wind_speed * rf_out, 0.5)
-                    rs_in = min(-wind_speed * rf_in, -0.5)
-                    candidates.append((rs_out, rs_in, 1.0, None))
-                    candidates.append((rs_out, rs_in, 1.3, None))
-        # Fallback fixed candidates.
-        for rsFrac, elevFactor in [(0.5, 1.0), (0.5, 1.3), (0.3, 1.0), (0.3, 1.6)]:
-            candidates.append((None, None, elevFactor, None))
-
-        best_x = None
-        best_power = -np.inf
-
-        for candidate in candidates:
-            rs_out_val, rs_in_val, elevFactor, frac_end_val = candidate
-            xTry = x0.copy()
-            for i, name in enumerate(var_names):
-                lo, hi = bounds[i]
-                if name == 'reeling_speed_out':
-                    if rs_out_val is not None:
-                        xTry[i] = np.clip(rs_out_val, lo, hi)
-                    else:
-                        xTry[i] = np.clip(x0[i] * 0.5, lo, hi)
-                elif name == 'reeling_speed_in':
-                    if rs_in_val is not None:
-                        xTry[i] = np.clip(rs_in_val, lo, hi)
-                    else:
-                        xTry[i] = np.clip(x0[i] * 0.5, lo, hi)
-                elif name.startswith('elevation_') and name.split('_')[1].isdigit():
-                    xTry[i] = np.clip(x0[i] * elevFactor, lo, hi)
-            kpi = self._evaluate_from_names(xTry, var_names)
-            if kpi['sim_successful'] and kpi['average_power']['cycle'] > best_power:
-                best_power = kpi['average_power']['cycle']
-                best_x = xTry.copy()
-                if best_power > 100.0:
-                    # Good enough — don't keep searching.
-                    break
-        return best_x
+    # ------------------------------------------------------------------
+    # Simulation
+    # ------------------------------------------------------------------
 
     def _build_settings(self, values_by_name, use_opt_timesteps=True):
         """Build a settings dict with decision variables applied.
@@ -553,15 +619,13 @@ class CycleOptimizer:
         Args:
             values_by_name (dict): Mapping from variable name to value.
             use_opt_timesteps (bool): When True, override phase time steps with
-                the coarser ``opt_phase_timestep`` values to speed up optimizer
-                iterations. When False, the original phase time steps are kept
-                for a full-resolution evaluation. Defaults to True.
+                the coarser values. Defaults to True.
 
         Returns:
             dict: Deep-copied simulation settings with overrides applied.
         """
         settings = deepcopy(self.simulation_settings)
-        maxTetherLength = self.sys_props.max_tether_length
+        max_tl = self._max_tether_length
 
         rs_out = values_by_name.get('reeling_speed_out', self._nominal_rs_out)
         rs_in = values_by_name.get('reeling_speed_in', self._nominal_rs_in)
@@ -570,28 +634,25 @@ class CycleOptimizer:
 
         settings['traction']['control'] = ('reeling_speed', float(rs_out))
         settings['retraction']['control'] = ('reeling_speed', float(rs_in))
-        settings['cycle']['tether_length_end_retraction'] = frac_end * maxTetherLength
-        settings['cycle']['tether_length_end_traction'] = frac_start * maxTetherLength
+        settings['cycle']['tether_length_end_retraction'] = frac_end * max_tl
+        settings['cycle']['tether_length_end_traction'] = frac_start * max_tl
 
-        # Apply coarser time steps during optimizer iterations.
         if use_opt_timesteps:
             for phase in ('retraction', 'transition_riro', 'traction', 'transition_rori'):
                 ts = self._opt_time_steps.get(phase)
                 if ts is not None:
                     settings[phase]['time_step'] = ts
 
-        # Override elevation angles if any elevation variable is in values_by_name.
-        # Optimizer elevation variables are in degrees; convert to radians for simulation.
-        # Only match traction-angle variables of the form 'elevation_<int>'.
-        elev_keys = [k for k in values_by_name if k.startswith('elevation_') and k.split('_')[1].isdigit()]
+        # Elevation angles (degrees -> radians).
+        elev_keys = [k for k in values_by_name
+                     if k.startswith('elevation_') and k.split('_')[1].isdigit()]
         if elev_keys:
-            elev_array = np.array(self._nominal_elevation, dtype=float)  # radians
+            elev_array = np.array(self._nominal_elevation, dtype=float)
             for k in elev_keys:
                 idx = int(k.split('_')[1])
-                elev_array[idx] = np.deg2rad(values_by_name[k])  # degrees → radians
+                elev_array[idx] = np.deg2rad(values_by_name[k])
             settings['cycle']['elevation_angle_traction'] = elev_array
 
-        # Apply RORI transition end elevation angle if optimised (stored in degrees).
         elev_end_rori = values_by_name.get('elevation_end_rori')
         if elev_end_rori is not None:
             settings['transition_rori']['elevation_angle_end'] = np.deg2rad(float(elev_end_rori))
@@ -599,32 +660,30 @@ class CycleOptimizer:
         settings['cycle']['traction_phase'] = TractionPhase
         return settings
 
-    def _evaluate_from_specs(self, var_specs, use_opt_timesteps=True):
+    def _run_cycle_from_specs(self, var_specs, use_opt_timesteps=True):
         """Evaluate at the x0 values of the given var_specs list.
 
         Args:
             var_specs (list): List of (name, x0, bounds, scaling) tuples.
-            use_opt_timesteps (bool): Passed through to ``_evaluate_from_names``.
-                Defaults to True.
+            use_opt_timesteps (bool): Passed through to ``_run_cycle``.
 
         Returns:
             dict: KPI dict.
         """
         x0 = np.array([s[1] for s in var_specs], dtype=float)
         names = [s[0] for s in var_specs]
-        return self._evaluate_from_names(x0, names, use_opt_timesteps=use_opt_timesteps)
+        return self._run_cycle(x0, names, use_opt_timesteps=use_opt_timesteps)
 
-    def _evaluate_from_names(self, x_unscaled, var_names, use_opt_timesteps=True):
+    def _run_cycle(self, x_unscaled, var_names, use_opt_timesteps=True):
         """Run one cycle simulation for the given decision variable vector.
 
         Args:
             x_unscaled (np.ndarray): Unscaled decision variables.
             var_names (list): Variable names matching x_unscaled.
-            use_opt_timesteps (bool): When True, override phase time steps with
-                the coarser opt values. Defaults to True.
+            use_opt_timesteps (bool): When True, use coarser time steps.
 
         Returns:
-            dict: KPI dict compatible with ``_build_wind_speed_entry``.
+            dict: KPI dict.
         """
         values_by_name = dict(zip(var_names, x_unscaled))
         settings = self._build_settings(values_by_name, use_opt_timesteps=use_opt_timesteps)
@@ -642,18 +701,12 @@ class CycleOptimizer:
             transition_riro = cycle.transition_riro_phase
             transition_rori = cycle.transition_rori_phase
 
-            # Minimum altitude during traction.
             min_altitude = (
                 min(k.z for k in traction.kinematics)
                 if traction.kinematics else 0.0
             )
-
-            # Treat minimum height violations as failed simulations so that
-            # both the objective and the SLSQP constraint steer away.
             altitude_ok = (self.minimum_height <= 0 or min_altitude >= self.minimum_height)
 
-            # Reject any traction steady state with a negative apparent wind speed
-            # (physically impossible during reel-out — means the kite outruns the wind).
             apparent_wind_ok = not any(
                 ss.apparent_wind_speed is not None and ss.apparent_wind_speed < 0
                 for ss in traction.steady_states
@@ -661,14 +714,12 @@ class CycleOptimizer:
 
             cycle_ok = error_in_phase is None and altitude_ok and apparent_wind_ok
 
-            # Maximum tether length reached during RORI transition phase.
             max_tether_rori = (
                 max(k.straight_tether_length for k in transition_rori.kinematics)
                 if transition_rori is not None and transition_rori.kinematics
                 else 0.0
             )
 
-            # Regime 3 statistics for traction phase.
             traction_n = len(traction.steady_states)
             traction_regime2 = getattr(traction, 'regime2_count', 0)
             traction_regime3 = getattr(traction, 'regime3_count', 0)
@@ -702,8 +753,10 @@ class CycleOptimizer:
         except Exception:
             return {
                 'sim_successful': False,
-                'average_power': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0, 'trans_rori': 0.0, 'out': 0.0},
-                'duration': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0, 'trans_rori': 0.0, 'out': 0.0},
+                'average_power': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0,
+                                  'trans_rori': 0.0, 'out': 0.0},
+                'duration': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0,
+                             'trans_rori': 0.0, 'out': 0.0},
                 'min_altitude_traction': 0.0,
                 'max_tether_length_rori': 0.0,
                 'traction_n_time_points': 0,

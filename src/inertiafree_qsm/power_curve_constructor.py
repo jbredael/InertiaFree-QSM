@@ -392,13 +392,12 @@ class PowerCurveConstructor:
     def _prepare_warm_start(self, x_opt, var_names):
         """Build an updated x0 list from the previous optimal solution for a warm start.
 
-        Maps the unscaled optimal decision variable values back to the x0 array
-        format consumed by CycleOptimizer, so the next wind speed starts its
-        optimization close to the previous solution.
-
-        For elevation angle variables (``elevation_0``, ``elevation_1``, …) each
-        optimised angle is stored individually at x0[4], x0[5], … so that
-        CycleOptimizer can warm-start each angle from its own previous optimal.
+        Only tether length fractions are propagated.  They change smoothly
+        across wind speeds, making them safe to warm-start.  Reeling speeds and
+        elevation angles are left at their YAML defaults: reeling speeds are
+        handled by ``_adapt_x0``; elevation angles warm-started from the
+        previous (lower) wind speed tend to land near infeasibility boundaries
+        at the next wind speed, creating FD gradient cliffs.
 
         Args:
             x_opt (np.ndarray): Unscaled optimal variable values from the previous
@@ -413,25 +412,11 @@ class PowerCurveConstructor:
         x0 = list(self.simulation_settings['optimization']['optimizer']['x0'])
         val_by_name = dict(zip(var_names, x_opt))
 
-        name_to_idx = {
-            'reeling_speed_out': 0,
-            'reeling_speed_in': 1,
-            'frac_end': 2,
-            'frac_start': 3,
-        }
+        # Only propagate tether fractions — they vary smoothly with wind speed.
+        name_to_idx = {'frac_end': 2, 'frac_start': 3}
         for name, idx in name_to_idx.items():
             if name in val_by_name and idx < len(x0):
                 x0[idx] = float(val_by_name[name])
-
-        # Elevation angles: store each optimised value individually at x0[4+i],
-        # extending the list if necessary.
-        elev_vals = [v for n, v in sorted(val_by_name.items()) if n.startswith('elevation_')]
-        for i, v in enumerate(elev_vals):
-            idx = 4 + i
-            if idx < len(x0):
-                x0[idx] = float(v)
-            else:
-                x0.append(float(v))
 
         return x0
 
@@ -461,7 +446,7 @@ class PowerCurveConstructor:
             entry = self._run_single_simulation_optimized(ws, env_state, verbose=verbose)
             wind_speed_data.append(entry)
 
-            sim_successful = entry.get('success', False)
+            sim_successful = entry.get('successful', False)
 
             # Warm start: only seed x0 from the previous optimal if that run succeeded.
             if sim_successful:

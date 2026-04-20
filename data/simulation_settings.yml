@@ -55,7 +55,7 @@ optimization:
     # Maximum wind speed [m/s]
     cut_out: 25.0
     # Number of points to calculate (determines spacing)
-    n_points: 50
+    n_points: 25
 
     # Fine resolution settings near cut-out wind speed
     # These add extra points near the cut-out to capture system behavior
@@ -86,9 +86,12 @@ optimization:
     # Maximum number of iterations per wind speed point
     max_iterations: 200
     # Function tolerance for convergence (absolute, in watts)
-    ftol: 5.0e-1
-    # Finite difference step size for gradient estimation
-    eps: 5.0e-3
+    ftol: 5.0e-2
+    # Finite difference step size for gradient estimation (in scaled variable space).
+    # With all variables scaled to O(1), eps=5e-2 gives:
+    #   - ~0.05 m/s step for reel speeds, ~0.05 step for tether fractions
+    #   - ~1.5° step for elevation angles (eps * scaling=30)
+    eps: 5.0e-2
     # Optimizer starting point: [reeling_speed_out, reeling_speed_in,
     #   fraction_tether_length_retraction_end, fraction_tether_length_traction_end,
     #   elevation_angle_traction (degrees, applied equally to all N points in the array),
@@ -99,8 +102,8 @@ optimization:
     # reeling_speed_out/in: scaling=1 → used directly in m/s
     # frac_end/frac_start: scaling=1 → ~O(1) already
     # elevation_angle_traction: scaling=30 → bounds [10°,60°]/30 = [0.33, 2.0]; x0=30°/30=1.0
-    # elevation_angle_end_trans_rori: scaling=1 → bounds [30°,80°]; x0=50°
-    scaling: [1, 1, 1, 1, 30, 1]
+    # elevation_angle_end_trans_rori: scaling=30 → bounds [30°,80°]/30 = [1.0, 2.67]; x0=50°/30=1.67
+    scaling: [1, 1, 1, 1, 30, 30]
 
   # Optimizer bounds (where not derived from system properties)
   bounds:
@@ -148,7 +151,7 @@ cycle:
 
   minimum_height: 100.0 # Minimum height of the kite during the cycle (m)
 
-  elevation_angle_traction: [30.0, 30.0, 30.0]
+  elevation_angle_traction: [30.0, 30.0, 30.0, 30.0]
 
   # Tether length at end of traction phase as fraction of max tether length [-]
   # (= start of RORI transition; must be < 1.0 to leave reel-out headroom)

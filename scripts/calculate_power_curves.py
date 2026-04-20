@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
     # Generate power curves using optimized simulation
     result = constructor.generate_power_curves_optimized(
-        cluster_ids=[1],
+        cluster_ids=None,
         output_path=OUTPUT_PATH_OPTIMIZED,
         verbose=True,
         show_plot=True,
