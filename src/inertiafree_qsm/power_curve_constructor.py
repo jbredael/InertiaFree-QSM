@@ -28,7 +28,6 @@ from .qsm import (
     SteadyStateError,
     SystemProperties,
     TractionPhase,
-    TractionPhaseHybrid,
 )
 from .cycle_optimizer import CycleOptimizer
 from . import plotting

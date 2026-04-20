@@ -235,21 +235,3 @@ steady_state:
 phase_solver:
   # Maximum number of time points before terminating a phase simulation
   max_time_points: 5000
-
-# ============================================================================
-# CROSSWIND PATTERN SETTINGS
-# ============================================================================
-# Settings for the crosswind pattern estimation (TractionPhaseHybrid)
-# CURRENTLY NOT IN USE, NEEDS TO BE INTEGRATED
-crosswind_pattern:
-  # Number of representative traction points for pattern estimation
-  n_traction_points: 6
-  # Number of points to evaluate along one pattern arc
-  n_pattern_eval_points: 100
-  # Lissajous figure-of-eight pattern shape
-  lissajous:
-    # Maximum relative elevation angle amplitude [degrees]
-    elevation_amplitude: 4.0
-    # Maximum azimuth angle amplitude [degrees]
-    azimuth_amplitude: 20.0
-

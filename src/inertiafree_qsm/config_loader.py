@@ -129,8 +129,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     traction_config = sim_config.get('traction', {})
     ss_config = sim_config.get('steady_state', {})
     phase_solver_config = sim_config.get('phase_solver', {})
-    cw_config = sim_config.get('crosswind_pattern', {})
-    lissajous_config = cw_config.get('lissajous', {})
 
     aero_section = sim_config.get('aerodynamics', {})
 
@@ -194,8 +192,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'tether_length_end_traction': tetherLengthStartRetraction,
         'tether_length_end_retraction': tetherLengthEndRetraction,
         'include_transition_energy': bool(cycle_config.get('include_transition_energy',)),
-        'n_traction_points': int(cw_config.get('n_traction_points')),
-        'n_pattern_eval_points': int(cw_config.get('n_pattern_eval_points')),
     }
 
     retraction = {
@@ -234,8 +230,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'azimuth_angle': np.deg2rad(traction_config.get('azimuth_angle')),
         'course_angle': np.deg2rad(traction_config.get('course_angle')),
         'max_time_points': max_time_points,
-        'lissajous_elevation_amplitude': float(lissajous_config.get('elevation_amplitude')),
-        'lissajous_azimuth_amplitude': float(lissajous_config.get('azimuth_amplitude')),
     }
 
     direct_wind = direct_config.get('wind_speeds', {})
@@ -327,7 +321,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
             'elevation_angle_end_trans_rori': (np.deg2rad(elev_end_rori_min_deg), np.deg2rad(elev_end_rori_max_deg)),
         },
         'constraints': {
-            'min_crosswind_patterns': int(opt_constraints_cfg.get('min_crosswind_patterns', 1)),
             'min_tether_length_fraction_difference': float(opt_constraints_cfg.get('min_tether_length_fraction_difference', 0.05)),
             'max_difference_elevation_angle_steps': (
                 float(opt_constraints_cfg['max_difference_elevation_angle_steps'])
