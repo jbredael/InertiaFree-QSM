@@ -61,7 +61,7 @@ All input files are YAML files. Three input files are required:
 | File | Description |
 |------|-------------|
 | **System configuration** | Kite and tether system properties (e.g. `kitepower V3_20.yml`). This is an [awesIO](https://github.com/awegroup/awesIO) standard file. |
-| **Wind resource** | Wind profile and cluster data (e.g. `wind_resource.yml`). This is an [awesIO](https://github.com/awegroup/awesIO) standard file. |
+| **Wind resource** | Wind profile and profile data (e.g. `wind_resource.yml`). This is an [awesIO](https://github.com/awegroup/awesIO) standard file. |
 | **Simulation settings** | Solver, optimizer, and cycle parameters (e.g. `simulation_settings.yml`). |
 
 Example `simulation_settings.yml`:
@@ -195,7 +195,7 @@ constructor = PowerCurveConstructor(
 
 ```python
 result = constructor.generate_power_curves_direct(
-    cluster_ids=None,        # None = all clusters
+    profile_ids=None,        # None = all profiles
     output_path="results/power_curves_direct.yml",
     verbose=True,
     show_plot=True,
@@ -209,7 +209,7 @@ result = constructor.generate_power_curves_direct(
 
 ```python
 result = constructor.generate_power_curves_optimized(
-    cluster_ids=None,        # None = all clusters
+    profile_ids=None,        # None = all profiles
     output_path="results/power_curves_optimized.yml",
     verbose=True,
     show_plot=True,
@@ -224,7 +224,7 @@ result = constructor.generate_power_curves_optimized(
 ```python
 result = constructor.simulate_single_wind_speed(
     wind_speed=8.0,          # Reference wind speed [m/s]
-    cluster_id=1,
+    profile_id=1,
     method="optimization",   # 'direct' or 'optimization'
     output_path="results/single_point.yml",
     show_plot=True,
@@ -234,7 +234,7 @@ result = constructor.simulate_single_wind_speed(
 
 ## Output
 
-The main output is a power curves YAML file in the [awesIO](https://github.com/awegroup/awesIO) standard format. It contains the power curve data for each wind cluster, including cut-in and cut-out wind speeds, nominal power, and per-wind-speed performance indicators.
+The main output is a power curves YAML file in the [awesIO](https://github.com/awegroup/awesIO) standard format. It contains the power curve data for each wind profile, including cut-in and cut-out wind speeds, nominal power, and per-wind-speed performance indicators.
 
 The time history of the cycle simulation (kite kinematics and tether states at each time step) is saved as a separate `.npz` file alongside the YAML output.
 

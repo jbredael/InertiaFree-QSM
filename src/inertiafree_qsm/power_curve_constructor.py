@@ -85,8 +85,8 @@ class PowerCurveConstructor:
             'reference_height'
         )
 
-        # Number of clusters
-        self.n_clusters = self.wind_resource.get('metadata', {}).get('n_clusters')
+        # Number of profiles
+        self.n_profiles = self.wind_resource.get('metadata', {}).get('n_profiles')
 
  
         # Initialize result storage
@@ -97,49 +97,49 @@ class PowerCurveConstructor:
         self.constraints = []
         self.performance_indicators = []
 
-    def create_environment(self, cluster_id=1):
-        """Create an environment state object for a specific wind cluster.
+    def create_environment(self, profile_id=1):
+        """Create an environment state object for a specific wind profile.
 
         Args:
-            cluster_id (int): The cluster ID (1-indexed).
+            profile_id (int): The profile ID (1-indexed).
 
         Returns:
             NormalisedWindTable1D: Environment state with wind profile.
         """
 
-        clusters = self.wind_resource['clusters']
+        profiles = self.wind_resource['profiles']
 
-        if not clusters:
-            raise ValueError("No clusters found in wind resource data")
+        if not profiles:
+            raise ValueError("No profiles found in wind resource data")
 
-        # Find the cluster with matching ID (clusters use 1-indexed IDs)
-        cluster = None
-        for c in clusters:
-            if c.get('id') == cluster_id:
-                cluster = c
+        # Find the profile with matching ID (profiles use 1-indexed IDs)
+        profile = None
+        for c in profiles:
+            if c.get('id') == profile_id:
+                profile = c
                 break
 
-        if cluster is None:
-            if cluster_id >= len(clusters):
+        if profile is None:
+            if profile_id >= len(profiles):
                 raise ValueError(
-                    f"Cluster ID {cluster_id} not found in wind resource data"
+                    f"profile ID {profile_id} not found in wind resource data"
                 )
-            cluster = clusters[cluster_id]
+            profile = profiles[profile_id]
 
         env_state = NormalisedWindTable1D()
         env_state.h_ref = self.wind_resource.get('metadata', {}).get('reference_height')
         env_state.heights = list(self.wind_resource['altitudes'])
-        env_state.normalised_wind_speeds = list(np.array(cluster.get('u_normalized', [])))
+        env_state.normalised_wind_speeds = list(np.array(profile.get('u_normalized', [])))
         env_state.set_reference_height(env_state.h_ref)
 
         return env_state
 
-    def _generate_wind_speed_array(self, settings_key='optimization', cluster_id=None, verbose=False):
+    def _generate_wind_speed_array(self, settings_key='optimization', profile_id=None, verbose=False):
         """Generate wind speed array from configuration settings.
 
         Args:
             settings_key (str): Key in simulation_settings to use ('optimization' or 'direct_simulation').
-            cluster_id (int, optional): Not used (kept for compatibility).
+            profile_id (int, optional): Not used (kept for compatibility).
             verbose (bool): Whether to print messages.
 
         Returns:
@@ -176,7 +176,7 @@ class PowerCurveConstructor:
         return wind_speeds
 
 
-    def simulate_single_wind_speed(self, wind_speed, cluster_id=1, method='direct',
+    def simulate_single_wind_speed(self, wind_speed, profile_id=1, method='direct',
                                     output_path=None, verbose=False,
                                     show_plot=False, save_plot=False,
                                     validate_file=False):
@@ -187,7 +187,7 @@ class PowerCurveConstructor:
 
         Args:
             wind_speed (float): Reference wind speed at reference height [m/s].
-            cluster_id (int): Cluster ID (1-indexed).
+            profile_id (int): profile ID (1-indexed).
             method (str): Simulation method, either 'direct' or 'optimization'.
             output_path (str or Path, optional): Path to save the YAML output.
             show_plot (bool): If True, display the cycle detail plot. Defaults to False.
@@ -202,7 +202,7 @@ class PowerCurveConstructor:
         Raises:
             ValueError: If method is not 'direct' or 'optimization'.
         """
-        env_state = self.create_environment(cluster_id)
+        env_state = self.create_environment(profile_id)
 
         if method == 'direct':
             entry = self._run_single_simulation_direct(wind_speed, env_state)
@@ -215,8 +215,8 @@ class PowerCurveConstructor:
             )
 
         output = self._build_and_save_output(
-            cluster_ids=[cluster_id],
-            wind_speed_data_per_cluster=[[entry]],
+            profile_ids=[profile_id],
+            wind_speed_data_per_profile=[[entry]],
             method_name=method.replace('_', ' ').title(),
             output_path=output_path,
             verbose=output_path is not None,
@@ -226,7 +226,7 @@ class PowerCurveConstructor:
         if (show_plot or save_plot) and output_path is not None:
             fig_path = Path(output_path).with_suffix('.pdf') if save_plot else None
             plotting.plot_cycle_detail(
-                output_path, wind_speed, profile_id=cluster_id,
+                output_path, wind_speed, profile_id=profile_id,
                 output_path=fig_path, show_plot=show_plot,
             )
 
@@ -249,7 +249,7 @@ class PowerCurveConstructor:
     def generate_power_curves_direct(
         self,
         wind_speeds=None,
-        cluster_ids=None,
+        profile_ids=None,
         output_path=None,
         verbose=True,
         show_plot=False,
@@ -264,8 +264,8 @@ class PowerCurveConstructor:
         Args:
             wind_speeds (array-like, optional): Wind speeds to evaluate [m/s].
                 Defaults to wind speeds defined in simulation settings.
-            cluster_ids (list, optional): List of cluster IDs (1-indexed) to calculate.
-                If None, calculates all clusters/profiles.
+            profile_ids (list, optional): List of profile IDs (1-indexed) to calculate.
+                If None, calculates all profiles/profiles.
             output_path (str, optional): Path to save the output YAML file.
             verbose (bool): Whether to print progress messages.
             show_plot (bool): If True, display the power curve plot after generation.
@@ -278,13 +278,13 @@ class PowerCurveConstructor:
         Returns:
             dict: Power curve data in awesIO format.
         """
-        # Determine which clusters to process
-        if cluster_ids is None:
-            cluster_ids = list(range(1, self.n_clusters + 1))
-        elif not isinstance(cluster_ids, (list, tuple)):
-            cluster_ids = [cluster_ids]
+        # Determine which profiles to process
+        if profile_ids is None:
+            profile_ids = list(range(1, self.n_profiles + 1))
+        elif not isinstance(profile_ids, (list, tuple)):
+            profile_ids = [profile_ids]
 
-        # Determine wind speeds once, estimating from the first cluster if needed
+        # Determine wind speeds once, estimating from the first profile if needed
         if wind_speeds is not None:
             wind_speeds = np.array(wind_speeds)
             if verbose:
@@ -292,22 +292,22 @@ class PowerCurveConstructor:
         else:
             wind_speeds = self._generate_wind_speed_array(
                 settings_key='direct_simulation',
-                cluster_id=cluster_ids[0],
+                profile_id=profile_ids[0],
                 verbose=verbose
             )
 
-        # Calculate power curves for selected clusters
-        wind_speed_data_per_cluster = []
-        for cluster_id in cluster_ids:
+        # Calculate power curves for selected profiles
+        wind_speed_data_per_profile = []
+        for profile_id in profile_ids:
             wind_speed_data = self._calculate_power_curve_direct(
-                cluster_id, wind_speeds, verbose
+                profile_id, wind_speeds, verbose
             )
-            wind_speed_data_per_cluster.append(wind_speed_data)
+            wind_speed_data_per_profile.append(wind_speed_data)
 
         # Build full output with metadata and save
         output = self._build_and_save_output(
-            cluster_ids=cluster_ids,
-            wind_speed_data_per_cluster=wind_speed_data_per_cluster,
+            profile_ids=profile_ids,
+            wind_speed_data_per_profile=wind_speed_data_per_profile,
             method_name='Direct Simulation',
             output_path=output_path,
             verbose=verbose,
@@ -323,7 +323,7 @@ class PowerCurveConstructor:
     def generate_power_curves_optimized(
         self,
         wind_speeds=None,
-        cluster_ids=None,
+        profile_ids=None,
         output_path=None,
         verbose=True,
         show_plot=False,
@@ -337,8 +337,8 @@ class PowerCurveConstructor:
         Args:
             wind_speeds (array-like, optional): Wind speeds to evaluate [m/s].
                 Defaults to wind speeds defined in optimization settings.
-            cluster_ids (list, optional): List of cluster IDs (1-indexed) to calculate.
-                If None, calculates all clusters/profiles.
+            profile_ids (list, optional): List of profile IDs (1-indexed) to calculate.
+                If None, calculates all profiles/profiles.
             output_path (str, optional): Path to save the output YAML file.
             verbose (bool): Whether to print progress messages.
             show_plot (bool): If True, display the power curve plot after generation.
@@ -351,10 +351,10 @@ class PowerCurveConstructor:
         Returns:
             dict: Power curve data in awesIO format.
         """
-        if cluster_ids is None:
-            cluster_ids = list(range(1, self.n_clusters + 1))
-        elif not isinstance(cluster_ids, (list, tuple)):
-            cluster_ids = [cluster_ids]
+        if profile_ids is None:
+            profile_ids = list(range(1, self.n_profiles + 1))
+        elif not isinstance(profile_ids, (list, tuple)):
+            profile_ids = [profile_ids]
 
         if wind_speeds is not None:
             wind_speeds = np.array(wind_speeds)
@@ -363,20 +363,20 @@ class PowerCurveConstructor:
         else:
             wind_speeds = self._generate_wind_speed_array(
                 settings_key='optimization',
-                cluster_id=cluster_ids[0],
+                profile_id=profile_ids[0],
                 verbose=verbose,
             )
 
-        wind_speed_data_per_cluster = []
-        for cluster_id in cluster_ids:
+        wind_speed_data_per_profile = []
+        for profile_id in profile_ids:
             wind_speed_data = self._calculate_power_curve_optimized(
-                cluster_id, wind_speeds, verbose,
+                profile_id, wind_speeds, verbose,
             )
-            wind_speed_data_per_cluster.append(wind_speed_data)
+            wind_speed_data_per_profile.append(wind_speed_data)
 
         output = self._build_and_save_output(
-            cluster_ids=cluster_ids,
-            wind_speed_data_per_cluster=wind_speed_data_per_cluster,
+            profile_ids=profile_ids,
+            wind_speed_data_per_profile=wind_speed_data_per_profile,
             method_name='Optimization',
             output_path=output_path,
             verbose=verbose,
@@ -420,21 +420,21 @@ class PowerCurveConstructor:
 
         return x0
 
-    def _calculate_power_curve_optimized(self, cluster_id, wind_speeds, verbose):
-        """Calculate power curve for a single wind cluster using optimization.
+    def _calculate_power_curve_optimized(self, profile_id, wind_speeds, verbose):
+        """Calculate power curve for a single wind profile using optimization.
 
         Args:
-            cluster_id (int): The cluster ID (1-indexed).
+            profile_id (int): The profile ID (1-indexed).
             wind_speeds (array-like): Wind speeds to evaluate [m/s].
             verbose (bool): Whether to print progress messages.
 
         Returns:
-            list: Wind speed data entries for this cluster.
+            list: Wind speed data entries for this profile.
         """
-        env_state = self.create_environment(cluster_id)
+        env_state = self.create_environment(profile_id)
 
         if verbose:
-            print(f"Optimizing power curve for cluster {cluster_id}...")
+            print(f"Optimizing power curve for profile {profile_id}...")
 
         # Save original x0 so it can be restored after the loop.
         original_x0 = list(self.simulation_settings['optimization']['optimizer']['x0'])
@@ -464,21 +464,21 @@ class PowerCurveConstructor:
 
         return wind_speed_data
 
-    def _calculate_power_curve_direct(self, cluster_id, wind_speeds, verbose):
-        """Calculate power curve for a single wind cluster using direct simulation.
+    def _calculate_power_curve_direct(self, profile_id, wind_speeds, verbose):
+        """Calculate power curve for a single wind profile using direct simulation.
 
         Args:
-            cluster_id (int): The cluster ID (1-indexed).
+            profile_id (int): The profile ID (1-indexed).
             wind_speeds (array-like): Wind speeds to evaluate [m/s].
             verbose (bool): Whether to print progress messages.
 
         Returns:
-            list: Wind speed data entries for this cluster.
+            list: Wind speed data entries for this profile.
         """
-        env_state = self.create_environment(cluster_id)
+        env_state = self.create_environment(profile_id)
 
         if verbose:
-            print(f"Calculating power curve for cluster {cluster_id}...")
+            print(f"Calculating power curve for profile {profile_id}...")
 
         wind_speed_data = []
         for i, ws in enumerate(wind_speeds):
@@ -608,21 +608,21 @@ class PowerCurveConstructor:
 
     def _build_and_save_output(
         self,
-        cluster_ids,
-        wind_speed_data_per_cluster,
+        profile_ids,
+        wind_speed_data_per_profile,
         method_name,
         output_path=None,
         verbose=True,
         validate_file=False,):
         """Build complete power curve output with metadata and optionally save.
 
-        Constructs per-cluster power curve dicts with wind profile metadata,
+        Constructs per-profile power curve dicts with wind profile metadata,
         wraps them in a full output structure, and optionally saves to YAML.
 
         Args:
-            cluster_ids (list): List of cluster IDs (0-indexed).
-            wind_speed_data_per_cluster (list): List of wind speed data lists,
-                one per cluster. Each inner list contains dicts with
+            profile_ids (list): List of profile IDs (0-indexed).
+            wind_speed_data_per_profile (list): List of wind speed data lists,
+                one per profile. Each inner list contains dicts with
                 wind_speed_m_s, success, performance, and optionally time_history.
             method_name (str): Name of the method (e.g., 'Optimization-Based').
             output_path (str, optional): Path to save the output YAML file.
@@ -633,8 +633,8 @@ class PowerCurveConstructor:
         Returns:
             dict: Complete power curve data in awesIO format.
         """
-        # Extract wind speeds from first cluster's data
-        wind_speeds = [entry['wind_speed'] for entry in wind_speed_data_per_cluster[0]]
+        # Extract wind speeds from first profile's data
+        wind_speeds = [entry['wind_speed'] for entry in wind_speed_data_per_profile[0]]
         
         # Check if there are any successful wind speeds
         if len(wind_speeds) == 0:
@@ -644,41 +644,41 @@ class PowerCurveConstructor:
                 "Try adjusting the cut_in wind speed or optimizer settings in the configuration file."
             )
 
-        # Build per-cluster power curve dicts
+        # Build per-profile power curve dicts
         power_curves = []
-        for cluster_id, wind_speed_data in zip(cluster_ids, wind_speed_data_per_cluster):
-            clusters = self.wind_resource.get('clusters', [])
-            cluster_data = next((c for c in clusters if c.get('id') == cluster_id), None)
-            if cluster_data is None:
+        for profile_id, wind_speed_data in zip(profile_ids, wind_speed_data_per_profile):
+            profiles = self.wind_resource.get('profiles', [])
+            profile_data = next((c for c in profiles if c.get('id') == profile_id), None)
+            if profile_data is None:
                 raise ValueError(
-                    f"Cluster ID {cluster_id} not found in wind resource data."
+                    f"profile ID {profile_id} not found in wind resource data."
                 )
-            v_normalized = cluster_data.get(
+            v_normalized = profile_data.get(
                 'v_normalized',
-                [0.0] * len(cluster_data.get('u_normalized', [])),
+                [0.0] * len(profile_data.get('u_normalized', [])),
             )
             power_curves.append({
-                'profile_id': cluster_id,
-                'probability_weight': float(cluster_data.get('frequency', 1.0 / self.n_clusters)),
+                'profile_id': profile_id,
+                'probability_weight': float(profile_data.get('frequency', 1.0 / self.n_profiles)),
                 'wind_profile': {
-                    'u_normalized': [float(u) for u in cluster_data.get('u_normalized', [])],
+                    'u_normalized': [float(u) for u in profile_data.get('u_normalized', [])],
                     'v_normalized': [float(v) for v in v_normalized],
                 },
                 'wind_speed_data': wind_speed_data,
             })
 
-        # Determine cut-in and cut-out from first cluster
+        # Determine cut-in and cut-out from first profile
         cycle_powers = [entry['performance']['power']['average_cycle_power']
-                        for entry in wind_speed_data_per_cluster[0]]
+                        for entry in wind_speed_data_per_profile[0]]
         cut_in_ws = self._find_cut_in_wind_speed(wind_speeds, cycle_powers)
         if cut_in_ws is None:
             cut_in_ws = wind_speeds[0]  # Fallback to first wind speed
         cut_out_ws = wind_speeds[-1]
 
-        # Calculate nominal power (max across all clusters)
+        # Calculate nominal power (max across all profiles)
         nominal_power = max(
             max(entry['performance']['power']['average_cycle_power'] for entry in wsd)
-            for wsd in wind_speed_data_per_cluster
+            for wsd in wind_speed_data_per_profile
         )
 
         # Prepare output in awesIO power_curves_schema format
@@ -696,9 +696,9 @@ class PowerCurveConstructor:
                     'wing_mass': float(self.sys_props.kite_mass),
                 },
                 'wind_resource': {
-                    'n_clusters': self.n_clusters,
-                    'n_profiles_calculated': len(cluster_ids),
-                    'profile_ids_calculated': list(cluster_ids),
+                    'n_profiles': self.n_profiles,
+                    'n_profiles_calculated': len(profile_ids),
+                    'profile_ids_calculated': list(profile_ids),
                     'reference_height': float(self.reference_height),
                 },
             },
@@ -779,7 +779,7 @@ class PowerCurveConstructor:
         print(f"  Max reeling speed: {self.sys_props.reeling_speed_max_limit:.1f} m/s")
         print("\nOperating Parameters:")
         print(f"  Reference height: {self.reference_height:.0f} m")
-        print(f"  Number of wind clusters: {self.n_clusters}")
+        print(f"  Number of wind profiles: {self.n_profiles}")
 
     def _build_wind_speed_entry(self, wind_speed, kpi):
         """Build a wind speed result entry dict from a KPI dict.

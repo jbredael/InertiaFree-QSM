@@ -31,7 +31,7 @@ def load_wind_resource(file_path, validate_file=True):
 
     Returns:
         dict: Wind resource data containing altitude profiles, metadata,
-            wind speed bins, wind direction bins, and clusters.
+            wind speed bins, wind direction bins, and profiles.
     """
     if validate_file:
         try:
@@ -49,7 +49,7 @@ def load_wind_resource(file_path, validate_file=True):
         'altitudes': np.array(config.get('altitudes', [])),
         'wind_speed_bins': config.get('wind_speed_bins', {}),
         'wind_direction_bins': config.get('wind_direction_bins', {}),
-        'clusters': config.get('clusters', []),
+        'profiles': config.get('profiles', []),
     }
 
     return wind_resource

@@ -42,7 +42,7 @@ DATASETS = [
         "yml": Path("results/5.0 1.0 5.0/power_curve_single_point_optimized.yml"),
     },
 ]
-PROFILE_ID = 1          # Wind profile / cluster ID to compare
+PROFILE_ID = 1          # Wind profile / profile ID to compare
 OUTPUT_PATH = None      # Path to save the figure (e.g. Path("results/comparison.pdf")); None = show only
 SHOW_PLOT = True
 # ──────────────────────────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ def load_dataset(ds, profileId=1):
 
     Args:
         ds (dict): Dataset dict with 'label', 'yml', and 'npz' keys.
-        profileId (int): Wind profile / cluster ID to load. Defaults to 1.
+        profileId (int): Wind profile / profile ID to load. Defaults to 1.
 
     Returns:
         dict: Loaded dataset with keys 'label', 'wind_speeds', 'cycle_power',
