@@ -1212,6 +1212,18 @@ class Phase(TimeSeries):
                     new_state.control_settings = ('tether_force_ground', min_force)
                     new_state.find_state(sys_props, env_state, kinematics)
 
+                # Power limit: motor consumption during reel-in must not exceed max_generator_power.
+                # Limit the reel-in speed so that |power_ground| = tether_force * |speed| <= max_power.
+                if max_power is not None and abs(new_state.power_ground) > max_power:
+                    limited_speed = -max_power / new_state.tether_force_ground
+                    if max_speed is not None:
+                        limited_speed = max(limited_speed, -max_speed)
+                    if min_speed is not None:
+                        limited_speed = min(limited_speed, -min_speed)
+                    new_state = SteadyState(self.steady_state_config)
+                    new_state.control_settings = ('reeling_speed', limited_speed)
+                    new_state.find_state(sys_props, env_state, kinematics)
+
         # Update the monitoring parameters.
         if new_state.converged:
             if new_state.reeling_speed > self.max_reeling_speed:
@@ -1848,7 +1860,7 @@ class Cycle(TimeSeries):
         self.traction_phase.tether_length_end = self.tether_length_end_traction
 
         # --- Step 1: Run TransitionRORIPhase ---
-        # Start at the traction end elevation (same check as previously used for retraction start).
+        # Start at the traction end elevation
         trans_rori = self.transition_rori_phase
         trans_rori.enable_limit_violation_error = False
         trans_rori.tether_length_start = self.tether_length_end_traction

@@ -412,8 +412,11 @@ class PowerCurveConstructor:
         x0 = list(self.simulation_settings['optimization']['optimizer']['x0'])
         val_by_name = dict(zip(var_names, x_opt))
 
-        # Only propagate tether fractions — they vary smoothly with wind speed.
-        name_to_idx = {'frac_end': 2, 'frac_start': 3}
+        # Propagate tether fractions and reel-in speed — they vary smoothly with
+        # wind speed.  Reel-in warm-starting prevents SLSQP from landing on a
+        # high-speed local minimum (e.g. -10 m/s) when the true optimum is near
+        # -6 m/s.  Reel-out is left to _adapt_x0 (Betz-limit cap).
+        name_to_idx = {'frac_end': 2, 'frac_start': 3, 'reeling_speed_in': 1}
         for name, idx in name_to_idx.items():
             if name in val_by_name and idx < len(x0):
                 x0[idx] = float(val_by_name[name])
