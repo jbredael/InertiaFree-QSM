@@ -412,14 +412,37 @@ class PowerCurveConstructor:
         x0 = list(self.simulation_settings['optimization']['optimizer']['x0'])
         val_by_name = dict(zip(var_names, x_opt))
 
-        # Propagate tether fractions and reel-in speed — they vary smoothly with
-        # wind speed.  Reel-in warm-starting prevents SLSQP from landing on a
-        # high-speed local minimum (e.g. -10 m/s) when the true optimum is near
-        # -6 m/s.  Reel-out is left to _adapt_x0 (Betz-limit cap).
-        name_to_idx = {'frac_end': 2, 'frac_start': 3, 'reeling_speed_in': 1}
+        # Propagate variables that vary smoothly across wind speeds.
+        # - frac_end, frac_start, reeling_speed_in: smooth with wind speed.
+        # - elevation_end_rori: nearly constant within the same operating regime
+        #   (e.g. ~68-70° in power-limited regime 3 at high wind).  Warm-starting
+        #   prevents the optimizer from rediscovering this value from the YAML
+        #   default (50°) each wind speed, which causes many wasted iterations with
+        #   0-power FD evaluations before the feasible region is found.
+        # - elevation_angle_traction (scalar x0[4]): the mean of the optimised
+        #   traction angles varies smoothly with wind speed.  Warm-starting from
+        #   the previous mean keeps SLSQP in the right neighbourhood and reduces
+        #   noise between neighbouring wind speeds.
+        # Reel-out is left to _adapt_x0 (Betz-limit cap).
+        name_to_idx = {
+            'frac_end': 2,
+            'frac_start': 3,
+            'reeling_speed_in': 1,
+            'elevation_end_rori': 5,
+        }
         for name, idx in name_to_idx.items():
             if name in val_by_name and idx < len(x0):
                 x0[idx] = float(val_by_name[name])
+
+        # Warm-start the scalar traction elevation x0 (index 4) from the mean of
+        # the optimised per-segment angles.  Only applies when elevation was
+        # actually optimised; skipped in regime-3 where elevation is disabled.
+        elev_vals = [
+            val_by_name[n] for n in var_names
+            if n.startswith('elevation_') and n.split('_')[1].isdigit()
+        ]
+        if elev_vals and 4 < len(x0):
+            x0[4] = float(np.mean(elev_vals))
 
         return x0
 
@@ -447,9 +470,20 @@ class PowerCurveConstructor:
             if verbose:
                 print(f"  Wind speed {ws:.1f} m/s ({i+1}/{len(wind_speeds)})")
             entry = self._run_single_simulation_optimized(ws, env_state, verbose=verbose)
-            wind_speed_data.append(entry)
 
             sim_successful = entry.get('successful', False)
+            has_previous_success = any(e.get('successful', False) for e in wind_speed_data)
+            if not sim_successful and has_previous_success:
+                print("    Warm-start result failed; retrying this wind speed from original x0.")
+                self.simulation_settings['optimization']['optimizer']['x0'] = list(original_x0)
+                retry_entry = self._run_single_simulation_optimized(
+                    ws, env_state, verbose=verbose,
+                )
+                if retry_entry.get('successful', False):
+                    entry = retry_entry
+                    sim_successful = True
+
+            wind_speed_data.append(entry)
 
             # Warm start: only seed x0 from the previous optimal if that run succeeded.
             if sim_successful:
@@ -723,6 +757,8 @@ class PowerCurveConstructor:
                 'time', 'altitude', 'tether_force', 'power',
                 'reel_speed', 'tether_length', 'elevation_angle', 'wind_speed',
                 'kite_wind_speed', 'kite_tangential_speed', 'kite_apparent_wind_speed',
+                'phase_id', 'azimuth_angle', 'course_angle',
+                'tether_force_kite', 'aerodynamic_force', 'lift_to_drag', 'reeling_factor',
             )
             npz_arrays = {}
             for pc in output['power_curves']:
@@ -809,9 +845,27 @@ class PowerCurveConstructor:
             else:
                 n_pts = len(kpi['kinematics'])
                 time_list = list(np.linspace(0, kpi['duration']['cycle'], n_pts))
+
+            # Build per-timestep phase labels from phase sizes.
+            # Cycle ordering (reorder=True): traction(0) → transition_rori(1)
+            #                                → retraction(2) → transition_riro(3)
+            phase_ids = None
+            phase_sizes = kpi.get('phase_sizes')
+            if phase_sizes:
+                phase_order = [
+                    ('traction', 0),
+                    ('transition_rori', 1),
+                    ('retraction', 2),
+                    ('transition_riro', 3),
+                ]
+                phase_ids = []
+                for phase_name, phase_code in phase_order:
+                    phase_ids.extend([phase_code] * phase_sizes.get(phase_name, 0))
+
             time_history = self._extract_time_history(
                 time_list, kpi['kinematics'], kpi['steady_states'],
                 wind_speed=float(wind_speed),
+                phase_ids=phase_ids,
             )
 
         entry = {
@@ -850,21 +904,29 @@ class PowerCurveConstructor:
         return entry
 
     def _extract_time_history(self, time_list, kinematics, steady_states,
-                               wind_speed=None):
+                               wind_speed=None, phase_ids=None):
         """Extract time history data from kinematics and steady state objects.
 
         This unified method is used by both direct simulation and optimization.
         Both paths provide lists of kinematics and steady-state objects with the
         same attributes.
 
+        Phase IDs follow the cycle ordering used by ``Cycle.run_simulation``
+        (reorder=True): 0 = traction, 1 = transition_rori, 2 = retraction,
+        3 = transition_riro.
+
         Args:
             time_list (list): Time values [s].
             kinematics (list): Kinematics objects with z, straight_tether_length,
-                elevation_angle attributes.
+                elevation_angle, azimuth_angle, course_angle attributes.
             steady_states (list): Steady state objects with tether_force_ground,
-                power_ground, reeling_speed, wind_speed attributes.
+                power_ground, reeling_speed, wind_speed, tether_force_kite,
+                aerodynamic_force, lift_to_drag, reeling_factor attributes.
             wind_speed (float, optional): Reference wind speed [m/s]. Used as
                 fallback when the steady-state wind speed is unavailable.
+            phase_ids (list, optional): Integer phase label per time step.
+                0 = traction, 1 = transition_rori, 2 = retraction,
+                3 = transition_riro. If None, the channel is omitted.
 
         Returns:
             dict: Time history data with altitude, forces, power, speeds, etc.
@@ -884,6 +946,12 @@ class PowerCurveConstructor:
         kite_wind_speed_full = []
         kite_tangential_speed_full = []
         kite_apparent_wind_speed_full = []
+        azimuth_angle_full = []
+        course_angle_full = []
+        tether_force_kite_full = []
+        aerodynamic_force_full = []
+        lift_to_drag_full = []
+        reeling_factor_full = []
 
         for kin, ss in zip(kinematics, steady_states):
             altitude_full.append(float(kin.z))
@@ -900,8 +968,20 @@ class PowerCurveConstructor:
             kite_tangential_speed_full.append(float(kts) if kts is not None else float('nan'))
             aws = getattr(ss, 'apparent_wind_speed', None)
             kite_apparent_wind_speed_full.append(float(aws) if aws is not None else float('nan'))
+            az = getattr(kin, 'azimuth_angle', None)
+            azimuth_angle_full.append(float(az) if az is not None else float('nan'))
+            ca = getattr(kin, 'course_angle', None)
+            course_angle_full.append(float(ca) if ca is not None else float('nan'))
+            ftk = getattr(ss, 'tether_force_kite', None)
+            tether_force_kite_full.append(float(ftk) if ftk is not None else float('nan'))
+            af = getattr(ss, 'aerodynamic_force', None)
+            aerodynamic_force_full.append(float(af) if af is not None else float('nan'))
+            ltd = getattr(ss, 'lift_to_drag', None)
+            lift_to_drag_full.append(float(ltd) if ltd is not None else float('nan'))
+            rf = getattr(ss, 'reeling_factor', None)
+            reeling_factor_full.append(float(rf) if rf is not None else float('nan'))
 
-        return {
+        result = {
             'time': time_full,
             'altitude': altitude_full,
             'tether_force': tether_force_full,
@@ -913,7 +993,17 @@ class PowerCurveConstructor:
             'kite_wind_speed': kite_wind_speed_full,
             'kite_tangential_speed': kite_tangential_speed_full,
             'kite_apparent_wind_speed': kite_apparent_wind_speed_full,
+            'azimuth_angle': azimuth_angle_full,
+            'course_angle': course_angle_full,
+            'tether_force_kite': tether_force_kite_full,
+            'aerodynamic_force': aerodynamic_force_full,
+            'lift_to_drag': lift_to_drag_full,
+            'reeling_factor': reeling_factor_full,
         }
+        if phase_ids is not None:
+            result['phase_id'] = [int(p) for p in phase_ids]
+
+        return result
 
     @staticmethod
     def _find_cut_in_wind_speed(wind_speeds, cycle_powers):

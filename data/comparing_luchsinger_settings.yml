@@ -1,10 +1,6 @@
 # Simulation settings for the inertia-free quasi-steady model
 # All angles are in degrees
 
-general:
-  # Method for simulation: 'direct_simulation' or 'optimization'
-  method: 'direct_simulation'
-
 # ============================================================================
 # AERODYNAMIC SETTINGS
 # ============================================================================
@@ -51,11 +47,11 @@ optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
     # Minimum wind speed [m/s]
-    cut_in: 5.0
+    cut_in: 3.0
     # Maximum wind speed [m/s]
     cut_out: 25.0
     # Number of points to calculate (determines spacing)
-    n_points: 21
+    n_points: 45
 
     # Fine resolution settings near cut-out wind speed
     # These add extra points near the cut-out to capture system behavior
@@ -72,9 +68,9 @@ optimization:
     optimize_variables:
       reeling_speed_traction: true
       reeling_speed_retraction: true
-      fraction_tether_length_traction_end: true
-      fraction_tether_length_retraction_end: true
-      elevation_angle_traction: true
+      fraction_tether_length_traction_end: false
+      fraction_tether_length_retraction_end: false
+      elevation_angle_traction: false
       elevation_angle_end_trans_rori: true
 
     opt_phase_timestep:
@@ -84,9 +80,9 @@ optimization:
       transition_rori: 0.05
 
     # Maximum number of iterations per wind speed point
-    max_iterations: 200
+    max_iterations: 50
     # Function tolerance for convergence (absolute, in watts)
-    ftol: 5.0e-2
+    ftol: 0.005
     # Finite difference step size for gradient estimation (in scaled variable space).
     # With all variables scaled to O(1), eps=5e-2 gives:
     #   - ~0.05 m/s step for reel speeds, ~0.05 step for tether fractions
@@ -116,11 +112,11 @@ optimization:
     # Tether length bounds as fractions of max_tether_length
     fraction_tether_length_traction_end_min: 0.8
     fraction_tether_length_traction_end_max: 0.95
-    fraction_tether_length_retraction_end_min: 0.4
+    fraction_tether_length_retraction_end_min: 0.2
     fraction_tether_length_retraction_end_max: 0.8
 
     # Elevation angle bounds for traction phase [degrees]
-    elevation_angle_traction_min: 10.0
+    elevation_angle_traction_min: 30.0
     elevation_angle_traction_max: 60.0
 
     # Elevation angle bounds for RORI transition phase end [degrees]
@@ -149,7 +145,7 @@ cycle:
   # - Direct simulation: Used as a fixed constraint during traction phase
   # - Optimization: Only used to calculate operating altitude (NOT a constraint)
 
-  minimum_height: 100.0 # Minimum height of the kite during the cycle (m)
+  minimum_height: 1.0 # Minimum height of the kite during the cycle (m)
 
   elevation_angle_traction: [30.0]
 
@@ -158,7 +154,7 @@ cycle:
   tether_length_end_traction: 0.95
 
   # Tether length at end of retraction as fraction of max tether length [-]
-  tether_length_end_retraction: 0.65
+  tether_length_end_retraction: 0.24
 
   # Include transition phase energy in cycle energy calculation
   include_transition_energy: true

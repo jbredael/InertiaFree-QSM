@@ -13,6 +13,7 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 from copy import copy
+from scipy.interpolate import PchipInterpolator
 from scipy.optimize import brentq
 
 
@@ -1213,15 +1214,32 @@ class Phase(TimeSeries):
                     new_state.find_state(sys_props, env_state, kinematics)
 
                 # Power limit: motor consumption during reel-in must not exceed max_generator_power.
-                # Limit the reel-in speed so that |power_ground| = tether_force * |speed| <= max_power.
+                # Use Brent's method to find the reel-in speed at which |power_ground| = max_power
+                # exactly, since tether force changes when reeling speed changes.
                 if max_power is not None and abs(new_state.power_ground) > max_power:
-                    limited_speed = -max_power / new_state.tether_force_ground
+                    v_violating = new_state.reeling_speed  # negative, currently exceeds power limit
+                    _force_before_bisect = new_state.tether_force_ground  # for fallback
+
+                    def _reel_in_power_residual(v):
+                        s = SteadyState(self.steady_state_config)
+                        s.control_settings = ('reeling_speed', v)
+                        s.find_state(sys_props, env_state, kinematics)
+                        return abs(s.power_ground) - max_power
+
+                    # v_safe: very slow reel-in (close to zero), so power ≈ 0 < max_power.
+                    v_safe = v_violating * 0.01
+                    try:
+                        v_limited = brentq(_reel_in_power_residual, v_safe, v_violating, xtol=1e-3)
+                    except (ValueError, SteadyStateError, FloatingPointError):
+                        # Fallback to linear approximation if root-finding fails.
+                        v_limited = -max_power / _force_before_bisect
+                    # Clamp to reeling speed limits.
                     if max_speed is not None:
-                        limited_speed = max(limited_speed, -max_speed)
-                    if min_speed is not None:
-                        limited_speed = min(limited_speed, -min_speed)
+                        v_limited = max(v_limited, -max_speed)
+                    if min_speed is not None and min_speed > 0:
+                        v_limited = min(v_limited, -min_speed)
                     new_state = SteadyState(self.steady_state_config)
-                    new_state.control_settings = ('reeling_speed', limited_speed)
+                    new_state.control_settings = ('reeling_speed', v_limited)
                     new_state.find_state(sys_props, env_state, kinematics)
 
         # Update the monitoring parameters.
@@ -1456,6 +1474,10 @@ class TransitionRIROPhase(Phase):
                                 timer_start)
 
             end_tether_length = self.kinematics[-1].straight_tether_length
+            traction_phase.elevation_angle.set_tether_length_range(
+                end_tether_length,
+                traction_phase.tether_length_end,
+            )
             required_elevation = traction_phase.get_elevation_angle(
                 system_properties, env_trac, steady_state_config,
                 tether_length=end_tether_length,
@@ -1553,9 +1575,44 @@ class TractionElevation:
         self.elevation_angle = elevation_angle
         self.tether_length_start = tether_length_start
         self.tether_length_end = tether_length_end
+        self._height_spline = None
+        self._height_spline_cache_key = None
+
+    def set_tether_length_range(self, tether_length_start, tether_length_end):
+        self.tether_length_start = tether_length_start
+        self.tether_length_end = tether_length_end
+        self._height_spline = None
+        self._height_spline_cache_key = None
+
+    def _get_height_spline(self, elev):
+        """Return a shape-preserving spline for Cartesian height."""
+        tl0 = float(self.tether_length_start)
+        tl1 = float(self.tether_length_end)
+        if tl1 <= tl0:
+            raise ValueError(
+                "TractionElevation requires tether_length_end > tether_length_start "
+                "for multiple elevation control points."
+            )
+
+        n = elev.size
+        ts = np.linspace(tl0, tl1, n)
+        heights = ts * np.sin(elev)
+        cache_key = (tuple(elev), tl0, tl1)
+        if cache_key != self._height_spline_cache_key:
+            self._height_spline = PchipInterpolator(ts, heights, extrapolate=False)
+            self._height_spline_cache_key = cache_key
+
+        return self._height_spline, ts
 
     def calculate(self, tether_length):
         """Calculate the elevation angle as function of the tether length.
+
+        Multiple elevation control points are interpolated with a
+        shape-preserving cubic Hermite spline in Cartesian height
+        ``z = tether_length * sin(elevation_angle)``.  The resulting height is
+        converted back to an elevation angle for the requested tether length.
+        This keeps the curve smooth while avoiding cubic overshoot below the
+        neighboring control-point heights.
 
         Args:
             tether_length (float): Current tether length [m].
@@ -1567,13 +1624,12 @@ class TractionElevation:
         elev = np.asarray(self.elevation_angle).flatten()
         if elev.size == 1:
             return float(elev[0])
-        n = elev.size
-        tl0 = float(self.tether_length_start)
-        tl1 = float(self.tether_length_end)
-        tether_length_clamped = float(np.clip(tether_length, tl0, tl1))
 
-        ts = np.linspace(tl0, tl1, n)
-        return float(np.interp(tether_length_clamped, ts, elev))
+        height_spline, ts = self._get_height_spline(elev)
+        tether_length_clamped = float(np.clip(tether_length, ts[0], ts[-1]))
+        height = float(height_spline(tether_length_clamped))
+        sin_elevation = np.clip(height / tether_length_clamped, -1.0, 1.0)
+        return float(np.arcsin(sin_elevation))
 
 
 class TractionPhase(Phase):
@@ -1943,6 +1999,10 @@ class Cycle(TimeSeries):
             trac.tether_length_start = last_kinematics.straight_tether_length
         else:
             trac.tether_length_start = self.tether_length_start_traction
+        trac.elevation_angle.set_tether_length_range(
+            trac.tether_length_start,
+            trac.tether_length_end,
+        )
         trac.finalize_start_and_end_kite_obj()
 
         last_time = trans_riro.time[-1]

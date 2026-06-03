@@ -1,6 +1,6 @@
 metadata:
-  name: Kitepower V3.20
-  description: Config for the Kitepower V3.20 soft kite pumping ground gen system
+  name: Kitepower V3.25
+  description: Config for the Kitepower V3.25 soft kite pumping ground gen system
   note: None
   awesIO_version: 0.1.0
   schema: system_schema.yml
@@ -9,39 +9,36 @@ assembly:
   generation_type: pumping_ground_gen
 components:
   wing:
-    name: Kitepower V3.20
+    name: Kitepower V3.25
     type: LEI_soft_kite
     version: 1.0
     structure:
       projected_surface_area: 19.75 # m2
-      mass: 22.8 # kg, all mass lumped in the wing for simplicity
+      mass: 10.6 # kg, all mass of wing and bridle lumped together
   bridle:
-    name: Kitepower V3.20 Bridle
+    name: Kitepower V3.25 Bridle
     type: LEI_soft_kite_bridle 
     version: 1.0
     structure:
       mass: 0
   control_system:
-    name: Kitepower V3.20 KCU
+    name: Kitepower V3.25 KCU
     type: kite_control_unit
     version: 1.0
     structure:
-      mass: 0
+      mass: 8.4
   tether:
-    name: Kitepower V3.20
+    name: Kitepower V3.25
     type: non_conductive_tether
     version: 1.0
     structure:
-      length: 600
+      length: 500
       diameter: 0.006
       density: 724.0
       max_tether_force: 8200.0 # N
       conductive: false
-      material:
-        type: dyneema
-        youngs_modulus: 0.85e9 # Pa
   ground_station:
-    name: example_pumping_ground_gen_station
+    name: ground station
     type: pumping_ground_gen_station
     version: 1.0
     structure:
