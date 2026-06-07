@@ -10,6 +10,8 @@ metadata (reference_height). The model uses the wind profile to derive wind
 speeds at operating altitudes.
 """
 
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +35,20 @@ from .qsm import (
 )
 from .cycle_optimizer import CycleOptimizer
 from . import plotting
+
+
+def _calculate_power_curve_direct_worker(constructor, profile_id, wind_speeds, verbose):
+    """Process-pool worker for one direct-simulation wind profile."""
+    return profile_id, constructor._calculate_power_curve_direct(
+        profile_id, wind_speeds, verbose,
+    )
+
+
+def _calculate_power_curve_optimized_worker(constructor, profile_id, wind_speeds, verbose):
+    """Process-pool worker for one optimized wind profile."""
+    return profile_id, constructor._calculate_power_curve_optimized(
+        profile_id, wind_speeds, verbose,
+    )
 
 
 class PowerCurveConstructor:
@@ -177,6 +193,34 @@ class PowerCurveConstructor:
 
         return wind_speeds
 
+    def _calculate_profiles_parallel(self, profile_ids, wind_speeds, verbose,
+                                     worker_fn, description):
+        """Calculate independent wind profiles concurrently in separate processes."""
+        if len(profile_ids) <= 1:
+            _, wind_speed_data = worker_fn(
+                self, profile_ids[0], wind_speeds, verbose,
+            )
+            return [wind_speed_data]
+
+        max_workers = min(len(profile_ids), os.cpu_count() or 1)
+        if verbose:
+            print(
+                f"{description} for {len(profile_ids)} profiles "
+                f"using {max_workers} processes..."
+            )
+
+        results_by_profile = {}
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(worker_fn, self, profile_id, wind_speeds, verbose): profile_id
+                for profile_id in profile_ids
+            }
+            for future in as_completed(futures):
+                profile_id, wind_speed_data = future.result()
+                results_by_profile[profile_id] = wind_speed_data
+
+        return [results_by_profile[profile_id] for profile_id in profile_ids]
+
 
     def simulate_single_wind_speed(self, wind_speed, profile_id=1, method='direct',
                                     output_path=None, verbose=False,
@@ -298,13 +342,16 @@ class PowerCurveConstructor:
                 verbose=verbose
             )
 
-        # Calculate power curves for selected profiles
-        wind_speed_data_per_profile = []
-        for profile_id in profile_ids:
-            wind_speed_data = self._calculate_power_curve_direct(
-                profile_id, wind_speeds, verbose
-            )
-            wind_speed_data_per_profile.append(wind_speed_data)
+        # Calculate power curves for selected profiles. Each profile is
+        # independent, so profiles can run concurrently while each profile's
+        # wind-speed sequence remains ordered.
+        wind_speed_data_per_profile = self._calculate_profiles_parallel(
+            profile_ids,
+            wind_speeds,
+            verbose,
+            _calculate_power_curve_direct_worker,
+            "Calculating direct power curves",
+        )
 
         # Build full output with metadata and save
         output = self._build_and_save_output(
@@ -369,12 +416,13 @@ class PowerCurveConstructor:
                 verbose=verbose,
             )
 
-        wind_speed_data_per_profile = []
-        for profile_id in profile_ids:
-            wind_speed_data = self._calculate_power_curve_optimized(
-                profile_id, wind_speeds, verbose,
-            )
-            wind_speed_data_per_profile.append(wind_speed_data)
+        wind_speed_data_per_profile = self._calculate_profiles_parallel(
+            profile_ids,
+            wind_speeds,
+            verbose,
+            _calculate_power_curve_optimized_worker,
+            "Optimizing power curves",
+        )
 
         output = self._build_and_save_output(
             profile_ids=profile_ids,
