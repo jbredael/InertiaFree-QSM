@@ -28,6 +28,8 @@ from .qsm import (
     SteadyStateError,
     SystemProperties,
     TractionPhase,
+    build_cycle_energy_power_kpis,
+    calculate_electrical_power,
 )
 from .cycle_optimizer import CycleOptimizer
 from . import plotting
@@ -553,6 +555,9 @@ class PowerCurveConstructor:
             retraction = getattr(cycle, 'retraction_phase')
             transition_riro = getattr(cycle, 'transition_riro_phase')
             transition_rori = getattr(cycle, 'transition_rori_phase')
+            mechanical_energy, mechanical_power, electrical_energy, electrical_power = (
+                build_cycle_energy_power_kpis(cycle, self.sys_props)
+            )
 
             # Check minimum altitude constraint.
             minimum_height = self.simulation_settings.get('cycle', {}).get('minimum_height', 0.0)
@@ -567,13 +572,10 @@ class PowerCurveConstructor:
 
             kpi = {
                 'sim_successful': error_in_phase is None,
-                'average_power': {
-                    'cycle': cycle.average_power,
-                    'in': retraction.average_power if retraction else 0.0,
-                    'trans_riro': transition_riro.average_power if transition_riro else 0.0,
-                    'trans_rori': transition_rori.average_power if transition_rori else 0.0,
-                    'out': traction.average_power if traction else 0.0,
-                },
+                'average_power': mechanical_power,
+                'energy': mechanical_energy,
+                'electrical_average_power': electrical_power,
+                'electrical_energy': electrical_energy,
                 'duration': {
                     'cycle': cycle.duration,
                     'in': retraction.duration if retraction else 0.0,
@@ -584,6 +586,12 @@ class PowerCurveConstructor:
                 'time': cycle.time,
                 'kinematics': cycle.kinematics,
                 'steady_states': cycle.steady_states,
+                'phase_sizes': {
+                    'traction': len(traction.kinematics) if traction and traction.kinematics else 0,
+                    'transition_rori': len(transition_rori.kinematics) if transition_rori and transition_rori.kinematics else 0,
+                    'retraction': len(retraction.kinematics) if retraction and retraction.kinematics else 0,
+                    'transition_riro': len(transition_riro.kinematics) if transition_riro and transition_riro.kinematics else 0,
+                },
             }
 
             return self._build_wind_speed_entry(wind_speed, kpi)
@@ -593,6 +601,27 @@ class PowerCurveConstructor:
             kpi = {
                 'sim_successful': False,
                 'average_power': {
+                    'cycle': 0.0,
+                    'in': 0.0,
+                    'trans_riro': 0.0,
+                    'trans_rori': 0.0,
+                    'out': 0.0,
+                },
+                'energy': {
+                    'cycle': 0.0,
+                    'in': 0.0,
+                    'trans_riro': 0.0,
+                    'trans_rori': 0.0,
+                    'out': 0.0,
+                },
+                'electrical_average_power': {
+                    'cycle': 0.0,
+                    'in': 0.0,
+                    'trans_riro': 0.0,
+                    'trans_rori': 0.0,
+                    'out': 0.0,
+                },
+                'electrical_energy': {
                     'cycle': 0.0,
                     'in': 0.0,
                     'trans_riro': 0.0,
@@ -717,6 +746,10 @@ class PowerCurveConstructor:
             max(entry['performance']['power']['average_cycle_power'] for entry in wsd)
             for wsd in wind_speed_data_per_profile
         )
+        nominal_electrical_power = max(
+            max(entry['performance']['electrical_power']['average_cycle_power'] for entry in wsd)
+            for wsd in wind_speed_data_per_profile
+        )
 
         # Prepare output in awesIO power_curves_schema format
         altitudes = self.wind_resource.get('altitudes', [])
@@ -731,6 +764,13 @@ class PowerCurveConstructor:
                 'model_config': {
                     'wing_area': float(self.sys_props.kite_projected_area),
                     'wing_mass': float(self.sys_props.kite_mass),
+                    'generator_efficiency': float(getattr(self.sys_props, 'generator_efficiency', 1.0)),
+                    'motor_efficiency': float(getattr(self.sys_props, 'motor_efficiency', 1.0)),
+                    'storage_efficiency': float(getattr(self.sys_props, 'storage_efficiency', 1.0)),
+                    'nominal_mechanical_power': float(nominal_power),
+                    'nominal_electrical_power': float(nominal_electrical_power),
+                    'cut_in_wind_speed': float(cut_in_ws),
+                    'cut_out_wind_speed': float(cut_out_ws),
                 },
                 'wind_resource': {
                     'n_profiles': self.n_profiles,
@@ -754,7 +794,7 @@ class PowerCurveConstructor:
             # The inline time_history dicts are stripped from the YAML output
             # to avoid serialising thousands of floats as text.
             TIME_HISTORY_CHANNELS = (
-                'time', 'altitude', 'tether_force', 'power',
+                'time', 'altitude', 'tether_force', 'power', 'electrical_power',
                 'reel_speed', 'tether_length', 'elevation_angle', 'wind_speed',
                 'kite_wind_speed', 'kite_tangential_speed', 'kite_apparent_wind_speed',
                 'phase_id', 'azimuth_angle', 'course_angle',
@@ -835,6 +875,23 @@ class PowerCurveConstructor:
                 return float('nan')
             return float(val)
 
+        def _phase_values(source):
+            source = source or {}
+            return {
+                'cycle': _safe_float(source.get('cycle', 0.0)),
+                'in': _safe_float(source.get('in', 0.0)),
+                'trans_riro': _safe_float(
+                    source.get('trans_riro', source.get('trans', 0.0))
+                ),
+                'trans_rori': _safe_float(source.get('trans_rori', 0.0)),
+                'out': _safe_float(source.get('out', 0.0)),
+            }
+
+        mechanical_power = _phase_values(kpi.get('average_power'))
+        mechanical_energy = _phase_values(kpi.get('energy'))
+        electrical_power = _phase_values(kpi.get('electrical_average_power'))
+        electrical_energy = _phase_values(kpi.get('electrical_energy'))
+
         time_history = None
         sim_successful = kpi.get('sim_successful', False)
         if (sim_successful
@@ -873,16 +930,33 @@ class PowerCurveConstructor:
             'successful': bool(kpi.get('sim_successful', False)),
             'performance': {
                 'power': {
-                    'average_cycle_power': _safe_float(kpi['average_power']['cycle']),
-                    'average_reel_out_power': _safe_float(kpi['average_power']['out']),
-                    'average_reel_in_power': _safe_float(kpi['average_power']['in']),
-                    'average_transition_rori_power': _safe_float(
-                        kpi['average_power'].get('trans_rori', 0.0)
-                    ),
-                    'average_transition_riro_power': _safe_float(
-                        kpi['average_power'].get('trans_riro',
-                            kpi['average_power'].get('trans', 0.0))
-                    ),
+                    'average_cycle_power': mechanical_power['cycle'],
+                    'average_reel_out_power': mechanical_power['out'],
+                    'average_reel_in_power': mechanical_power['in'],
+                    'average_transition_rori_power': mechanical_power['trans_rori'],
+                    'average_transition_riro_power': mechanical_power['trans_riro'],
+                },
+                'electrical_power': {
+                    'average_cycle_power': electrical_power['cycle'],
+                    'average_reel_out_power': electrical_power['out'],
+                    'average_reel_in_power': electrical_power['in'],
+                    'average_transition_rori_power': electrical_power['trans_rori'],
+                    'average_transition_riro_power': electrical_power['trans_riro'],
+                },
+                'energy': {
+                    'cycle_energy': mechanical_energy['cycle'],
+                    'reel_out_energy': mechanical_energy['out'],
+                    'reel_in_energy': mechanical_energy['in'],
+                    'transition_rori_energy': mechanical_energy['trans_rori'],
+                    'transition_riro_energy': mechanical_energy['trans_riro'],
+                },
+                'electrical_energy': {
+                    'net_cycle_energy_exported': electrical_energy['cycle'],
+                    'cycle_energy': electrical_energy['cycle'],
+                    'reel_out_energy': electrical_energy['out'],
+                    'reel_in_energy': electrical_energy['in'],
+                    'transition_rori_energy': electrical_energy['trans_rori'],
+                    'transition_riro_energy': electrical_energy['trans_riro'],
                 },
                 'timing': {
                     'reel_out_time': _safe_float(kpi['duration']['out']),
@@ -939,6 +1013,7 @@ class PowerCurveConstructor:
         altitude_full = []
         tether_force_full = []
         power_full = []
+        electrical_power_full = []
         reel_speed_full = []
         tether_length_full = []
         elevation_angle_full = []
@@ -956,7 +1031,11 @@ class PowerCurveConstructor:
         for kin, ss in zip(kinematics, steady_states):
             altitude_full.append(float(kin.z))
             tether_force_full.append(float(ss.tether_force_ground))
-            power_full.append(float(ss.power_ground))
+            mechanical_power = float(ss.power_ground)
+            power_full.append(mechanical_power)
+            electrical_power_full.append(
+                float(calculate_electrical_power(mechanical_power, self.sys_props))
+            )
             reel_speed_full.append(float(ss.reeling_speed))
             tether_length_full.append(float(kin.straight_tether_length))
             elevation_angle_full.append(float(kin.elevation_angle))
@@ -986,6 +1065,7 @@ class PowerCurveConstructor:
             'altitude': altitude_full,
             'tether_force': tether_force_full,
             'power': power_full,
+            'electrical_power': electrical_power_full,
             'reel_speed': reel_speed_full,
             'tether_length': tether_length_full,
             'elevation_angle': elevation_angle_full,

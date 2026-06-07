@@ -94,11 +94,11 @@ def load_power_curve_data(file_path):
     if npz_name:
         npz_path = file_path.parent / npz_name
         if npz_path.exists():
-            TIME_HISTORY_CHANNELS = (
+            TIME_HISTORY_CHANNELS = tuple(th_meta.get('channels') or (
                 'time', 'altitude', 'tether_force', 'power',
                 'reel_speed', 'tether_length', 'elevation_angle', 'wind_speed',
                 'kite_wind_speed', 'kite_tangential_speed', 'kite_apparent_wind_speed',
-            )
+            ))
             npz = np.load(npz_path)
             for pc in data.get('power_curves', []):
                 pid = pc['profile_id']
@@ -336,6 +336,7 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
     altitude = np.array(timeHistory.get('altitude', []))
     tetherForce = np.array(timeHistory.get('tether_force', []))
     powerInst = np.array(timeHistory.get('power', []))
+    electricalPowerInst = np.array(timeHistory.get('electrical_power', []))
     reelSpeed = np.array(timeHistory.get('reel_speed', []))
     tetherLength = np.array(timeHistory.get('tether_length', []))
     elevationAngleRad = np.array(timeHistory.get('elevation_angle', []))
@@ -410,7 +411,10 @@ def plot_cycle_detail(file_path, wind_speed, profile_id=None,
 
     # Instantaneous power
     ax = axPow
-    ax.plot(time, powerInst / 1000, color='darkgreen', label='Power')
+    ax.plot(time, powerInst / 1000, color='darkgreen', label='Mechanical')
+    if electricalPowerInst.size == time.size:
+        ax.plot(time, electricalPowerInst / 1000, color='black',
+                linestyle='--', linewidth=1.2, label='Electrical')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Power (kW)')
     ax.set_title('Instantaneous Power', fontweight='bold')

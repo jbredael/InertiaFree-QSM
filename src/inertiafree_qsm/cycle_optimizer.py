@@ -9,7 +9,7 @@ from copy import deepcopy
 import numpy as np
 from scipy import optimize as op
 
-from .qsm import Cycle, TractionPhase
+from .qsm import Cycle, TractionPhase, build_cycle_energy_power_kpis
 
 
 class CycleOptimizer:
@@ -127,7 +127,7 @@ class CycleOptimizer:
         # is usually cheaper than accepting an isolated local optimum in the
         # power curve and having to rerun that wind speed manually.
         self._multi_start_enabled = bool(
-            self.optimizer_config.get('multi_start_enabled', True)
+            self.optimizer_config.get('multi_start_enabled', False)
         )
         self._multi_start_max_starts = int(
             self.optimizer_config.get('multi_start_max_starts', 2)
@@ -1290,16 +1290,21 @@ class CycleOptimizer:
             traction_n = len(traction.steady_states)
             traction_regime2 = getattr(traction, 'regime2_count', 0)
             traction_regime3 = getattr(traction, 'regime3_count', 0)
+            mechanical_energy, mechanical_power, electrical_energy, electrical_power = (
+                build_cycle_energy_power_kpis(cycle, self.sys_props)
+            )
+            if not cycle_ok:
+                mechanical_power['cycle'] = 0.0
+                mechanical_energy['cycle'] = 0.0
+                electrical_power['cycle'] = 0.0
+                electrical_energy['cycle'] = 0.0
 
             return {
                 'sim_successful': cycle_ok,
-                'average_power': {
-                    'cycle': cycle.average_power if cycle_ok else 0.0,
-                    'in': retraction.average_power if retraction else 0.0,
-                    'trans_riro': transition_riro.average_power if transition_riro else 0.0,
-                    'trans_rori': transition_rori.average_power if transition_rori else 0.0,
-                    'out': traction.average_power if traction else 0.0,
-                },
+                'average_power': mechanical_power,
+                'energy': mechanical_energy,
+                'electrical_average_power': electrical_power,
+                'electrical_energy': electrical_energy,
                 'duration': {
                     'cycle': cycle.duration if cycle_ok else 0.0,
                     'in': retraction.duration if retraction else 0.0,
@@ -1329,6 +1334,12 @@ class CycleOptimizer:
                 'sim_successful': False,
                 'average_power': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0,
                                   'trans_rori': 0.0, 'out': 0.0},
+                'energy': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0,
+                           'trans_rori': 0.0, 'out': 0.0},
+                'electrical_average_power': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0,
+                                             'trans_rori': 0.0, 'out': 0.0},
+                'electrical_energy': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0,
+                                      'trans_rori': 0.0, 'out': 0.0},
                 'duration': {'cycle': 0.0, 'in': 0.0, 'trans_riro': 0.0,
                              'trans_rori': 0.0, 'out': 0.0},
                 'min_altitude_traction': 0.0,

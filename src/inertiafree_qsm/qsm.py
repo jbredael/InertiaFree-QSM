@@ -335,6 +335,94 @@ class SystemProperties:
         self.calculate_aerodynamic_properties(kite_powered)
 
 
+def calculate_electrical_power(mechanical_power, system_properties):
+    """Convert mechanical ground power to exported electrical power.
+
+    Positive mechanical power is generated during reel-out and is multiplied by
+    generator efficiency. Negative mechanical power is motor demand during
+    reel-in and is divided by motor and storage efficiency because the energy is
+    first stored and then taken from the battery.
+    """
+    generator_efficiency = float(getattr(system_properties, 'generator_efficiency', 1.0))
+    motor_efficiency = float(getattr(system_properties, 'motor_efficiency', 1.0))
+    storage_efficiency = float(getattr(system_properties, 'storage_efficiency', 1.0))
+
+    if generator_efficiency <= 0 or motor_efficiency <= 0 or storage_efficiency <= 0:
+        raise ValueError(
+            "Electrical efficiencies must be positive: "
+            f"generator={generator_efficiency}, motor={motor_efficiency}, "
+            f"storage={storage_efficiency}."
+        )
+
+    p = np.asarray(mechanical_power, dtype=float)
+    electrical_power = np.where(
+        p >= 0.0,
+        p * generator_efficiency,
+        p / (motor_efficiency * storage_efficiency),
+    )
+    if electrical_power.ndim == 0:
+        return float(electrical_power)
+    return electrical_power
+
+
+def calculate_phase_electrical_energy(phase, system_properties):
+    """Integrate exported electrical energy for one simulated phase."""
+    if phase is None or not phase.time or not phase.steady_states:
+        return 0.0
+    mechanical_power = [ss.power_ground for ss in phase.steady_states]
+    electrical_power = calculate_electrical_power(mechanical_power, system_properties)
+    return float(np.trapezoid(electrical_power, phase.time))
+
+
+def build_cycle_energy_power_kpis(cycle, system_properties):
+    """Build mechanical and electrical energy/average-power KPI dictionaries."""
+    phases = {
+        'out': getattr(cycle, 'traction_phase', None),
+        'trans_rori': getattr(cycle, 'transition_rori_phase', None),
+        'in': getattr(cycle, 'retraction_phase', None),
+        'trans_riro': getattr(cycle, 'transition_riro_phase', None),
+    }
+
+    mechanical_energy = {
+        name: float(getattr(phase, 'energy', 0.0)) if phase is not None else 0.0
+        for name, phase in phases.items()
+    }
+    mechanical_energy['cycle'] = float(getattr(cycle, 'energy', 0.0) or 0.0)
+
+    electrical_energy = {
+        name: calculate_phase_electrical_energy(phase, system_properties)
+        for name, phase in phases.items()
+    }
+    electrical_energy['cycle'] = electrical_energy['out'] + electrical_energy['in']
+    if getattr(cycle, 'include_transition_energy', False):
+        electrical_energy['cycle'] += (
+            electrical_energy['trans_riro'] + electrical_energy['trans_rori']
+        )
+
+    duration = {
+        'cycle': float(getattr(cycle, 'duration', 0.0) or 0.0),
+        **{
+            name: float(getattr(phase, 'duration', 0.0)) if phase is not None else 0.0
+            for name, phase in phases.items()
+        },
+    }
+
+    mechanical_average_power = {}
+    electrical_average_power = {}
+    for name in ('cycle', 'in', 'trans_riro', 'trans_rori', 'out'):
+        dt = duration.get(name, 0.0)
+        if name == 'cycle':
+            mechanical_average_power[name] = float(getattr(cycle, 'average_power', 0.0) or 0.0)
+        else:
+            phase = phases.get(name)
+            mechanical_average_power[name] = (
+                float(getattr(phase, 'average_power', 0.0)) if phase is not None else 0.0
+            )
+        electrical_average_power[name] = electrical_energy[name] / dt if dt > 0.0 else 0.0
+
+    return mechanical_energy, mechanical_average_power, electrical_energy, electrical_average_power
+
+
 class SysPropsAeroCurves:
     """System properties class with aerodynamic coefficient curves as function of angle of attack.
     

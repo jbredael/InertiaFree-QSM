@@ -94,6 +94,8 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     tether_structure = tether.get('structure', {})
     ground_station = components.get('ground_station', {})
     drum = ground_station.get('drum', {})
+    generator = ground_station.get('generator', {})
+    storage = ground_station.get('storage', {})
     kcu = components.get('control_system', {})
     kcu_structure = kcu.get('structure', {})
 
@@ -108,6 +110,16 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     if tether_force_min_limit is None and tether_force_max_limit is not None:
         tether_force_min_limit = 0.03 * tether_force_max_limit
 
+    generator_efficiency = generator.get(
+        'generator_efficiency',
+        generator.get('efficiency', 1.0),
+    )
+    motor_efficiency = generator.get(
+        'motor_efficiency',
+        generator.get('efficiency', 1.0),
+    )
+    storage_efficiency = storage.get('efficiency', 1.0)
+
     base_sys_props = {
         'kite_projected_area': wing_structure.get('projected_surface_area'),
         'kite_mass': kite_mass,
@@ -118,7 +130,10 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'reeling_speed_min_limit': 0,
         'reeling_speed_max_limit': drum.get('max_tether_speed'),
         'max_tether_length': tether_structure.get('length'),
-        'max_generator_power': ground_station.get('generator', {}).get('max_power'),
+        'max_generator_power': generator.get('max_power'),
+        'generator_efficiency': float(generator_efficiency),
+        'motor_efficiency': float(motor_efficiency),
+        'storage_efficiency': float(storage_efficiency),
     }
 
     # Parse simulation settings.
