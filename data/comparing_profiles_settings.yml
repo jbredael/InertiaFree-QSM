@@ -81,10 +81,6 @@ optimization:
 
     # Maximum number of iterations per wind speed point
     max_iterations: 40
-    # Number of iterations for the fine-resolution polish pass (0 to disable).
-    # After the coarse optimisation, a short SLSQP run at full time-step
-    # resolution corrects for coarse/fine landscape discrepancies.
-    polish_max_iterations: 20
     # Function tolerance for convergence (absolute, in watts)
     ftol: 0.005
     # Finite difference step size for gradient estimation (in scaled variable space).

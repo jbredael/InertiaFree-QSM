@@ -26,8 +26,8 @@ PROJECT_ROOT = Path(__file__).parent.parent
 # SYSTEM_CONFIG_PATH = PROJECT_ROOT / "data" / "kitepower V3_25.yml"
 SYSTEM_CONFIG_PATH = PROJECT_ROOT / "data" / "100kW_system.yml"
 
-WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "power_law_case_1.yml"
-# WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "clustered_case_1.yml"
+# WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "power_law_case_1.yml"
+WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "clustered_case_1.yml"
 # WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "wind_profile_prescribed_logarithmic.yml"
 
 # SIMULATION_SETTINGS_PATH = PROJECT_ROOT / "data" / "comparing_luchsinger_settings.yml"
@@ -63,7 +63,7 @@ if __name__ == "__main__":
 
     # Generate power curves using optimized simulation
     result = constructor.generate_power_curves_optimized(
-        profile_ids=None,
+        profile_ids=[5],
         output_path=OUTPUT_PATH_OPTIMIZED,
         verbose=True,
         show_plot=True,
