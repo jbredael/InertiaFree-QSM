@@ -35,7 +35,7 @@ WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "clustered_case_1.yml"
 SIMULATION_SETTINGS_PATH = PROJECT_ROOT / "data" / "case_1_settings.yml"
 
 OUTPUT_PATH_DIRECT = PROJECT_ROOT / "results" / "power_curves_direct_simulation.yml"
-OUTPUT_PATH_OPTIMIZED = PROJECT_ROOT / "results" / "power_curves_160-70000-quick-180kw.yml"
+OUTPUT_PATH_OPTIMIZED = PROJECT_ROOT / "results" / "power_curves_140-60000-quick-180kw.yml"
 OUTPUT_PATH_DIRECT_SINGLE_POINT = PROJECT_ROOT / "results" / "power_curve_single_point.yml"
 OUTPUT_PATH_OPTIMIZED_SINGLE_POINT = PROJECT_ROOT / "results" / "power_curve_single_point_optimized.yml"
 
@@ -63,7 +63,7 @@ if __name__ == "__main__":
 
     # Generate power curves using optimized simulation
     result = constructor.generate_power_curves_optimized(
-        profile_ids=None,
+        profile_ids=[1],
         output_path=OUTPUT_PATH_OPTIMIZED,
         verbose=True,
         show_plot=True,

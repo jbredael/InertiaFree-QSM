@@ -463,7 +463,7 @@ class PowerCurveConstructor:
         val_by_name = dict(zip(var_names, x_opt))
 
         # Propagate variables that vary smoothly across wind speeds.
-        # - frac_end, frac_start, reeling_speed_in: smooth with wind speed.
+        # - frac_end, frac_start: smooth with wind speed.
         # - elevation_end_rori: nearly constant within the same operating regime
         #   (e.g. ~68-70° in power-limited regime 3 at high wind).  Warm-starting
         #   prevents the optimizer from rediscovering this value from the YAML
@@ -473,11 +473,11 @@ class PowerCurveConstructor:
         #   traction angles varies smoothly with wind speed.  Warm-starting from
         #   the previous mean keeps SLSQP in the right neighbourhood and reduces
         #   noise between neighbouring wind speeds.
-        # Reel-out is left to _adapt_x0 (Betz-limit cap).
+        # Reel speeds are left to _adapt_x0.  Warm-starting reel-in can trap the
+        # optimizer in an unrealistically slow retraction-speed basin.
         name_to_idx = {
             'frac_end': 2,
             'frac_start': 3,
-            'reeling_speed_in': 1,
             'elevation_end_rori': 5,
         }
         for name, idx in name_to_idx.items():

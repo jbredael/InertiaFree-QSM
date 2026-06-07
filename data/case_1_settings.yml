@@ -51,7 +51,7 @@ optimization:
     # Maximum wind speed [m/s]
     cut_out: 25
     # Number of points to calculate (determines spacing)
-    n_points: 23
+    n_points: 45
 
     # Fine resolution settings near cut-out wind speed
     # These add extra points near the cut-out to capture system behavior

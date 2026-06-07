@@ -290,11 +290,10 @@ class CycleOptimizer:
             if name == 'reeling_speed_out':
                 x0[i] = np.clip(min(x0[i], wind_speed / 3.0), lo, hi)
             elif name == 'reeling_speed_in':
-                # Cold-start YAML default is -2 m/s; at high wind the optimum is
-                # roughly -0.27 × wind_speed.  Only override when the current
-                # value is less than half the estimated optimum speed (magnitude).
+                # Keep the starting point from getting stuck at a stale,
+                # unrealistically slow reel-in value from lower wind speeds.
                 target = np.clip(-wind_speed * 0.27, lo, hi)
-                if abs(x0[i]) < abs(target) * 0.5:
+                if abs(x0[i]) < abs(target):
                     x0[i] = target
 
     def _repair_x0(self, x0, var_names, bounds, wind_speed=None):

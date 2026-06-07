@@ -13,8 +13,8 @@ components:
     type: LEI_soft_kite
     version: 1.0
     structure:
-      projected_surface_area: 160.00 # m2
-      mass: 53 # kg, all mass of wing and bridle lumped together
+      projected_surface_area: 140.00 # m2
+      mass: 47 # kg, all mass of wing and bridle lumped together
   bridle:
     name: V11.100 Bridle
     type: LEI_soft_kite_bridle 
@@ -35,7 +35,7 @@ components:
       length: 600
       diameter: 0.012
       density: 724.0
-      max_tether_force: 70000.0 # N
+      max_tether_force: 60000.0 # N
       conductive: false
   ground_station:
     name: 100 kW Meridional system Ground Station
