@@ -13,7 +13,7 @@ How it works:
 import numpy as np
 from scipy import optimize as op
 
-from .qsm import Cycle, TractionPhase, build_cycle_energy_power_kpis
+from .qsm import Cycle, TractionPhase
 
 
 class CycleOptimizer:
@@ -1007,7 +1007,7 @@ class CycleOptimizer:
             traction_regime2 = getattr(traction, 'regime2_count', 0)
             traction_regime3 = getattr(traction, 'regime3_count', 0)
             mechanical_energy, mechanical_power, electrical_energy, electrical_power = (
-                build_cycle_energy_power_kpis(cycle, self.sys_props)
+                cycle.build_cycle_energy_power_kpis(self.sys_props)
             )
             if not cycle_ok:
                 mechanical_power['cycle'] = 0.0

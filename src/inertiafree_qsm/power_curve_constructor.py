@@ -34,8 +34,6 @@ from .qsm import (
     NormalisedWindTable1D,
     SystemProperties,
     TractionPhase,
-    build_cycle_energy_power_kpis,
-    calculate_electrical_power,
 )
 from .cycle_optimizer import CycleOptimizer
 from . import plotting
@@ -452,10 +450,11 @@ class PowerCurveConstructor:
     def _prepare_warm_start(self, x_opt, var_names, base_x0=None):
         """Build an updated x0 list from the previous optimal solution for a warm start.
 
-        Only tether length fractions are propagated.  They change smoothly
-        across wind speeds, making them safe to warm-start.  Reeling speeds and
-        elevation angles are left at their YAML defaults: reeling speeds are
-        handled by ``_adapt_x0``; elevation angles warm-started from the
+        Reel-in speed, tether length fractions, and RORI end elevation are
+        propagated.  They change smoothly across wind speeds, making them safe
+        to warm-start.  Reel-out speed and traction elevation angles are left
+        at their YAML defaults: reel-out crosses active force/power control
+        regimes sharply; traction elevation angles warm-started from the
         previous (lower) wind speed tend to land near infeasibility boundaries
         at the next wind speed, creating FD gradient cliffs.
 
@@ -476,12 +475,15 @@ class PowerCurveConstructor:
         x0 = list(base_x0)
         val_by_name = dict(zip(var_names, x_opt))
 
-        # Only tether length fractions are propagated; reel speeds and angles
-        # stay at the YAML baseline because they can cross active control
-        # regimes sharply between adjacent wind speeds.
+        # Reel-in speed, tether fractions, and RORI end elevation are
+        # propagated; reel-out speed and traction angles stay at the YAML
+        # baseline because they can cross active control regimes sharply
+        # between adjacent wind speeds.
         name_to_idx = {
+            'reeling_speed_in': 1,
             'frac_end': 2,
             'frac_start': 3,
+            'elevation_end_rori': len(x0) - 1,
         }
         for name, idx in name_to_idx.items():
             if name in val_by_name and idx < len(x0):
@@ -599,7 +601,7 @@ class PowerCurveConstructor:
             transition_riro = getattr(cycle, 'transition_riro_phase')
             transition_rori = getattr(cycle, 'transition_rori_phase')
             mechanical_energy, mechanical_power, electrical_energy, electrical_power = (
-                build_cycle_energy_power_kpis(cycle, self.sys_props)
+                cycle.build_cycle_energy_power_kpis(self.sys_props)
             )
 
             # Check minimum altitude constraint.
@@ -1075,7 +1077,7 @@ class PowerCurveConstructor:
             mechanical_power = float(ss.power_ground)
             power_full.append(mechanical_power)
             electrical_power_full.append(
-                float(calculate_electrical_power(mechanical_power, self.sys_props))
+                float(Cycle.calculate_electrical_power(mechanical_power, self.sys_props))
             )
             reel_speed_full.append(float(ss.reeling_speed))
             tether_length_full.append(float(kin.straight_tether_length))
