@@ -439,7 +439,7 @@ class PowerCurveConstructor:
 
         return output
 
-    def _prepare_warm_start(self, x_opt, var_names):
+    def _prepare_warm_start(self, x_opt, var_names, base_x0=None):
         """Build an updated x0 list from the previous optimal solution for a warm start.
 
         Only tether length fractions are propagated.  They change smoothly
@@ -454,45 +454,28 @@ class PowerCurveConstructor:
                 optimization.
             var_names (list): Variable names matching x_opt, as returned by
                 ``CycleOptimizer.last_var_names``.
+            base_x0 (list, optional): Baseline optimizer starting point from the
+                YAML settings. If omitted, the current settings x0 is used.
 
         Returns:
             list: Updated x0 list in the same index order as
                 ``simulation_settings['optimization']['optimizer']['x0']``.
         """
-        x0 = list(self.simulation_settings['optimization']['optimizer']['x0'])
+        if base_x0 is None:
+            base_x0 = self.simulation_settings['optimization']['optimizer']['x0']
+        x0 = list(base_x0)
         val_by_name = dict(zip(var_names, x_opt))
 
-        # Propagate variables that vary smoothly across wind speeds.
-        # - frac_end, frac_start: smooth with wind speed.
-        # - elevation_end_rori: nearly constant within the same operating regime
-        #   (e.g. ~68-70° in power-limited regime 3 at high wind).  Warm-starting
-        #   prevents the optimizer from rediscovering this value from the YAML
-        #   default (50°) each wind speed, which causes many wasted iterations with
-        #   0-power FD evaluations before the feasible region is found.
-        # - elevation_angle_traction (scalar x0[4]): the mean of the optimised
-        #   traction angles varies smoothly with wind speed.  Warm-starting from
-        #   the previous mean keeps SLSQP in the right neighbourhood and reduces
-        #   noise between neighbouring wind speeds.
-        # Reel speeds are left to _adapt_x0.  Warm-starting reel-in can trap the
-        # optimizer in an unrealistically slow retraction-speed basin.
+        # Only tether length fractions are propagated; reel speeds and angles
+        # stay at the YAML baseline because they can cross active control
+        # regimes sharply between adjacent wind speeds.
         name_to_idx = {
             'frac_end': 2,
             'frac_start': 3,
-            'elevation_end_rori': 5,
         }
         for name, idx in name_to_idx.items():
             if name in val_by_name and idx < len(x0):
                 x0[idx] = float(val_by_name[name])
-
-        # Warm-start the scalar traction elevation x0 (index 4) from the mean of
-        # the optimised per-segment angles.  Only applies when elevation was
-        # actually optimised; skipped in regime-3 where elevation is disabled.
-        elev_vals = [
-            val_by_name[n] for n in var_names
-            if n.startswith('elevation_') and n.split('_')[1].isdigit()
-        ]
-        if elev_vals and 4 < len(x0):
-            x0[4] = float(np.mean(elev_vals))
 
         return x0
 
@@ -540,7 +523,9 @@ class PowerCurveConstructor:
                 x_opt = getattr(self, 'last_x_opt', None)
                 var_names = getattr(self, 'last_optimization_var_names', None)
                 if x_opt is not None and var_names is not None:
-                    warm_x0 = self._prepare_warm_start(x_opt, var_names)
+                    warm_x0 = self._prepare_warm_start(
+                        x_opt, var_names, base_x0=original_x0,
+                    )
                     self.simulation_settings['optimization']['optimizer']['x0'] = warm_x0
             else:
                 # Reset to original x0 so the next wind speed starts cold.

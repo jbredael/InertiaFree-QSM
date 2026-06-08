@@ -921,6 +921,8 @@ class CycleOptimizer:
             dict: KPI dict.
         """
         values_by_name = dict(zip(var_names, x_unscaled))
+        frac_end = values_by_name.get('frac_end', self._nominal_frac_end)
+        frac_start = values_by_name.get('frac_start', self._nominal_frac_start)
         settings = self._build_settings(values_by_name, use_opt_timesteps=use_opt_timesteps)
         cycle = Cycle(settings, impose_operational_limits=True)
         steady_state_config = self.simulation_settings.get('steady_state')
@@ -969,6 +971,34 @@ class CycleOptimizer:
             if not apparent_wind_ok:
                 failure_reasons.append('apparent_wind')
 
+            phase_durations = {
+                'cycle': cycle.duration,
+                'in': retraction.duration if retraction else 0.0,
+                'trans_riro': transition_riro.duration if transition_riro else 0.0,
+                'trans_rori': transition_rori.duration if transition_rori else 0.0,
+                'out': traction.duration if traction else 0.0,
+            }
+            duration_ok = (
+                phase_durations['cycle'] > 0.0
+                and all(v >= -1e-9 for v in phase_durations.values())
+            )
+            if not duration_ok:
+                failure_reasons.append('nonpositive_duration')
+
+            time_monotonic_ok = (
+                len(cycle.time) <= 1
+                or np.all(np.diff(np.asarray(cycle.time, dtype=float)) >= -1e-9)
+            )
+            if not time_monotonic_ok:
+                failure_reasons.append('nonmonotonic_time')
+
+            min_frac_diff = self.constraints_dict.get(
+                'min_tether_length_fraction_difference', 0.0,
+            )
+            tether_order_ok = frac_start - frac_end >= min_frac_diff - 1e-9
+            if not tether_order_ok:
+                failure_reasons.append('tether_fraction_order')
+
             cycle_ok = not failure_reasons
 
             traction_n = len(traction.steady_states)
@@ -989,12 +1019,12 @@ class CycleOptimizer:
                 'energy': mechanical_energy,
                 'electrical_average_power': electrical_power,
                 'electrical_energy': electrical_energy,
-                'duration': {
-                    'cycle': cycle.duration if cycle_ok else 0.0,
-                    'in': retraction.duration if retraction else 0.0,
-                    'trans_riro': transition_riro.duration if transition_riro else 0.0,
-                    'trans_rori': transition_rori.duration if transition_rori else 0.0,
-                    'out': traction.duration if traction else 0.0,
+                'duration': phase_durations if cycle_ok else {
+                    'cycle': 0.0,
+                    'in': 0.0,
+                    'trans_riro': 0.0,
+                    'trans_rori': 0.0,
+                    'out': 0.0,
                 },
                 'time': cycle.time,
                 'kinematics': cycle.kinematics,

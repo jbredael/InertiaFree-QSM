@@ -82,7 +82,7 @@ optimization:
     # Maximum number of iterations per wind speed point
     max_iterations: 40
     # Function tolerance for convergence (absolute, in watts)
-    ftol: 0.005
+    ftol: 0.002
     # Finite difference step size for gradient estimation (in scaled variable space).
     # With all variables scaled to O(1), eps=2e-2 gives:
     #   - ~0.02 m/s step for reel speeds, ~0.02 step for tether fractions
@@ -124,7 +124,7 @@ optimization:
 
     # Elevation angle bounds for RORI transition phase end [degrees]
     elevation_angle_end_trans_rori_min: 30.0
-    elevation_angle_end_trans_rori_max: 80.0
+    elevation_angle_end_trans_rori_max: 100.0
   
 
   # Optimizer constraints
