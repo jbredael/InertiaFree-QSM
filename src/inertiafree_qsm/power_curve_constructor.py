@@ -8,11 +8,18 @@ handling and detailed diagnostics.
 All wind speeds are referenced at the height specified in the wind_resource.yml
 metadata (reference_height). The model uses the wind profile to derive wind
 speeds at operating altitudes.
+
+How it works:
+1. Load the system, wind-resource, and simulation-settings YAML files.
+2. Build one environment per selected wind profile.
+3. For each wind speed, run either the prescribed cycle directly or call
+   ``CycleOptimizer`` to optimize the cycle first.
+4. Convert each KPI result into awesIO-style power-curve output and optionally
+   save the detailed time histories to a compressed ``.npz`` sidecar.
 """
 
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 import numpy as np
@@ -25,9 +32,6 @@ from .config_loader import (
 from .qsm import (
     Cycle,
     NormalisedWindTable1D,
-    OperationalLimitViolation,
-    PhaseError,
-    SteadyStateError,
     SystemProperties,
     TractionPhase,
     build_cycle_energy_power_kpis,
@@ -152,13 +156,11 @@ class PowerCurveConstructor:
 
         return env_state
 
-    def _generate_wind_speed_array(self, settings_key='optimization', profile_id=None, verbose=False):
+    def _generate_wind_speed_array(self, settings_key='optimization'):
         """Generate wind speed array from configuration settings.
 
         Args:
             settings_key (str): Key in simulation_settings to use ('optimization' or 'direct_simulation').
-            profile_id (int, optional): Not used (kept for compatibility).
-            verbose (bool): Whether to print messages.
 
         Returns:
             np.ndarray: Array of wind speeds [m/s].
@@ -192,6 +194,69 @@ class PowerCurveConstructor:
             wind_speeds = np.linspace(vw_cut_in, vw_cut_out, n_points)
 
         return wind_speeds
+
+    def _normalize_profile_ids(self, profile_ids):
+        """Return a list of 1-indexed profile IDs to calculate."""
+        if profile_ids is None:
+            return list(range(1, self.n_profiles + 1))
+        if isinstance(profile_ids, (list, tuple)):
+            return list(profile_ids)
+        return [profile_ids]
+
+    def _resolve_wind_speeds(self, wind_speeds, settings_key, verbose):
+        """Return custom wind speeds or load the configured range."""
+        if wind_speeds is not None:
+            wind_speeds = np.array(wind_speeds)
+            if verbose:
+                print(f"Using custom wind speeds: {wind_speeds}")
+            return wind_speeds
+        return self._generate_wind_speed_array(settings_key=settings_key)
+
+    def _maybe_plot_power_curve(self, output_path, show_plot, save_plot):
+        """Plot a generated power curve when requested and an output file exists."""
+        if not ((show_plot or save_plot) and output_path is not None):
+            return
+        fig_path = Path(output_path).with_suffix('.pdf') if save_plot else None
+        plotting.plot_power_curve(output_path, output_path=fig_path, show_plot=show_plot)
+
+    def _generate_power_curves(
+        self,
+        *,
+        method_name,
+        settings_key,
+        worker_fn,
+        description,
+        wind_speeds=None,
+        profile_ids=None,
+        output_path=None,
+        verbose=True,
+        show_plot=False,
+        save_plot=False,
+        validate_file=False,
+    ):
+        """Shared implementation for direct and optimized power curve generation."""
+        profile_ids = self._normalize_profile_ids(profile_ids)
+        wind_speeds = self._resolve_wind_speeds(wind_speeds, settings_key, verbose)
+
+        wind_speed_data_per_profile = self._calculate_profiles_parallel(
+            profile_ids,
+            wind_speeds,
+            verbose,
+            worker_fn,
+            description,
+        )
+
+        output = self._build_and_save_output(
+            profile_ids=profile_ids,
+            wind_speed_data_per_profile=wind_speed_data_per_profile,
+            method_name=method_name,
+            output_path=output_path,
+            verbose=verbose,
+            validate_file=validate_file,
+        )
+
+        self._maybe_plot_power_curve(output_path, show_plot, save_plot)
+        return output
 
     def _calculate_profiles_parallel(self, profile_ids, wind_speeds, verbose,
                                      worker_fn, description):
@@ -253,8 +318,9 @@ class PowerCurveConstructor:
         if method == 'direct':
             entry = self._run_single_simulation_direct(wind_speed, env_state)
         elif method == 'optimization':
-            entry = self._run_single_simulation_optimized(wind_speed, env_state, show_plot=show_plot,
-                                                           verbose=verbose)
+            entry = self._run_single_simulation_optimized(
+                wind_speed, env_state, verbose=verbose,
+            )
         else:
             raise ValueError(
                 f"Unknown method '{method}'. Use 'direct' or 'optimization'."
@@ -324,50 +390,19 @@ class PowerCurveConstructor:
         Returns:
             dict: Power curve data in awesIO format.
         """
-        # Determine which profiles to process
-        if profile_ids is None:
-            profile_ids = list(range(1, self.n_profiles + 1))
-        elif not isinstance(profile_ids, (list, tuple)):
-            profile_ids = [profile_ids]
-
-        # Determine wind speeds once, estimating from the first profile if needed
-        if wind_speeds is not None:
-            wind_speeds = np.array(wind_speeds)
-            if verbose:
-                print(f"Using custom wind speeds: {wind_speeds}")
-        else:
-            wind_speeds = self._generate_wind_speed_array(
-                settings_key='direct_simulation',
-                profile_id=profile_ids[0],
-                verbose=verbose
-            )
-
-        # Calculate power curves for selected profiles. Each profile is
-        # independent, so profiles can run concurrently while each profile's
-        # wind-speed sequence remains ordered.
-        wind_speed_data_per_profile = self._calculate_profiles_parallel(
-            profile_ids,
-            wind_speeds,
-            verbose,
-            _calculate_power_curve_direct_worker,
-            "Calculating direct power curves",
-        )
-
-        # Build full output with metadata and save
-        output = self._build_and_save_output(
-            profile_ids=profile_ids,
-            wind_speed_data_per_profile=wind_speed_data_per_profile,
+        return self._generate_power_curves(
             method_name='Direct Simulation',
+            settings_key='direct_simulation',
+            worker_fn=_calculate_power_curve_direct_worker,
+            description="Calculating direct power curves",
+            wind_speeds=wind_speeds,
+            profile_ids=profile_ids,
             output_path=output_path,
             verbose=verbose,
+            show_plot=show_plot,
+            save_plot=save_plot,
             validate_file=validate_file,
         )
-
-        if (show_plot or save_plot) and output_path is not None:
-            fig_path = Path(output_path).with_suffix('.pdf') if save_plot else None
-            plotting.plot_power_curve(output_path, output_path=fig_path, show_plot=show_plot)
-
-        return output
 
     def generate_power_curves_optimized(
         self,
@@ -400,44 +435,19 @@ class PowerCurveConstructor:
         Returns:
             dict: Power curve data in awesIO format.
         """
-        if profile_ids is None:
-            profile_ids = list(range(1, self.n_profiles + 1))
-        elif not isinstance(profile_ids, (list, tuple)):
-            profile_ids = [profile_ids]
-
-        if wind_speeds is not None:
-            wind_speeds = np.array(wind_speeds)
-            if verbose:
-                print(f"Using custom wind speeds: {wind_speeds}")
-        else:
-            wind_speeds = self._generate_wind_speed_array(
-                settings_key='optimization',
-                profile_id=profile_ids[0],
-                verbose=verbose,
-            )
-
-        wind_speed_data_per_profile = self._calculate_profiles_parallel(
-            profile_ids,
-            wind_speeds,
-            verbose,
-            _calculate_power_curve_optimized_worker,
-            "Optimizing power curves",
-        )
-
-        output = self._build_and_save_output(
-            profile_ids=profile_ids,
-            wind_speed_data_per_profile=wind_speed_data_per_profile,
+        return self._generate_power_curves(
             method_name='Optimization',
+            settings_key='optimization',
+            worker_fn=_calculate_power_curve_optimized_worker,
+            description="Optimizing power curves",
+            wind_speeds=wind_speeds,
+            profile_ids=profile_ids,
             output_path=output_path,
             verbose=verbose,
+            show_plot=show_plot,
+            save_plot=save_plot,
             validate_file=validate_file,
         )
-
-        if (show_plot or save_plot) and output_path is not None:
-            fig_path = Path(output_path).with_suffix('.pdf') if save_plot else None
-            plotting.plot_power_curve(output_path, output_path=fig_path, show_plot=show_plot)
-
-        return output
 
     def _prepare_warm_start(self, x_opt, var_names, base_x0=None):
         """Build an updated x0 list from the previous optimal solution for a warm start.
@@ -671,14 +681,12 @@ class PowerCurveConstructor:
             }
             return self._build_wind_speed_entry(wind_speed, kpi)
 
-    def _run_single_simulation_optimized(self, wind_speed, env_state, show_plot=False,
-                                          verbose=False):
+    def _run_single_simulation_optimized(self, wind_speed, env_state, verbose=False):
         """Run a single optimized cycle simulation for one wind speed.
 
         Args:
             wind_speed (float): Reference wind speed [m/s].
             env_state (NormalisedWindTable1D): Environment state object.
-            show_plot (bool): If True, show optimization evolution and cycle plots.
             verbose (bool): If True, print per-iteration progress. Defaults to False.
 
         Returns:

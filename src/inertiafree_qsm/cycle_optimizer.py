@@ -2,6 +2,12 @@
 
 This module provides SLSQP-based optimization for pumping cycle parameters
 to maximize power output while respecting operational constraints.
+
+How it works:
+1. Probe the cycle at the nominal settings to decide which variables are active.
+2. Build an SLSQP problem from those active variables, bounds, and constraints.
+3. Run cheap/coarse-timestep cycle simulations during optimization.
+4. Re-run the best candidate at full resolution and keep the best feasible result.
 """
 
 import numpy as np
@@ -120,6 +126,10 @@ class CycleOptimizer:
         self._cache_x = None
         self._cache_use_opt_timesteps = None
         self._cache_kpi = None
+        self.var_names = []
+        self.x0 = np.array([], dtype=float)
+        self.bounds = []
+        self.scaling = np.array([], dtype=float)
 
     # ------------------------------------------------------------------
     # Variable specification helpers
@@ -268,7 +278,7 @@ class CycleOptimizer:
     # x0 adaptation and repair
     # ------------------------------------------------------------------
 
-    def _adapt_x0(self, x0, var_names, bounds, wind_speed):
+    def _adapt_x0(self, wind_speed):
         """Adapt the starting point to the current wind speed.
 
         Reeling-out speed is capped at wind_speed/3 (Betz-limit reeling factor).
@@ -280,23 +290,20 @@ class CycleOptimizer:
         unchanged.
 
         Args:
-            x0 (np.ndarray): Unscaled starting point (modified in place).
-            var_names (list): Variable names matching x0.
-            bounds (list): (lo, hi) tuples.
             wind_speed (float): Reference wind speed [m/s].
         """
-        for i, name in enumerate(var_names):
-            lo, hi = bounds[i]
+        for i, name in enumerate(self.var_names):
+            lo, hi = self.bounds[i]
             if name == 'reeling_speed_out':
-                x0[i] = np.clip(min(x0[i], wind_speed / 3.0), lo, hi)
+                self.x0[i] = np.clip(min(self.x0[i], wind_speed / 3.0), lo, hi)
             elif name == 'reeling_speed_in':
                 # Keep the starting point from getting stuck at a stale,
                 # unrealistically slow reel-in value from lower wind speeds.
                 target = np.clip(-wind_speed * 0.27, lo, hi)
-                if abs(x0[i]) < abs(target):
-                    x0[i] = target
+                if abs(self.x0[i]) < abs(target):
+                    self.x0[i] = target
 
-    def _repair_x0(self, x0, var_names, bounds, wind_speed=None):
+    def _repair_x0(self, wind_speed=None):
         """Try to produce a feasible starting point when x0 fails.
 
         Two-pass strategy:
@@ -312,28 +319,24 @@ class CycleOptimizer:
         sweep also runs here to cover medium-wind cases.
 
         Args:
-            x0 (np.ndarray): Original starting point (unscaled).
-            var_names (list): Variable names matching x0.
-            bounds (list): (lo, hi) tuples for each variable.
             wind_speed (float, optional): Current wind speed for adaptive scaling.
 
         Returns:
             np.ndarray or None: Repaired x0 if successful, None otherwise.
         """
+        x0 = self.x0
         best_x = None
         best_power = -np.inf
 
         # --- Pass 1: sweep elevation_end_rori across full range in 5° steps ---
         # Locates the feasibility window when the initial rori value is wrong.
-        rori_idx = next(
-            (i for i, n in enumerate(var_names) if n == 'elevation_end_rori'), None
-        )
+        rori_idx = self._var_index('elevation_end_rori')
         if rori_idx is not None:
-            lo_r, hi_r = bounds[rori_idx]
+            lo_r, hi_r = self.bounds[rori_idx]
             for rori_val in np.arange(lo_r + 2.5, hi_r, 5.0):
                 xTry = x0.copy()
                 xTry[rori_idx] = float(rori_val)
-                kpi = self._run_cycle(xTry, var_names)
+                kpi = self._run_cycle(xTry)
                 if kpi['sim_successful'] and kpi['average_power']['cycle'] > best_power:
                     best_power = kpi['average_power']['cycle']
                     best_x = xTry.copy()
@@ -356,15 +359,15 @@ class CycleOptimizer:
 
         for rsOutVal, rsInVal, elevFactor in candidates:
             xTry = base.copy()
-            for i, name in enumerate(var_names):
-                lo, hi = bounds[i]
+            for i, name in enumerate(self.var_names):
+                lo, hi = self.bounds[i]
                 if name == 'reeling_speed_out':
                     xTry[i] = np.clip(rsOutVal if rsOutVal is not None else base[i] * 0.5, lo, hi)
                 elif name == 'reeling_speed_in':
                     xTry[i] = np.clip(rsInVal if rsInVal is not None else base[i] * 0.5, lo, hi)
-                elif name.startswith('elevation_') and name.split('_')[1].isdigit():
+                elif self._is_elevation_var(name):
                     xTry[i] = np.clip(base[i] * elevFactor, lo, hi)
-            kpi = self._run_cycle(xTry, var_names)
+            kpi = self._run_cycle(xTry)
             if kpi['sim_successful'] and kpi['average_power']['cycle'] > best_power:
                 best_power = kpi['average_power']['cycle']
                 best_x = xTry.copy()
@@ -383,22 +386,33 @@ class CycleOptimizer:
         parts = name.split('_')
         return name.startswith('elevation_') and len(parts) > 1 and parts[1].isdigit()
 
+    def _var_index(self, name):
+        """Return the active variable index, or None if the variable is inactive."""
+        return self.var_names.index(name) if name in self.var_names else None
+
+    def _scaled_bounds(self):
+        """Bounds in SLSQP's scaled variable space."""
+        return [
+            (lo / scale, hi / scale)
+            for (lo, hi), scale in zip(self.bounds, self.scaling)
+        ]
+
     # ------------------------------------------------------------------
     # Constraint assembly
     # ------------------------------------------------------------------
 
-    def _build_constraints(self, var_names, scaling, use_opt_timesteps=True):
+    def _build_constraints(self, use_opt_timesteps=True):
         """Build the list of SLSQP constraint dicts.
 
         Args:
-            var_names (list): Active variable names.
-            scaling (np.ndarray): Scaling vector.
             use_opt_timesteps (bool): Passed through to cycle evaluations
                 used by simulation-based constraints.
 
         Returns:
             list: Constraint dicts for ``scipy.optimize.minimize``.
         """
+        var_names = self.var_names
+        scaling = self.scaling
         constraints = []
 
         # Tether fraction ordering.
@@ -417,9 +431,9 @@ class CycleOptimizer:
         # so SLSQP finite-differences one cycle evaluation per perturbed x.
         max_tl = self._max_tether_length
         if self.minimum_height > 0 or max_tl is not None:
-            def _simulation_constraints(x, s=scaling, vn=var_names,
-                                        mtl=max_tl, uot=use_opt_timesteps):
-                kpi = self._cached_run_cycle(x * s, vn, use_opt_timesteps=uot)
+            def _simulation_constraints(x, s=scaling, mtl=max_tl,
+                                        uot=use_opt_timesteps):
+                kpi = self._cached_run_cycle(x * s, use_opt_timesteps=uot)
                 values = []
                 if self.minimum_height > 0:
                     values.append(
@@ -442,7 +456,7 @@ class CycleOptimizer:
         max_diff_elev = self.constraints_dict.get('max_difference_elevation_angle_steps')
         if max_diff_elev is not None and max_diff_elev > 0:
             elev_indices = [i for i, n in enumerate(var_names)
-                           if n.startswith('elevation_') and n.split('_')[1].isdigit()]
+                            if self._is_elevation_var(n)]
             elev_sc = self._elev_scaling
             for k in range(len(elev_indices) - 1):
                 j0 = elev_indices[k]
@@ -465,7 +479,7 @@ class CycleOptimizer:
         if idx_end_rori is not None:
             sc_end_rori = scaling[idx_end_rori]
             trac_elev_indices = [i for i, n in enumerate(var_names)
-                                 if n.startswith('elevation_') and n.split('_')[1].isdigit()]
+                                 if self._is_elevation_var(n)]
             if trac_elev_indices:
                 for idx_elev in trac_elev_indices:
                     sc_elev = scaling[idx_elev]
@@ -490,7 +504,7 @@ class CycleOptimizer:
     # Post-optimisation finalisation
     # ------------------------------------------------------------------
 
-    def _repair_final_solution(self, x0, var_names, bounds):
+    def _repair_final_solution(self, x0):
         """Try small full-resolution repairs when the returned point is infeasible.
 
         This is intentionally conservative: it only nudges variables in
@@ -500,13 +514,10 @@ class CycleOptimizer:
 
         Args:
             x0 (np.ndarray): Unscaled point to repair.
-            var_names (list): Active variable names.
-            bounds (list): Unscaled variable bounds.
-
         Returns:
             tuple: (x_repaired, kpi_repaired), or (x0, failed_kpi).
         """
-        base_kpi = self._run_cycle(x0, var_names, use_opt_timesteps=False)
+        base_kpi = self._run_cycle(x0, use_opt_timesteps=False)
         if base_kpi.get('sim_successful', False):
             return x0, base_kpi
 
@@ -516,19 +527,12 @@ class CycleOptimizer:
             candidates.append(np.asarray(x_candidate, dtype=float))
 
         elev_indices = [
-            i for i, n in enumerate(var_names)
-            if n.startswith('elevation_') and n.split('_')[1].isdigit()
+            i for i, n in enumerate(self.var_names)
+            if self._is_elevation_var(n)
         ]
-        idx_frac_start = (
-            var_names.index('frac_start') if 'frac_start' in var_names else None
-        )
-        idx_frac_end = (
-            var_names.index('frac_end') if 'frac_end' in var_names else None
-        )
-        idx_end_rori = (
-            var_names.index('elevation_end_rori')
-            if 'elevation_end_rori' in var_names else None
-        )
+        idx_frac_start = self._var_index('frac_start')
+        idx_frac_end = self._var_index('frac_end')
+        idx_end_rori = self._var_index('elevation_end_rori')
 
         # Raise the traction elevation schedule slightly. This directly adds
         # altitude margin while preserving the shape of the schedule.
@@ -536,10 +540,10 @@ class CycleOptimizer:
             if elev_indices:
                 x = x0.copy()
                 for idx in elev_indices:
-                    lo, hi = bounds[idx]
+                    lo, hi = self.bounds[idx]
                     x[idx] = np.clip(x[idx] + delta_deg, lo, hi)
                 if idx_end_rori is not None:
-                    lo, hi = bounds[idx_end_rori]
+                    lo, hi = self.bounds[idx_end_rori]
                     x[idx_end_rori] = np.clip(
                         max(x[idx_end_rori], max(x[i] for i in elev_indices)),
                         lo, hi,
@@ -552,7 +556,7 @@ class CycleOptimizer:
             min_frac_diff = self.constraints_dict['min_tether_length_fraction_difference']
             for delta_frac in (0.0025, 0.005, 0.01, 0.02):
                 x = x0.copy()
-                lo, hi = bounds[idx_frac_start]
+                lo, hi = self.bounds[idx_frac_start]
                 lower_limit = lo
                 if idx_frac_end is not None:
                     lower_limit = max(lower_limit, x[idx_frac_end] + min_frac_diff)
@@ -563,10 +567,10 @@ class CycleOptimizer:
                 if elev_indices:
                     x_raised = x.copy()
                     for idx in elev_indices:
-                        lo_e, hi_e = bounds[idx]
+                        lo_e, hi_e = self.bounds[idx]
                         x_raised[idx] = np.clip(x_raised[idx] + 0.5, lo_e, hi_e)
                     if idx_end_rori is not None:
-                        lo_r, hi_r = bounds[idx_end_rori]
+                        lo_r, hi_r = self.bounds[idx_end_rori]
                         x_raised[idx_end_rori] = np.clip(
                             max(x_raised[idx_end_rori],
                                 max(x_raised[i] for i in elev_indices)),
@@ -576,7 +580,7 @@ class CycleOptimizer:
 
         # Lower the RORI end elevation when the transition reels out too far.
         if idx_end_rori is not None:
-            rori_min, rori_max = bounds[idx_end_rori]
+            rori_min, rori_max = self.bounds[idx_end_rori]
             lower_limit = rori_min
             if elev_indices:
                 lower_limit = max(lower_limit, max(x0[i] for i in elev_indices))
@@ -601,7 +605,7 @@ class CycleOptimizer:
                 continue
             seen.add(key)
             kpi = self._run_cycle(
-                x_candidate, var_names, use_opt_timesteps=False,
+                x_candidate, use_opt_timesteps=False,
             )
             if (kpi.get('sim_successful', False)
                     and kpi['average_power']['cycle'] > best_power):
@@ -615,8 +619,7 @@ class CycleOptimizer:
 
         return best_x, best_kpi
 
-    def _run_slsqp(self, x_start, var_names, scaling, scaled_bounds, constraints, eps,
-                   maxiter, callback=None):
+    def _run_slsqp(self, constraints, eps, maxiter, callback=None):
         """Run one SLSQP optimization from an unscaled starting point."""
         self._reset_cache()
         options = {
@@ -627,22 +630,22 @@ class CycleOptimizer:
         }
 
         return op.minimize(
-            lambda x_scaled: self._objective(x_scaled * scaling, var_names),
-            x_start / scaling,
+            lambda x_scaled: self._objective(x_scaled * self.scaling),
+            self.x0 / self.scaling,
             method='SLSQP',
-            bounds=scaled_bounds,
+            bounds=self._scaled_bounds(),
             constraints=constraints,
             callback=callback,
             options=options,
         )
 
-    def _finalise_result(self, result, scaling, var_names):
+    def _finalise_result(self, result):
         """Re-evaluate the SLSQP result at full resolution and rescue if needed."""
         print("    Re-evaluating solution with full-resolution time steps...")
 
-        best_x = result.x * scaling
+        best_x = result.x * self.scaling
         best_kpi = self._run_cycle(
-            best_x, var_names, use_opt_timesteps=False,
+            best_x, use_opt_timesteps=False,
         )
         best_power = (
             best_kpi['average_power']['cycle']
@@ -671,7 +674,7 @@ class CycleOptimizer:
             attempts += 1
             if attempts > MAX_RESCUE_ATTEMPTS:
                 break
-            kpi_hist = self._run_cycle(hist_entry['x'], var_names, use_opt_timesteps=False)
+            kpi_hist = self._run_cycle(hist_entry['x'], use_opt_timesteps=False)
             if (kpi_hist['sim_successful']
                     and kpi_hist['average_power']['cycle'] > best_power):
                 best_power = kpi_hist['average_power']['cycle']
@@ -705,9 +708,11 @@ class CycleOptimizer:
         self.env_state.set_reference_wind_speed(wind_speed)
         self.history = []
         self._iter_count = 0
-        self._cache_x = None
-        self._cache_use_opt_timesteps = None
-        self._cache_kpi = None
+        self.var_names = []
+        self.x0 = np.array([], dtype=float)
+        self.bounds = []
+        self.scaling = np.array([], dtype=float)
+        self._reset_cache()
 
         # Probe at nominal x0.
         probe_kpi = self._run_cycle_from_specs(self._base_var_specs)
@@ -722,31 +727,28 @@ class CycleOptimizer:
             self.last_var_names = []
             return kpi
 
-        x0 = np.array([s[1] for s in var_specs], dtype=float)
-        scaling = np.array([s[3] for s in var_specs], dtype=float)
-        bounds = [s[2] for s in var_specs]
-        var_names = [s[0] for s in var_specs]
+        self.var_names = [s[0] for s in var_specs]
+        self.x0 = np.array([s[1] for s in var_specs], dtype=float)
+        self.bounds = [s[2] for s in var_specs]
+        self.scaling = np.array([s[3] for s in var_specs], dtype=float)
 
         # Adapt x0 to wind speed.
-        self._adapt_x0(x0, var_names, bounds, wind_speed)
-
-        # Scale bounds for SLSQP's internal variable representation.
-        scaled_bounds = [(lo / s, hi / s) for (lo, hi), s in zip(bounds, scaling)]
+        self._adapt_x0(wind_speed)
 
         # Pre-check and repair.
-        kpi_x0 = self._run_cycle(x0, var_names)
+        kpi_x0 = self._run_cycle(self.x0)
         if not kpi_x0['sim_successful'] or kpi_x0['average_power']['cycle'] < 10.0:
-            x0_repaired = self._repair_x0(x0, var_names, bounds, wind_speed)
+            x0_repaired = self._repair_x0(wind_speed)
             if x0_repaired is not None:
-                x0 = x0_repaired
+                self.x0 = x0_repaired
                 print("    Repaired infeasible/low-power x0 for this wind speed.")
 
-        constraints = self._build_constraints(var_names, scaling, use_opt_timesteps=True)
+        constraints = self._build_constraints(use_opt_timesteps=True)
 
         def _callback(xk):
             self._iter_count += 1
             if verbose:
-                x_unscaled = xk * scaling
+                x_unscaled = xk * self.scaling
                 # Find the history entry for the actual iterate xk rather than
                 # using history[-1], which is typically the last FD gradient
                 # evaluation point (often at a failing x+eps location) and would
@@ -757,7 +759,7 @@ class CycleOptimizer:
                         power = entry['power']
                         break
                 parts = [f"      iter {self._iter_count:3d} | power={power / 1000:+.3f} kW"]
-                for name, val in zip(var_names, x_unscaled):
+                for name, val in zip(self.var_names, x_unscaled):
                     parts.append(f"  {name}={val:+.4f}")
                 print("".join(parts))
 
@@ -770,30 +772,27 @@ class CycleOptimizer:
 
         max_iterations = int(self.optimizer_config['max_iterations'])
         result = self._run_slsqp(
-            x0, var_names, scaling, scaled_bounds, constraints,
-            eps, max_iterations, callback=_callback,
+            constraints, eps, max_iterations, callback=_callback,
         )
 
-        kpi, x_opt = self._finalise_result(result, scaling, var_names)
+        kpi, x_opt = self._finalise_result(result)
 
         if not kpi.get('sim_successful', False):
-            x_repaired, kpi_repaired = self._repair_final_solution(
-                x_opt, var_names, bounds,
-            )
+            x_repaired, kpi_repaired = self._repair_final_solution(x_opt)
             if kpi_repaired.get('sim_successful', False):
                 x_opt = x_repaired
                 kpi = kpi_repaired
 
         kpi['optimization_result'] = result
         self.last_x_opt = x_opt
-        self.last_var_names = var_names
+        self.last_var_names = self.var_names
         return kpi
 
     # ------------------------------------------------------------------
     # Objective and caching
     # ------------------------------------------------------------------
 
-    def _objective(self, x_unscaled, var_names):
+    def _objective(self, x_unscaled):
         """Negative average cycle power (SLSQP minimises).
 
         Failed simulations return 0 instead of a large penalty so that
@@ -802,12 +801,10 @@ class CycleOptimizer:
 
         Args:
             x_unscaled (np.ndarray): Unscaled decision variables.
-            var_names (list): Variable name list matching x_unscaled.
-
         Returns:
             float: Negative cycle power (0 for failed simulations).
         """
-        kpi = self._cached_run_cycle(x_unscaled, var_names)
+        kpi = self._cached_run_cycle(x_unscaled)
         is_feasible = kpi['sim_successful']
         power = kpi['average_power']['cycle'] if is_feasible else 0.0
         self.history.append({
@@ -815,12 +812,11 @@ class CycleOptimizer:
         })
         return -power
 
-    def _cached_run_cycle(self, x_unscaled, var_names, use_opt_timesteps=True):
+    def _cached_run_cycle(self, x_unscaled, use_opt_timesteps=True):
         """Return evaluation result, re-using cache when x is unchanged.
 
         Args:
             x_unscaled (np.ndarray): Unscaled decision variables.
-            var_names (list): Variable name list matching x_unscaled.
             use_opt_timesteps (bool): Passed through to ``_run_cycle``.
 
         Returns:
@@ -831,7 +827,7 @@ class CycleOptimizer:
                 and np.allclose(x_unscaled, self._cache_x, rtol=0, atol=1e-12)):
             return self._cache_kpi
         kpi = self._run_cycle(
-            x_unscaled, var_names, use_opt_timesteps=use_opt_timesteps,
+            x_unscaled, use_opt_timesteps=use_opt_timesteps,
         )
         self._cache_x = x_unscaled.copy()
         self._cache_use_opt_timesteps = use_opt_timesteps
@@ -905,22 +901,28 @@ class CycleOptimizer:
         Returns:
             dict: KPI dict.
         """
-        x0 = np.array([s[1] for s in var_specs], dtype=float)
-        names = [s[0] for s in var_specs]
-        return self._run_cycle(x0, names, use_opt_timesteps=use_opt_timesteps)
+        values_by_name = {name: value for name, value, _, _ in var_specs}
+        return self._run_cycle_values(
+            values_by_name, use_opt_timesteps=use_opt_timesteps,
+        )
 
-    def _run_cycle(self, x_unscaled, var_names, use_opt_timesteps=True):
+    def _run_cycle(self, x_unscaled, use_opt_timesteps=True):
         """Run one cycle simulation for the given decision variable vector.
 
         Args:
             x_unscaled (np.ndarray): Unscaled decision variables.
-            var_names (list): Variable names matching x_unscaled.
             use_opt_timesteps (bool): When True, use coarser time steps.
 
         Returns:
             dict: KPI dict.
         """
-        values_by_name = dict(zip(var_names, x_unscaled))
+        values_by_name = dict(zip(self.var_names, x_unscaled))
+        return self._run_cycle_values(
+            values_by_name, use_opt_timesteps=use_opt_timesteps,
+        )
+
+    def _run_cycle_values(self, values_by_name, use_opt_timesteps=True):
+        """Run one cycle simulation for the given decision-variable mapping."""
         frac_end = values_by_name.get('frac_end', self._nominal_frac_end)
         frac_start = values_by_name.get('frac_start', self._nominal_frac_start)
         settings = self._build_settings(values_by_name, use_opt_timesteps=use_opt_timesteps)
