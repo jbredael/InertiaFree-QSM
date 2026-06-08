@@ -205,7 +205,7 @@ result = constructor.generate_power_curves_direct(
 
 ### Generating power curves (optimization)
 
-`generate_power_curves_optimized` uses SLSQP optimization to find the reeling speeds, tether lengths, and elevation angles that maximize average cycle power at each wind speed. Warm starts are used between consecutive wind speeds for faster convergence.
+`generate_power_curves_optimized` uses SLSQP optimization to find the reeling speeds, tether lengths, and elevation angles that maximize average cycle power at each wind speed. Each wind speed starts from the configured optimizer `x0`.
 
 ```python
 result = constructor.generate_power_curves_optimized(
@@ -271,7 +271,7 @@ The most important fields are:
 - `bounds`: allowed ranges for reeling speeds, tether-length fractions, and elevation angles. Tether fractions are multiplied by `max_tether_length`.
 - `constraints`: extra feasibility rules. The tether fraction difference enforces a meaningful reel-in distance; the elevation step limit smooths multi-point traction elevation schedules.
 
-During an optimized power curve, each wind speed is solved sequentially. If a previous point succeeded, its optimized tether-length fractions are used as a warm start for the next wind speed; reel speeds and elevation angles return to the YAML baseline because active force/power limits can change sharply between wind speeds.
+During an optimized power curve, each wind speed is solved independently from the YAML `x0`. Previous optimized points are not used to seed later wind speeds.
 
 ### Simulating a single wind speed
 

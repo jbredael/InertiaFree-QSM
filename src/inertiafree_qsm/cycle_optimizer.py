@@ -285,9 +285,7 @@ class CycleOptimizer:
         Reeling-in speed is soft-adapted at high wind: if the starting value is
         much slower than a wind-speed-proportional estimate (typical optimum is
         ~0.27 × wind_speed), override it.  This prevents cold starts from placing
-        SLSQP far from the optimum when the warm-start chain was broken.
-        Warm-started values that are already in a reasonable range pass through
-        unchanged.
+        SLSQP far from the optimum at higher wind speeds.
 
         Args:
             wind_speed (float): Reference wind speed [m/s].

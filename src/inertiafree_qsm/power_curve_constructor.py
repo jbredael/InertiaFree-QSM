@@ -2,7 +2,7 @@
 """Power curve generation for AWE systems.
 
 This module provides functionality to generate power curves using either direct
-simulation or sequential optimization with warm starts. It includes constraint
+simulation or independent per-wind-speed optimization. It includes constraint
 handling and detailed diagnostics.
 
 All wind speeds are referenced at the height specified in the wind_resource.yml
@@ -58,7 +58,7 @@ class PowerCurveConstructor:
 
     This class supports two methods:
     1. Direct simulation: Fast method using pre-defined cycle settings
-    2. Sequential optimization: Uses warm starts for optimal cycle performance
+    2. Optimization: Solves each wind speed from the configured starting point
 
     Args:
         system_config_path (str): Path to the system configuration YAML file.
@@ -72,7 +72,6 @@ class PowerCurveConstructor:
         reference_height (float): Reference height for wind speed [m].
         wind_speeds (array): Wind speeds at reference height [m/s].
         x_opts (list): Optimal solutions for each wind speed (optimization only).
-        x0_list (list): Starting points for each optimization (optimization only).
         optimization_details (list): Optimization algorithm details (optimization only).
         constraints (list): Constraint values at optimal points (optimization only).
         performance_indicators (list): Performance KPIs for each wind speed.
@@ -112,7 +111,6 @@ class PowerCurveConstructor:
         # Initialize result storage
         self.wind_speeds = None
         self.x_opts = []
-        self.x0_list = []
         self.optimization_details = []
         self.constraints = []
         self.performance_indicators = []
@@ -447,50 +445,6 @@ class PowerCurveConstructor:
             validate_file=validate_file,
         )
 
-    def _prepare_warm_start(self, x_opt, var_names, base_x0=None):
-        """Build an updated x0 list from the previous optimal solution for a warm start.
-
-        Reel-in speed, tether length fractions, and RORI end elevation are
-        propagated.  They change smoothly across wind speeds, making them safe
-        to warm-start.  Reel-out speed and traction elevation angles are left
-        at their YAML defaults: reel-out crosses active force/power control
-        regimes sharply; traction elevation angles warm-started from the
-        previous (lower) wind speed tend to land near infeasibility boundaries
-        at the next wind speed, creating FD gradient cliffs.
-
-        Args:
-            x_opt (np.ndarray): Unscaled optimal variable values from the previous
-                optimization.
-            var_names (list): Variable names matching x_opt, as returned by
-                ``CycleOptimizer.last_var_names``.
-            base_x0 (list, optional): Baseline optimizer starting point from the
-                YAML settings. If omitted, the current settings x0 is used.
-
-        Returns:
-            list: Updated x0 list in the same index order as
-                ``simulation_settings['optimization']['optimizer']['x0']``.
-        """
-        if base_x0 is None:
-            base_x0 = self.simulation_settings['optimization']['optimizer']['x0']
-        x0 = list(base_x0)
-        val_by_name = dict(zip(var_names, x_opt))
-
-        # Reel-in speed, tether fractions, and RORI end elevation are
-        # propagated; reel-out speed and traction angles stay at the YAML
-        # baseline because they can cross active control regimes sharply
-        # between adjacent wind speeds.
-        name_to_idx = {
-            'reeling_speed_in': 1,
-            'frac_end': 2,
-            'frac_start': 3,
-            'elevation_end_rori': len(x0) - 1,
-        }
-        for name, idx in name_to_idx.items():
-            if name in val_by_name and idx < len(x0):
-                x0[idx] = float(val_by_name[name])
-
-        return x0
-
     def _calculate_power_curve_optimized(self, profile_id, wind_speeds, verbose):
         """Calculate power curve for a single wind profile using optimization.
 
@@ -507,41 +461,16 @@ class PowerCurveConstructor:
         if verbose:
             print(f"Optimizing power curve for profile {profile_id}...")
 
-        # Save original x0 so it can be restored after the loop.
+        # Save original x0 so every wind speed starts from the configured baseline.
         original_x0 = list(self.simulation_settings['optimization']['optimizer']['x0'])
 
         wind_speed_data = []
         for i, ws in enumerate(wind_speeds):
             if verbose:
                 print(f"  Wind speed {ws:.1f} m/s ({i+1}/{len(wind_speeds)})")
+            self.simulation_settings['optimization']['optimizer']['x0'] = list(original_x0)
             entry = self._run_single_simulation_optimized(ws, env_state, verbose=verbose)
-
-            sim_successful = entry.get('successful', False)
-            has_previous_success = any(e.get('successful', False) for e in wind_speed_data)
-            if not sim_successful and has_previous_success:
-                print("    Warm-start result failed; retrying this wind speed from original x0.")
-                self.simulation_settings['optimization']['optimizer']['x0'] = list(original_x0)
-                retry_entry = self._run_single_simulation_optimized(
-                    ws, env_state, verbose=verbose,
-                )
-                if retry_entry.get('successful', False):
-                    entry = retry_entry
-                    sim_successful = True
-
             wind_speed_data.append(entry)
-
-            # Warm start: only seed x0 from the previous optimal if that run succeeded.
-            if sim_successful:
-                x_opt = getattr(self, 'last_x_opt', None)
-                var_names = getattr(self, 'last_optimization_var_names', None)
-                if x_opt is not None and var_names is not None:
-                    warm_x0 = self._prepare_warm_start(
-                        x_opt, var_names, base_x0=original_x0,
-                    )
-                    self.simulation_settings['optimization']['optimizer']['x0'] = warm_x0
-            else:
-                # Reset to original x0 so the next wind speed starts cold.
-                self.simulation_settings['optimization']['optimizer']['x0'] = list(original_x0)
 
         # Restore original x0 so subsequent calls are unaffected.
         self.simulation_settings['optimization']['optimizer']['x0'] = original_x0
