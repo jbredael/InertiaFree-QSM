@@ -217,6 +217,62 @@ result = constructor.generate_power_curves_optimized(
 )
 ```
 
+### Optimization settings
+
+Optimization is configured in the `optimization` block of the simulation settings YAML. The constructor reads these settings automatically when you call `generate_power_curves_optimized`.
+
+```yaml
+optimization:
+  wind_speeds:
+    cut_in: 3
+    cut_out: 25
+    n_points: 45
+    fine_resolution:
+      n_points_near_cutout: 0
+      range_m_s: 2.0
+
+  optimizer:
+    optimize_variables:
+      reeling_speed_traction: true
+      reeling_speed_retraction: true
+      fraction_tether_length_traction_end: true
+      fraction_tether_length_retraction_end: true
+      elevation_angle_traction: false
+      elevation_angle_end_trans_rori: true
+    max_iterations: 40
+    ftol: 0.002
+    eps: 2.0e-2
+    x0: [2, -2, 0.65, 0.9, 30.0, 50.0]
+    scaling: [1, 1, 1, 1, 30, 30]
+    opt_phase_timestep:
+      retraction: 1.5
+      transition_riro: 0.05
+      traction: 2.5
+      transition_rori: 0.05
+
+  bounds:
+    fraction_tether_length_traction_end_min: 0.5
+    fraction_tether_length_traction_end_max: 0.95
+    fraction_tether_length_retraction_end_min: 0.2
+    fraction_tether_length_retraction_end_max: 0.8
+
+  constraints:
+    min_tether_length_fraction_difference: 0.1
+    max_difference_elevation_angle_steps: 30.0
+```
+
+The most important fields are:
+
+- `wind_speeds`: wind-speed points used for the optimized power curve. `fine_resolution` can add extra points close to cut-out.
+- `optimize_variables`: switches individual decision variables on or off. Disabled variables keep their nominal cycle values.
+- `x0`: starting guess for SLSQP, ordered as reel-out speed, reel-in speed, retraction-end tether fraction, traction-end tether fraction, traction elevation angle in degrees, and RORI end elevation in degrees.
+- `scaling`: converts variables to similar magnitudes for SLSQP using `x_scaled = x / scaling`.
+- `opt_phase_timestep`: optional coarser timesteps used during optimizer iterations. The final selected point is re-run at full simulation resolution.
+- `bounds`: allowed ranges for reeling speeds, tether-length fractions, and elevation angles. Tether fractions are multiplied by `max_tether_length`.
+- `constraints`: extra feasibility rules. The tether fraction difference enforces a meaningful reel-in distance; the elevation step limit smooths multi-point traction elevation schedules.
+
+During an optimized power curve, each wind speed is solved sequentially. If a previous point succeeded, its optimized tether-length fractions are used as a warm start for the next wind speed; reel speeds and elevation angles return to the YAML baseline because active force/power limits can change sharply between wind speeds.
+
 ### Simulating a single wind speed
 
 `simulate_single_wind_speed` evaluates one wind speed point using either method and returns the same output structure as the full power curve methods.
