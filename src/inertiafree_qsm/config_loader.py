@@ -55,6 +55,45 @@ def load_wind_resource(file_path, validate_file=True):
     return wind_resource
 
 
+def _first_item(value):
+    """Return the first item from a list-like config value, or an empty dict."""
+    if isinstance(value, list):
+        return value[0] if value else {}
+    return value or {}
+
+
+def _get_system_components(system_config):
+    """Normalize old and new awesIO system component layouts."""
+    components = system_config.get('components', {})
+
+    kite = _first_item(components.get('kites'))
+    tether = _first_item(components.get('tethers')) or components.get('tether', {})
+    ground_station = components.get('ground_station', {})
+
+    return {
+        'wing': kite.get('wing', components.get('wing', {})),
+        'bridle': kite.get('bridle', components.get('bridle', {})),
+        'control_system': kite.get(
+            'control_system',
+            components.get('control_system', {}),
+        ),
+        'tether': tether,
+        'ground_station': ground_station,
+        'drum': (
+            _first_item(ground_station.get('drums'))
+            or ground_station.get('drum', {})
+        ),
+        'generator': (
+            _first_item(ground_station.get('generators'))
+            or ground_station.get('generator', {})
+        ),
+        'storage': (
+            _first_item(ground_station.get('storages'))
+            or ground_station.get('storage', {})
+        ),
+    }
+
+
 
 
 def load_system_and_simulation_settings(system_config_path, simulation_settings_path,
@@ -87,20 +126,19 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     sim_config = load_yaml(simulation_settings_path)
 
     # Build base system properties from system configuration.
-    components = system_config.get('components', {})
-    wing = components.get('wing', {})
+    components = _get_system_components(system_config)
+    wing = components['wing']
     wing_structure = wing.get('structure', {})
-    tether = components.get('tether', {})
+    tether = components['tether']
     tether_structure = tether.get('structure', {})
-    ground_station = components.get('ground_station', {})
-    drum = ground_station.get('drum', {})
-    generator = ground_station.get('generator', {})
-    storage = ground_station.get('storage', {})
-    kcu = components.get('control_system', {})
+    drum = components['drum']
+    generator = components['generator']
+    storage = components['storage']
+    kcu = components['control_system']
     kcu_structure = kcu.get('structure', {})
 
     wing_mass = wing_structure.get('mass')
-    bridle = components.get('bridle', {})
+    bridle = components['bridle']
     bridle_mass = bridle.get('structure', {}).get('mass')
     kcu_mass = kcu_structure.get('mass')
     kite_mass = wing_mass + bridle_mass + kcu_mass
