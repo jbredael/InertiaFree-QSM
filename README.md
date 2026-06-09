@@ -92,7 +92,11 @@ optimization:
       elevation_angle_end_trans_rori: true
     max_iterations: 200
     ftol: 5.0e-2
-    eps: 5.0e-2
+    eps: 1.0e-2
+    finite_difference_steps:
+      reeling_speed: 0.03
+      tether_fraction: 0.005
+      elevation_angle: 0.25
     x0: [2, -2, 0.65, 0.9, 30.0, 50.0]
     scaling: [1, 1, 1, 1, 30, 30]
   bounds:
@@ -207,9 +211,13 @@ optimization:
       fraction_tether_length_retraction_end: true
       elevation_angle_traction: false
       elevation_angle_end_trans_rori: true
-    max_iterations: 40
+    max_iterations: 120
     ftol: 0.002
-    eps: 2.0e-2
+    eps: 1.0e-2
+    finite_difference_steps:
+      reeling_speed: 0.03
+      tether_fraction: 0.005
+      elevation_angle: 0.25
     x0: [2, -2, 0.65, 0.9, 30.0, 50.0]
     scaling: [1, 1, 1, 1, 30, 30]
     opt_phase_timestep:
@@ -235,6 +243,7 @@ The most important fields are:
 - `optimize_variables`: switches individual decision variables on or off. Disabled variables keep their nominal cycle values.
 - `x0`: starting guess for SLSQP, ordered as reel-out speed, reel-in speed, retraction-end tether fraction, traction-end tether fraction, traction elevation angle in degrees, and RORI end elevation in degrees.
 - `scaling`: converts variables to similar magnitudes for SLSQP using `x_scaled = x / scaling`.
+- `finite_difference_steps`: physical step sizes used for SLSQP gradient estimates. Smaller tether-fraction steps avoid coarse gradients that can stop away from the optimum.
 - `opt_phase_timestep`: optional coarser timesteps used during optimizer iterations. The final selected point is re-run at full simulation resolution.
 - `bounds`: allowed ranges for reeling speeds, tether-length fractions, and elevation angles. Tether fractions are multiplied by `max_tether_length`.
 - `constraints`: extra feasibility rules. The tether fraction difference enforces a meaningful reel-in distance; the elevation step limit smooths multi-point traction elevation schedules.

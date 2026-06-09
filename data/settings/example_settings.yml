@@ -34,7 +34,7 @@ optimization:
       reeling_speed_retraction: true
       fraction_tether_length_traction_end: true
       fraction_tether_length_retraction_end: true
-      elevation_angle_traction: false
+      elevation_angle_traction: true
       elevation_angle_end_trans_rori: true
 
     # Time step for each phase during optimization (in seconds)
@@ -46,14 +46,18 @@ optimization:
       transition_rori: 0.05
 
     # Maximum number of iterations per wind speed point
-    max_iterations: 50
+    max_iterations: 120
     # Function tolerance for convergence (absolute, in watts)
     ftol: 0.005
-    # Finite difference step size for gradient estimation (in scaled variable space).
-    # With all variables scaled to O(1), eps=5e-2 gives:
-    #   - ~0.05 m/s step for reel speeds, ~0.05 step for tether fractions
-    #   - ~1.5° step for elevation angles (eps * scaling=30)
-    eps: 5.0e-2
+    # Fallback finite-difference step size in scaled variable space.
+    eps: 1.0e-2
+    # Preferred finite-difference steps in physical variable units.
+    # These avoid using an overly large tether-fraction step while keeping
+    # speed and angle gradients above simulation noise.
+    finite_difference_steps:
+      reeling_speed: 0.03      # m/s
+      tether_fraction: 0.005   # -
+      elevation_angle: 0.25    # deg
     # Optimizer starting point: [reeling_speed_out, reeling_speed_in,
     #   fraction_tether_length_retraction_end, fraction_tether_length_traction_end,
     #   elevation_angle_traction (degrees, applied equally to all N points in the array),
@@ -61,7 +65,6 @@ optimization:
     x0: [2, -2, 0.65, 0.9, 30.0, 50.0]
     # Variable scaling factors — convention: x_scaled = x / scaling
     scaling: [1, 1, 1, 1, 30, 30]
-
   # Optimizer bounds (where not derived from system properties)
   bounds:
     # Reeling speed bounds for traction and retraction phases

@@ -248,6 +248,7 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     opt_config = sim_config.get('optimization', {})
     opt_wind = opt_config.get('wind_speeds', {})
     opt_optimizer = opt_config.get('optimizer', {})
+    opt_fd_steps = opt_optimizer.get('finite_difference_steps', {})
     opt_bounds_cfg = opt_config.get('bounds', {})
     opt_constraints_cfg = opt_config.get('constraints') or {}
 
@@ -283,6 +284,14 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
             'max_iterations': int(opt_optimizer.get('max_iterations')),
             'ftol': float(opt_optimizer.get('ftol')),
             'eps': float(opt_optimizer.get('eps')),
+            'finite_difference_steps': {
+                'reeling_speed': float(opt_fd_steps['reeling_speed'])
+                    if 'reeling_speed' in opt_fd_steps else None,
+                'tether_fraction': float(opt_fd_steps['tether_fraction'])
+                    if 'tether_fraction' in opt_fd_steps else None,
+                'elevation_angle': float(opt_fd_steps['elevation_angle'])
+                    if 'elevation_angle' in opt_fd_steps else None,
+            },
             'x0': np.array(x0_list, dtype=float),
             'scaling': np.array(opt_optimizer.get('scaling', []), dtype=float),
             'opt_phase_timestep': {
@@ -412,6 +421,7 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
     op = opt['optimizer']
     print(f"    Max iter     : {op['max_iterations']}")
     print(f"    ftol / eps   : {op['ftol']:.1e} / {op['eps']:.1e}")
+    print(f"    FD steps     : {op['finite_difference_steps']}")
     print(f"    x0           : {op['x0']}")
     print(f"    scaling      : {op['scaling']}")
 

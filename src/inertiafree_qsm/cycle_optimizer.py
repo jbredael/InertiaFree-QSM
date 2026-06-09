@@ -395,6 +395,30 @@ class CycleOptimizer:
             for (lo, hi), scale in zip(self.bounds, self.scaling)
         ]
 
+    def _finite_difference_steps(self):
+        """Return SLSQP finite-difference steps in scaled coordinates."""
+        base_eps = float(self.optimizer_config['eps'])
+        configured_steps = self.optimizer_config.get('finite_difference_steps', {})
+        if not configured_steps:
+            return base_eps
+
+        steps = []
+        for name, scale in zip(self.var_names, self.scaling):
+            step = None
+            if name in ('reeling_speed_out', 'reeling_speed_in'):
+                step = configured_steps.get('reeling_speed')
+            elif name in ('frac_start', 'frac_end'):
+                step = configured_steps.get('tether_fraction')
+            elif self._is_elevation_var(name) or name == 'elevation_end_rori':
+                step = configured_steps.get('elevation_angle')
+
+            if step is None:
+                steps.append(base_eps)
+            else:
+                steps.append(float(step) / float(scale))
+
+        return np.asarray(steps, dtype=float)
+
     # ------------------------------------------------------------------
     # Constraint assembly
     # ------------------------------------------------------------------
@@ -617,13 +641,13 @@ class CycleOptimizer:
 
         return best_x, best_kpi
 
-    def _run_slsqp(self, constraints, eps, maxiter, callback=None):
+    def _run_slsqp(self, constraints, maxiter, callback=None):
         """Run one SLSQP optimization from an unscaled starting point."""
         self._reset_cache()
         options = {
             'maxiter': maxiter,
             'ftol': self.optimizer_config['ftol'],
-            'eps': eps,
+            'eps': self._finite_difference_steps(),
             'disp': False,
         }
 
@@ -761,17 +785,13 @@ class CycleOptimizer:
                     parts.append(f"  {name}={val:+.4f}")
                 print("".join(parts))
 
-        # eps is used as the finite-difference step size in scaled variable space.
-        # All variables are O(1) in scaled space (scaling values normalise them),
-        # so using base_eps directly gives consistent perturbations for all vars:
-        #   reel speeds / fractions: ~eps m/s or fraction
-        #   elevation angles: ~eps * 30 degrees
-        eps = float(self.optimizer_config['eps'])
-
         max_iterations = int(self.optimizer_config['max_iterations'])
         result = self._run_slsqp(
-            constraints, eps, max_iterations, callback=_callback,
+            constraints, max_iterations, callback=_callback,
         )
+
+        if verbose and not result.success:
+            print(f"    SLSQP stopped with status {result.status}: {result.message}")
 
         kpi, x_opt = self._finalise_result(result)
 
