@@ -3,7 +3,6 @@
 InertiaFree-QSM is a quasi-steady modeling workflow for evaluating kite power system cycle performance and power curves.
 The modeling approach follows work by van der Vlugt et al. [1] and the code is based on the work of Schelbergen [2].
 
-**Disclaimer:** This repository is still in development.
 
 ## Project structure
 
@@ -252,7 +251,7 @@ During an optimized power curve, each wind speed is solved independently from th
 
 ### Simulating a single wind speed
 
-`simulate_single_wind_speed` evaluates one wind speed point using either method and returns the same output structure as the full power curve methods.
+`simulate_single_wind_speed` evaluates one wind speed point using either method and returns the same output structure as the full power curve methods. Direct simulation uses the cycle settings from the YAML, while optimization uses the optimized cycle settings for that wind speed. This is useful for debugging.
 
 ```python
 result = constructor.simulate_single_wind_speed(

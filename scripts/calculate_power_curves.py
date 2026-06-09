@@ -55,7 +55,7 @@ if __name__ == "__main__":
     
     # Generate optimized power curves
     result = constructor.generate_power_curves(
-        profile_ids=[1,2],
+        profile_ids=None, # None = all profiles; or list of profile IDs to include
         output_path=OUTPUT_PATH_OPTIMIZED,
         verbose=True,
         show_plot=True,
