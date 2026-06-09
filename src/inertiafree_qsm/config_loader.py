@@ -110,14 +110,10 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     if tether_force_min_limit is None and tether_force_max_limit is not None:
         tether_force_min_limit = 0.03 * tether_force_max_limit
 
-    generator_efficiency = generator.get(
-        'generator_efficiency',
-        generator.get('efficiency', 1.0),
-    )
-    motor_efficiency = generator.get(
-        'motor_efficiency',
-        generator.get('efficiency', 1.0),
-    )
+    generator_efficiency = generator.get('efficiency', 1.0)
+    
+    motor_efficiency = generator.get('efficiency', 1.0)
+
     storage_efficiency = storage.get('efficiency', 1.0)
 
     base_sys_props = {

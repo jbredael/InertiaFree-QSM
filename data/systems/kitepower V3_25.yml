@@ -49,9 +49,8 @@ components:
     generator:
       type: permanent_magnet_synchronous
       max_power: 40000.0 # W
-      generator_efficiency: 1
-      motor_efficiency: 1
+      efficiency: 1.0
     storage:
       type: battery_bank
-      efficiency: 1
+      efficiency: 1.0
 
