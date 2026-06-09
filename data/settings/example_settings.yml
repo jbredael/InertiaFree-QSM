@@ -4,39 +4,12 @@
 # ============================================================================
 # AERODYNAMIC SETTINGS
 # ============================================================================
-aerodynamics:
+aerodynamics: # TU Delft V3
   kite_lift_coefficient_reel_out: 0.63
   kite_drag_coefficient_reel_out: 0.14
   kite_lift_coefficient_reel_in: 0.4 
   kite_drag_coefficient_reel_in: 0.12
   tether_drag_coefficient: 1.1
-# ============================================================================
-# DIRECT SIMULATION SETTINGS
-# ============================================================================
-# Settings for the non-optimized direct simulation method
-# This method is faster but uses pre-defined cycle parameters set in CYCLE SETTINGS
-
-direct_simulation:
-  # Wind speed range for power curve calculation
-  wind_speeds:
-    # Minimum wind speed [m/s]
-    cut_in: 6.0
-    # Maximum wind speed [m/s]
-    cut_out: 25.0
-    # Number of points to calculate (determines spacing)
-    n_points: 20
-
-    # Fine resolution settings near cut-out wind speed
-    # These add extra points near the cut-out to capture system behavior
-    # at operational limits more accurately
-    fine_resolution:
-      # Number of fine points to add near cut-out (set to 0 to disable)
-      n_points_near_cutout: 0
-      # How far back from cut-out to start fine resolution [m/s]
-      # Fine points will span from (cut_out - range_m_s) to (cut_out - 0.05)
-      range_m_s: 2.0
-
-
 # ============================================================================
 # OPTIMIZATION SETTINGS
 # ============================================================================
@@ -51,28 +24,21 @@ optimization:
     # Maximum wind speed [m/s]
     cut_out: 25.0
     # Number of points to calculate (determines spacing)
-    n_points: 45
-
-    # Fine resolution settings near cut-out wind speed
-    # These add extra points near the cut-out to capture system behavior
-    # at operational limits more accurately
-    fine_resolution:
-      # Number of fine points to add near cut-out (set to 0 to disable)
-      n_points_near_cutout: 0
-      # How far back from cut-out to start fine resolution [m/s]
-      # Fine points will span from (cut_out - range_m_s) to (cut_out - 0.05)
-      range_m_s: 2.0
+    n_points: 23
 
   # SLSQP optimizer configuration
   optimizer:
+    # Control which variables are optimized (true) or fixed (false)
     optimize_variables:
       reeling_speed_traction: true
       reeling_speed_retraction: true
-      fraction_tether_length_traction_end: false
-      fraction_tether_length_retraction_end: false
-      elevation_angle_traction: false
+      fraction_tether_length_traction_end: true
+      fraction_tether_length_retraction_end: true
+      elevation_angle_traction: true
       elevation_angle_end_trans_rori: true
 
+    # Time step for each phase during optimization (in seconds)
+    # Final solution is computed with finer time steps from Phase Settings
     opt_phase_timestep:
       retraction: 1.5
       transition_riro: 0.05
@@ -80,27 +46,25 @@ optimization:
       transition_rori: 0.05
 
     # Maximum number of iterations per wind speed point
-    max_iterations: 50
+    max_iterations: 120
     # Function tolerance for convergence (absolute, in watts)
     ftol: 0.005
-    # Finite difference step size for gradient estimation (in scaled variable space).
-    # With all variables scaled to O(1), eps=5e-2 gives:
-    #   - ~0.05 m/s step for reel speeds, ~0.05 step for tether fractions
-    #   - ~1.5° step for elevation angles (eps * scaling=30)
-    eps: 5.0e-2
+    # Fallback finite-difference step size in scaled variable space.
+    eps: 1.0e-2
+    # Preferred finite-difference steps in physical variable units.
+    # These avoid using an overly large tether-fraction step while keeping
+    # speed and angle gradients above simulation noise.
+    finite_difference_steps:
+      reeling_speed: 0.03      # m/s
+      tether_fraction: 0.005   # -
+      elevation_angle: 0.25    # deg
     # Optimizer starting point: [reeling_speed_out, reeling_speed_in,
     #   fraction_tether_length_retraction_end, fraction_tether_length_traction_end,
     #   elevation_angle_traction (degrees, applied equally to all N points in the array),
     #   elevation_angle_end_trans_rori (degrees)]
     x0: [2, -2, 0.65, 0.9, 30.0, 50.0]
     # Variable scaling factors — convention: x_scaled = x / scaling
-    # This normalises variables to a similar search range (~O(1)).
-    # reeling_speed_out/in: scaling=1 → used directly in m/s
-    # frac_end/frac_start: scaling=1 → ~O(1) already
-    # elevation_angle_traction: scaling=30 → bounds [10°,60°]/30 = [0.33, 2.0]; x0=30°/30=1.0
-    # elevation_angle_end_trans_rori: scaling=30 → bounds [30°,80°]/30 = [1.0, 2.67]; x0=50°/30=1.67
     scaling: [1, 1, 1, 1, 30, 30]
-
   # Optimizer bounds (where not derived from system properties)
   bounds:
     # Reeling speed bounds for traction and retraction phases
@@ -141,20 +105,18 @@ optimization:
 
 cycle:
   minimum_tether_force: 750.0 # Minimum tether force (N)
-  # Elevation angle during traction phase [degrees]
-  # - Direct simulation: Used as a fixed constraint during traction phase
-  # - Optimization: Only used to calculate operating altitude (NOT a constraint)
 
-  minimum_height: 1.0 # Minimum height of the kite during the cycle (m)
+  minimum_height: 100.0 # Minimum height of the kite during the cycle (m)
 
-  elevation_angle_traction: [30.0]
+  # Number of elements in this array determines the number of points in the elevation angle profile during traction phase.
+  elevation_angle_traction: [30.0, 30.0, 30.0, 30.0, 30.0]
 
   # Tether length at end of traction phase as fraction of max tether length [-]
   # (= start of RORI transition; must be < 1.0 to leave reel-out headroom)
   tether_length_end_traction: 0.95
 
   # Tether length at end of retraction as fraction of max tether length [-]
-  tether_length_end_retraction: 0.24
+  tether_length_end_retraction: 0.6
 
   # Include transition phase energy in cycle energy calculation
   include_transition_energy: true

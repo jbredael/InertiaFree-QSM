@@ -3,7 +3,6 @@
 InertiaFree-QSM is a quasi-steady modeling workflow for evaluating kite power system cycle performance and power curves.
 The modeling approach follows work by van der Vlugt et al. [1] and the code is based on the work of Schelbergen [2].
 
-**Disclaimer:** This repository is still in development.
 
 ## Project structure
 
@@ -70,9 +69,6 @@ Example `simulation_settings.yml`:
 # Simulation settings for the inertia-free quasi-steady model
 # All angles are in degrees
 
-general:
-  method: 'direct_simulation'
-
 aerodynamics:
   kite_lift_coefficient_reel_out: 0.63
   kite_drag_coefficient_reel_out: 0.14
@@ -80,23 +76,11 @@ aerodynamics:
   kite_drag_coefficient_reel_in: 0.12
   tether_drag_coefficient: 1.1
 
-direct_simulation:
-  wind_speeds:
-    cut_in: 6.0
-    cut_out: 25.0
-    n_points: 20
-    fine_resolution:
-      n_points_near_cutout: 0
-      range_m_s: 2.0
-
 optimization:
   wind_speeds:
     cut_in: 3.0
     cut_out: 25.0
     n_points: 25
-    fine_resolution:
-      n_points_near_cutout: 0
-      range_m_s: 2.0
   optimizer:
     optimize_variables:
       reeling_speed_traction: true
@@ -107,7 +91,11 @@ optimization:
       elevation_angle_end_trans_rori: true
     max_iterations: 200
     ftol: 5.0e-2
-    eps: 5.0e-2
+    eps: 1.0e-2
+    finite_difference_steps:
+      reeling_speed: 0.03
+      tether_fraction: 0.005
+      elevation_angle: 0.25
     x0: [2, -2, 0.65, 0.9, 30.0, 50.0]
     scaling: [1, 1, 1, 1, 30, 30]
   bounds:
@@ -189,37 +177,81 @@ constructor = PowerCurveConstructor(
 )
 ```
 
-### Generating power curves (direct simulation)
+### Generating Power Curves
 
-`generate_power_curves_direct` runs the QSM with pre-defined cycle parameters from the simulation settings file. This is the fastest method but does not optimize cycle performance.
+`generate_power_curves` uses SLSQP optimization to find the reeling speeds, tether lengths, and elevation angles that maximize average cycle power at each wind speed. Each wind speed starts from the configured optimizer `x0`.
 
 ```python
-result = constructor.generate_power_curves_direct(
+result = constructor.generate_power_curves(
     profile_ids=None,        # None = all profiles
-    output_path="results/power_curves_direct.yml",
+    output_path="results/power_curves.yml",
     verbose=True,
     show_plot=True,
     save_plot=True,
 )
 ```
 
-### Generating power curves (optimization)
+### Optimization settings
 
-`generate_power_curves_optimized` uses SLSQP optimization to find the reeling speeds, tether lengths, and elevation angles that maximize average cycle power at each wind speed. Warm starts are used between consecutive wind speeds for faster convergence.
+Optimization is configured in the `optimization` block of the simulation settings YAML. The constructor reads these settings automatically when you call `generate_power_curves`.
 
-```python
-result = constructor.generate_power_curves_optimized(
-    profile_ids=None,        # None = all profiles
-    output_path="results/power_curves_optimized.yml",
-    verbose=True,
-    show_plot=True,
-    save_plot=True,
-)
+```yaml
+optimization:
+  wind_speeds:
+    cut_in: 3
+    cut_out: 25
+    n_points: 45
+
+  optimizer:
+    optimize_variables:
+      reeling_speed_traction: true
+      reeling_speed_retraction: true
+      fraction_tether_length_traction_end: true
+      fraction_tether_length_retraction_end: true
+      elevation_angle_traction: false
+      elevation_angle_end_trans_rori: true
+    max_iterations: 120
+    ftol: 0.002
+    eps: 1.0e-2
+    finite_difference_steps:
+      reeling_speed: 0.03
+      tether_fraction: 0.005
+      elevation_angle: 0.25
+    x0: [2, -2, 0.65, 0.9, 30.0, 50.0]
+    scaling: [1, 1, 1, 1, 30, 30]
+    opt_phase_timestep:
+      retraction: 1.5
+      transition_riro: 0.05
+      traction: 2.5
+      transition_rori: 0.05
+
+  bounds:
+    fraction_tether_length_traction_end_min: 0.5
+    fraction_tether_length_traction_end_max: 0.95
+    fraction_tether_length_retraction_end_min: 0.2
+    fraction_tether_length_retraction_end_max: 0.8
+
+  constraints:
+    min_tether_length_fraction_difference: 0.1
+    max_difference_elevation_angle_steps: 30.0
 ```
+
+The most important fields are:
+
+- `wind_speeds`: evenly spaced wind-speed points used for the optimized power curve.
+- `optimize_variables`: switches individual decision variables on or off. Disabled variables keep their nominal cycle values.
+- `x0`: starting guess for SLSQP, ordered as reel-out speed, reel-in speed, retraction-end tether fraction, traction-end tether fraction, traction elevation angle in degrees, and RORI end elevation in degrees.
+- `scaling`: converts variables to similar magnitudes for SLSQP using `x_scaled = x / scaling`.
+- `finite_difference_steps`: physical step sizes used for SLSQP gradient estimates. Smaller tether-fraction steps avoid coarse gradients that can stop away from the optimum.
+- `opt_phase_timestep`: optional coarser timesteps used during optimizer iterations. The final selected point is re-run at full simulation resolution.
+- `bounds`: allowed ranges for reeling speeds, tether-length fractions, and elevation angles. Tether fractions are multiplied by `max_tether_length`.
+- `constraints`: extra feasibility rules. The tether fraction difference enforces a meaningful reel-in distance; the elevation step limit smooths multi-point traction elevation schedules.
+
+During an optimized power curve, each wind speed is solved independently from the YAML `x0`. Previous optimized points are not used to seed later wind speeds.
 
 ### Simulating a single wind speed
 
-`simulate_single_wind_speed` evaluates one wind speed point using either method and returns the same output structure as the full power curve methods.
+`simulate_single_wind_speed` evaluates one wind speed point using either method and returns the same output structure as the full power curve methods. Direct simulation uses the cycle settings from the YAML, while optimization uses the optimized cycle settings for that wind speed. This is useful for debugging.
 
 ```python
 result = constructor.simulate_single_wind_speed(

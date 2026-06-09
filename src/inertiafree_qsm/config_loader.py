@@ -55,6 +55,45 @@ def load_wind_resource(file_path, validate_file=True):
     return wind_resource
 
 
+def _first_item(value):
+    """Return the first item from a list-like config value, or an empty dict."""
+    if isinstance(value, list):
+        return value[0] if value else {}
+    return value or {}
+
+
+def _get_system_components(system_config):
+    """Normalize old and new awesIO system component layouts."""
+    components = system_config.get('components', {})
+
+    kite = _first_item(components.get('kites'))
+    tether = _first_item(components.get('tethers')) or components.get('tether', {})
+    ground_station = components.get('ground_station', {})
+
+    return {
+        'wing': kite.get('wing', components.get('wing', {})),
+        'bridle': kite.get('bridle', components.get('bridle', {})),
+        'control_system': kite.get(
+            'control_system',
+            components.get('control_system', {}),
+        ),
+        'tether': tether,
+        'ground_station': ground_station,
+        'drum': (
+            _first_item(ground_station.get('drums'))
+            or ground_station.get('drum', {})
+        ),
+        'generator': (
+            _first_item(ground_station.get('generators'))
+            or ground_station.get('generator', {})
+        ),
+        'storage': (
+            _first_item(ground_station.get('storages'))
+            or ground_station.get('storage', {})
+        ),
+    }
+
+
 
 
 def load_system_and_simulation_settings(system_config_path, simulation_settings_path,
@@ -87,20 +126,19 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     sim_config = load_yaml(simulation_settings_path)
 
     # Build base system properties from system configuration.
-    components = system_config.get('components', {})
-    wing = components.get('wing', {})
+    components = _get_system_components(system_config)
+    wing = components['wing']
     wing_structure = wing.get('structure', {})
-    tether = components.get('tether', {})
+    tether = components['tether']
     tether_structure = tether.get('structure', {})
-    ground_station = components.get('ground_station', {})
-    drum = ground_station.get('drum', {})
-    generator = ground_station.get('generator', {})
-    storage = ground_station.get('storage', {})
-    kcu = components.get('control_system', {})
+    drum = components['drum']
+    generator = components['generator']
+    storage = components['storage']
+    kcu = components['control_system']
     kcu_structure = kcu.get('structure', {})
 
     wing_mass = wing_structure.get('mass')
-    bridle = components.get('bridle', {})
+    bridle = components['bridle']
     bridle_mass = bridle.get('structure', {}).get('mass')
     kcu_mass = kcu_structure.get('mass')
     kite_mass = wing_mass + bridle_mass + kcu_mass
@@ -110,14 +148,10 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     if tether_force_min_limit is None and tether_force_max_limit is not None:
         tether_force_min_limit = 0.03 * tether_force_max_limit
 
-    generator_efficiency = generator.get(
-        'generator_efficiency',
-        generator.get('efficiency', 1.0),
-    )
-    motor_efficiency = generator.get(
-        'motor_efficiency',
-        generator.get('efficiency', 1.0),
-    )
+    generator_efficiency = generator.get('efficiency', 1.0)
+    
+    motor_efficiency = generator.get('efficiency', 1.0)
+
     storage_efficiency = storage.get('efficiency', 1.0)
 
     base_sys_props = {
@@ -187,8 +221,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     max_time_points = int(phase_solver_config.get('max_time_points'))
 
-    direct_config = sim_config.get('direct_simulation', {})
-
     start_fraction_raw = cycle_config.get('tether_length_end_traction')
     start_fraction = float(start_fraction_raw) if start_fraction_raw is not None else 1.0
 
@@ -247,26 +279,10 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'max_time_points': max_time_points,
     }
 
-    direct_wind = direct_config.get('wind_speeds', {})
-    direct_fine = direct_wind.get('fine_resolution', {})
-    direct_simulation = {
-        'wind_speeds': {
-            'cut_in': direct_wind.get('cut_in'),
-            'cut_out': direct_wind.get('cut_out'),
-            'n_points': int(direct_wind.get('n_points', 30)),
-            'fine_resolution': {
-                'n_points_near_cutout': int(direct_fine.get('n_points_near_cutout', 0)),
-                'range_m_s': float(direct_fine.get('range_m_s', 2.0)),
-            },
-        },
-        'tether_length_end_traction': tetherLengthStartRetraction,
-        'tether_length_end_retraction': tetherLengthEndRetraction,
-    }
-
     opt_config = sim_config.get('optimization', {})
     opt_wind = opt_config.get('wind_speeds', {})
-    opt_fine = opt_wind.get('fine_resolution', {})
     opt_optimizer = opt_config.get('optimizer', {})
+    opt_fd_steps = opt_optimizer.get('finite_difference_steps', {})
     opt_bounds_cfg = opt_config.get('bounds', {})
     opt_constraints_cfg = opt_config.get('constraints') or {}
 
@@ -297,15 +313,19 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
             'cut_in': opt_wind.get('cut_in'),
             'cut_out': opt_wind.get('cut_out'),
             'n_points': int(opt_wind.get('n_points')),
-            'fine_resolution': {
-                'n_points_near_cutout': int(opt_fine.get('n_points_near_cutout')),
-                'range_m_s': float(opt_fine.get('range_m_s')),
-            },
         },
         'optimizer': {
             'max_iterations': int(opt_optimizer.get('max_iterations')),
             'ftol': float(opt_optimizer.get('ftol')),
             'eps': float(opt_optimizer.get('eps')),
+            'finite_difference_steps': {
+                'reeling_speed': float(opt_fd_steps['reeling_speed'])
+                    if 'reeling_speed' in opt_fd_steps else None,
+                'tether_fraction': float(opt_fd_steps['tether_fraction'])
+                    if 'tether_fraction' in opt_fd_steps else None,
+                'elevation_angle': float(opt_fd_steps['elevation_angle'])
+                    if 'elevation_angle' in opt_fd_steps else None,
+            },
             'x0': np.array(x0_list, dtype=float),
             'scaling': np.array(opt_optimizer.get('scaling', []), dtype=float),
             'opt_phase_timestep': {
@@ -357,7 +377,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'transition_rori': transition_rori,
         'traction': traction,
         'steady_state': steady_state,
-        'direct_simulation': direct_simulation,
         'optimization': optimization,
     }
 
@@ -388,7 +407,6 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
     retraction = settings['retraction']
     transition_riro = settings['transition_riro']
     traction = settings['traction']
-    direct = settings['direct_simulation']
     opt = settings['optimization']
 
     print("\nSimulation Settings")
@@ -429,26 +447,15 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
     print(f"    Azimuth angle : {np.degrees(traction['azimuth_angle']):.1f} deg")
     print(f"    Course angle  : {np.degrees(traction['course_angle']):.1f} deg")
 
-    # -- Direct simulation ---------------------------------------------------
-    print("\n  Direct simulation:")
-    dw = direct['wind_speeds']
-    print(f"    Wind speeds  : cut-in={dw['cut_in']}, cut-out={dw['cut_out']}, "
-          f"n_points={dw['n_points']}")
-    dfr = dw['fine_resolution']
-    print(f"    Fine res     : {dfr['n_points_near_cutout']} pts, "
-          f"range={dfr['range_m_s']:.1f} m/s")
-
     # -- Optimisation --------------------------------------------------------
     print("\n  Optimisation:")
     ow = opt['wind_speeds']
     print(f"    Wind speeds  : cut-in={ow['cut_in']}, cut-out={ow['cut_out']}, "
           f"n_points={ow['n_points']}")
-    fr = ow['fine_resolution']
-    print(f"    Fine res     : {fr['n_points_near_cutout']} pts, "
-          f"range={fr['range_m_s']:.1f} m/s")
     op = opt['optimizer']
     print(f"    Max iter     : {op['max_iterations']}")
     print(f"    ftol / eps   : {op['ftol']:.1e} / {op['eps']:.1e}")
+    print(f"    FD steps     : {op['finite_difference_steps']}")
     print(f"    x0           : {op['x0']}")
     print(f"    scaling      : {op['scaling']}")
 
