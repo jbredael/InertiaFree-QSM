@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """Calculate power curves for an Airborne Wind Energy system.
 
-This script generates power curves using both direct simulation and optimization-based
-methods, then compares and exports the results.
+This script generates optimized power curves and can also export single-point
+simulations.
 
 How it works:
 1. Choose the system, wind resource, and simulation settings YAML files below.
 2. Create a ``PowerCurveConstructor`` from those inputs.
-3. Call either ``generate_power_curves_optimized`` for a full power curve using optimization, or
+3. Call either ``generate_power_curves`` for a full optimized power curve, or
    ``simulate_single_wind_speed`` for a single wind speed point using either optimization or direct simulation.
 4. The constructor writes the power-curve YAML and, when enabled, matching plots
    and time-history sidecar files.
@@ -53,15 +53,15 @@ if __name__ == "__main__":
     
     constructor.print_summary()
     
-    # # Generate power curves using optimized simulation
-    # result = constructor.generate_power_curves_optimized(
-    #     profile_ids=None,
-    #     output_path=OUTPUT_PATH_OPTIMIZED,
-    #     verbose=True,
-    #     show_plot=True,
-    #     save_plot=True,
-    #     validate_file=True,
-    # )
+    # Generate optimized power curves
+    result = constructor.generate_power_curves(
+        profile_ids=[1,2],
+        output_path=OUTPUT_PATH_OPTIMIZED,
+        verbose=True,
+        show_plot=True,
+        save_plot=True,
+        validate_file=True,
+    )
 
     # Simulate a single optimized wind speed
     # result = constructor.simulate_single_wind_speed(

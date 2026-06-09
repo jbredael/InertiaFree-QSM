@@ -187,8 +187,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     max_time_points = int(phase_solver_config.get('max_time_points'))
 
-    direct_config = sim_config.get('direct_simulation', {})
-
     start_fraction_raw = cycle_config.get('tether_length_end_traction')
     start_fraction = float(start_fraction_raw) if start_fraction_raw is not None else 1.0
 
@@ -245,17 +243,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'azimuth_angle': np.deg2rad(traction_config.get('azimuth_angle')),
         'course_angle': np.deg2rad(traction_config.get('course_angle')),
         'max_time_points': max_time_points,
-    }
-
-    direct_wind = direct_config.get('wind_speeds', {})
-    direct_simulation = {
-        'wind_speeds': {
-            'cut_in': direct_wind.get('cut_in'),
-            'cut_out': direct_wind.get('cut_out'),
-            'n_points': int(direct_wind.get('n_points', 30)),
-        },
-        'tether_length_end_traction': tetherLengthStartRetraction,
-        'tether_length_end_retraction': tetherLengthEndRetraction,
     }
 
     opt_config = sim_config.get('optimization', {})
@@ -347,7 +334,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
         'transition_rori': transition_rori,
         'traction': traction,
         'steady_state': steady_state,
-        'direct_simulation': direct_simulation,
         'optimization': optimization,
     }
 
@@ -378,7 +364,6 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
     retraction = settings['retraction']
     transition_riro = settings['transition_riro']
     traction = settings['traction']
-    direct = settings['direct_simulation']
     opt = settings['optimization']
 
     print("\nSimulation Settings")
@@ -418,12 +403,6 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
     print(f"    Time step    : {traction['time_step']} s")
     print(f"    Azimuth angle : {np.degrees(traction['azimuth_angle']):.1f} deg")
     print(f"    Course angle  : {np.degrees(traction['course_angle']):.1f} deg")
-
-    # -- Direct simulation ---------------------------------------------------
-    print("\n  Direct simulation:")
-    dw = direct['wind_speeds']
-    print(f"    Wind speeds  : cut-in={dw['cut_in']}, cut-out={dw['cut_out']}, "
-          f"n_points={dw['n_points']}")
 
     # -- Optimisation --------------------------------------------------------
     print("\n  Optimisation:")

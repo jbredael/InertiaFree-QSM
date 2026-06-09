@@ -11,23 +11,6 @@ aerodynamics: # TU Delft V3
   kite_drag_coefficient_reel_in: 0.12
   tether_drag_coefficient: 1.1
 # ============================================================================
-# DIRECT SIMULATION SETTINGS
-# ============================================================================
-# Settings for the non-optimized direct simulation method
-# This method is faster but uses pre-defined cycle parameters set in CYCLE SETTINGS
-
-direct_simulation:
-  # Wind speed range for power curve calculation
-  wind_speeds:
-    # Minimum wind speed [m/s]
-    cut_in: 5.0
-    # Maximum wind speed [m/s]
-    cut_out: 25.0
-    # Number of points to calculate (determines spacing)
-    n_points: 23
-
-
-# ============================================================================
 # OPTIMIZATION SETTINGS
 # ============================================================================
 # Settings for the optimization-based power curve generation
@@ -41,7 +24,7 @@ optimization:
     # Maximum wind speed [m/s]
     cut_out: 25.0
     # Number of points to calculate (determines spacing)
-    n_points: 45
+    n_points: 23
 
   # SLSQP optimizer configuration
   optimizer:
@@ -51,7 +34,7 @@ optimization:
       reeling_speed_retraction: true
       fraction_tether_length_traction_end: true
       fraction_tether_length_retraction_end: true
-      elevation_angle_traction: true
+      elevation_angle_traction: false
       elevation_angle_end_trans_rori: true
 
     # Time step for each phase during optimization (in seconds)

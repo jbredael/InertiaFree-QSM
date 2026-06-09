@@ -70,21 +70,12 @@ Example `simulation_settings.yml`:
 # Simulation settings for the inertia-free quasi-steady model
 # All angles are in degrees
 
-general:
-  method: 'direct_simulation'
-
 aerodynamics:
   kite_lift_coefficient_reel_out: 0.63
   kite_drag_coefficient_reel_out: 0.14
   kite_lift_coefficient_reel_in: 0.4
   kite_drag_coefficient_reel_in: 0.12
   tether_drag_coefficient: 1.1
-
-direct_simulation:
-  wind_speeds:
-    cut_in: 6.0
-    cut_out: 25.0
-    n_points: 20
 
 optimization:
   wind_speeds:
@@ -183,28 +174,14 @@ constructor = PowerCurveConstructor(
 )
 ```
 
-### Generating power curves (direct simulation)
+### Generating Power Curves
 
-`generate_power_curves_direct` runs the QSM with pre-defined cycle parameters from the simulation settings file. This is the fastest method but does not optimize cycle performance.
-
-```python
-result = constructor.generate_power_curves_direct(
-    profile_ids=None,        # None = all profiles
-    output_path="results/power_curves_direct.yml",
-    verbose=True,
-    show_plot=True,
-    save_plot=True,
-)
-```
-
-### Generating power curves (optimization)
-
-`generate_power_curves_optimized` uses SLSQP optimization to find the reeling speeds, tether lengths, and elevation angles that maximize average cycle power at each wind speed. Each wind speed starts from the configured optimizer `x0`.
+`generate_power_curves` uses SLSQP optimization to find the reeling speeds, tether lengths, and elevation angles that maximize average cycle power at each wind speed. Each wind speed starts from the configured optimizer `x0`.
 
 ```python
-result = constructor.generate_power_curves_optimized(
+result = constructor.generate_power_curves(
     profile_ids=None,        # None = all profiles
-    output_path="results/power_curves_optimized.yml",
+    output_path="results/power_curves.yml",
     verbose=True,
     show_plot=True,
     save_plot=True,
@@ -213,7 +190,7 @@ result = constructor.generate_power_curves_optimized(
 
 ### Optimization settings
 
-Optimization is configured in the `optimization` block of the simulation settings YAML. The constructor reads these settings automatically when you call `generate_power_curves_optimized`.
+Optimization is configured in the `optimization` block of the simulation settings YAML. The constructor reads these settings automatically when you call `generate_power_curves`.
 
 ```yaml
 optimization:
