@@ -1,6 +1,6 @@
 metadata:
-  name: 100 kW Meridional system
-  description: Config for the 100 kW Meridional system
+  name: TU Delft V3.25
+  description: Config for the TU Delft V3.25 soft kite pumping ground gen system
   note: None
   awesIO_version: 0.1.0
   schema: system_schema.yml
@@ -9,48 +9,49 @@ assembly:
   generation_type: pumping_ground_gen
 components:
   wing:
-    name: V11.100
+    name: TU Delft V3.25
     type: LEI_soft_kite
     version: 1.0
     structure:
-      projected_surface_area: 140.00 # m2
-      mass: 47 # kg, all mass of wing and bridle lumped together
+      projected_surface_area: 19.75 # m2
+      mass: 10.6 # kg, all mass of wing and bridle lumped together
   bridle:
-    name: V11.100 Bridle
+    name: TU Delft V3.25 Bridle
     type: LEI_soft_kite_bridle 
     version: 1.0
     structure:
       mass: 0
   control_system:
-    name: 100 kW Meridional system KCU
+    name: TU Delft V3.25 KCU
     type: kite_control_unit
     version: 1.0
     structure:
-      mass: 20.0
+      mass: 8.4
   tether:
-    name: 100 kW Meridional system Tether
+    name: Kitepower tether
     type: non_conductive_tether
     version: 1.0
     structure:
-      length: 600
-      diameter: 0.012
+      length: 500
+      diameter: 0.006
       density: 724.0
-      max_tether_force: 60000.0 # N
+      max_tether_force: 8200.0 # N
       conductive: false
   ground_station:
-    name: 100 kW Meridional system Ground Station
+    name: Kitepower Ground Station
     type: pumping_ground_gen_station
     version: 1.0
     structure:
       mass: 0.0
     drum:
       type: electric_winch
-      max_tether_speed: 15.0
+      max_tether_speed: 10.0
     generator:
       type: permanent_magnet_synchronous
-      max_power: 180000.0 # W
-      generator_efficiency: 0.9
-      motor_efficiency: 0.9
+      max_power: 40000.0 # W
+      generator_efficiency: 1
+      motor_efficiency: 1
     storage:
       type: battery_bank
-      efficiency: 0.95
+      efficiency: 1
+

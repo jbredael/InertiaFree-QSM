@@ -168,8 +168,6 @@ class PowerCurveConstructor:
         vw_cut_in = settings['wind_speeds']['cut_in']
         vw_cut_out = settings['wind_speeds']['cut_out']
         n_points = settings['wind_speeds']['n_points']
-        fine_n_points_near_cutout = settings['wind_speeds']['fine_resolution']['n_points_near_cutout']
-        fine_range_m_s = settings['wind_speeds']['fine_resolution']['range_m_s']
 
         # Check that cut-in and cut-out are specified
         if vw_cut_in is None:
@@ -177,19 +175,7 @@ class PowerCurveConstructor:
         if vw_cut_out is None:
             raise ValueError(f"cut_out wind speed must be specified in {settings_key} settings")
 
-        # Generate wind speed array with optional fine resolution
-        if fine_n_points_near_cutout > 0:
-            wind_speeds = np.linspace(vw_cut_in, vw_cut_out - fine_range_m_s, n_points, endpoint=False)
-            fine_points = np.linspace(
-                vw_cut_out - fine_range_m_s,
-                vw_cut_out - 0.05,
-                fine_n_points_near_cutout,
-            )
-            wind_speeds = np.concatenate((wind_speeds, fine_points))
-        else:
-            wind_speeds = np.linspace(vw_cut_in, vw_cut_out, n_points)
-
-        return wind_speeds
+        return np.linspace(vw_cut_in, vw_cut_out, n_points)
 
     def _normalize_profile_ids(self, profile_ids):
         """Return a list of 1-indexed profile IDs to calculate."""

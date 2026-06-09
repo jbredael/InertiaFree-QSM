@@ -1,5 +1,5 @@
 metadata:
-  name: ERA5 Wind Profile Power Law Fit
+  name: ERA5 Wind Profile Power Law Fit Case 1 Bangor Erris
   description: Wind profile obtained by fitting a power law profile to ERA5 data
   note: 'Wind speed magnitude sqrt(u_east**2 + u_north**2) was computed at each altitude
     and timestep. A power law profile U(z) = U_ref * (z/z_ref)**alpha was fitted to

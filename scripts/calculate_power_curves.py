@@ -5,6 +5,14 @@
 This script generates power curves using both direct simulation and optimization-based
 methods, then compares and exports the results.
 
+How it works:
+1. Choose the system, wind resource, and simulation settings YAML files below.
+2. Create a ``PowerCurveConstructor`` from those inputs.
+3. Call either ``generate_power_curves_optimized`` for a full power curve using optimization, or
+   ``simulate_single_wind_speed`` for a single wind speed point using either optimization or direct simulation.
+4. The constructor writes the power-curve YAML and, when enabled, matching plots
+   and time-history sidecar files.
+
 Usage:
     python calculate_power_curves.py
 """
@@ -23,21 +31,15 @@ from inertiafree_qsm import PowerCurveConstructor
 # Define file paths
 PROJECT_ROOT = Path(__file__).parent.parent
 
-# SYSTEM_CONFIG_PATH = PROJECT_ROOT / "data" / "kitepower V3_25.yml"
-SYSTEM_CONFIG_PATH = PROJECT_ROOT / "data" / "100kW_system.yml"
+SYSTEM_CONFIG_PATH = PROJECT_ROOT / "data" / "systems" / "kitepower V3_25.yml"
 
-# WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "power_law_case_1.yml"
-WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "clustered_case_1.yml"
-# WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "wind_profile_prescribed_logarithmic.yml"
+WIND_RESOURCE_PATH = PROJECT_ROOT / "data" / "wind_resource" / "clustered_case_1.yml"
 
-# SIMULATION_SETTINGS_PATH = PROJECT_ROOT / "data" / "comparing_luchsinger_settings.yml"
-# SIMULATION_SETTINGS_PATH = PROJECT_ROOT / "data" / "comparing_profiles_settings.yml"
-SIMULATION_SETTINGS_PATH = PROJECT_ROOT / "data" / "case_1_settings.yml"
+SIMULATION_SETTINGS_PATH = PROJECT_ROOT / "data" / "settings" / "example_settings.yml"
 
-OUTPUT_PATH_DIRECT = PROJECT_ROOT / "results" / "power_curves_direct_simulation.yml"
-OUTPUT_PATH_OPTIMIZED = PROJECT_ROOT / "results" / "power_curves_140-60000-quick-180kw.yml"
-OUTPUT_PATH_DIRECT_SINGLE_POINT = PROJECT_ROOT / "results" / "power_curve_single_point.yml"
-OUTPUT_PATH_OPTIMIZED_SINGLE_POINT = PROJECT_ROOT / "results" / "power_curve_single_point_optimized.yml"
+OUTPUT_PATH_OPTIMIZED = PROJECT_ROOT / "results" / "power_curves.yml"
+OUTPUT_PATH_DIRECT_SINGLE_POINT = PROJECT_ROOT / "results" / "power_single_point_direct.yml"
+OUTPUT_PATH_OPTIMIZED_SINGLE_POINT = PROJECT_ROOT / "results" / "power_single_point_optimized.yml"
 
 if __name__ == "__main__":
 
@@ -49,38 +51,31 @@ if __name__ == "__main__":
         validate_file=True, verbose=False
     )
     
-    # constructor.print_summary()
+    constructor.print_summary()
     
-    # # Generate power curves using direct simulation
-    # result = constructor.generate_power_curves_direct(
+    # # Generate power curves using optimized simulation
+    # result = constructor.generate_power_curves_optimized(
     #     profile_ids=None,
-    #     output_path=OUTPUT_PATH_DIRECT,
+    #     output_path=OUTPUT_PATH_OPTIMIZED,
     #     verbose=True,
-    #     show_plot=False,
-    #     save_plot=True, 
-    #     validate_file=True
+    #     show_plot=True,
+    #     save_plot=True,
+    #     validate_file=True,
     # )
 
-    # Generate power curves using optimized simulation
-    result = constructor.generate_power_curves_optimized(
-        profile_ids=[1],
-        output_path=OUTPUT_PATH_OPTIMIZED,
-        verbose=True,
-        show_plot=True,
-        save_plot=True,
-        validate_file=True,
-    )
-
+    # Simulate a single optimized wind speed
     # result = constructor.simulate_single_wind_speed(
-    #     wind_speed=4.8, method="direct",
-    #     output_path=OUTPUT_PATH_DIRECT_SINGLE_POINT,
+    #     wind_speed=8, profile_id=1, method="optimization",
+    #     output_path=OUTPUT_PATH_OPTIMIZED_SINGLE_POINT,
     #     verbose=True, show_plot=True, save_plot=True,
     #     validate_file=True
     # )
 
+    # # Simulate a single wind speed using direct simulation (no optimization)
+    # # Values used are then from Cycle settings and Phase settings
     # result = constructor.simulate_single_wind_speed(
-    #     wind_speed=8, profile_id=1, method="optimization",
-    #     output_path=OUTPUT_PATH_OPTIMIZED_SINGLE_POINT,
+    #     wind_speed=15, method="direct",
+    #     output_path=OUTPUT_PATH_DIRECT_SINGLE_POINT,
     #     verbose=True, show_plot=True, save_plot=True,
     #     validate_file=True
     # )

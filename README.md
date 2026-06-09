@@ -85,18 +85,12 @@ direct_simulation:
     cut_in: 6.0
     cut_out: 25.0
     n_points: 20
-    fine_resolution:
-      n_points_near_cutout: 0
-      range_m_s: 2.0
 
 optimization:
   wind_speeds:
     cut_in: 3.0
     cut_out: 25.0
     n_points: 25
-    fine_resolution:
-      n_points_near_cutout: 0
-      range_m_s: 2.0
   optimizer:
     optimize_variables:
       reeling_speed_traction: true
@@ -227,9 +221,6 @@ optimization:
     cut_in: 3
     cut_out: 25
     n_points: 45
-    fine_resolution:
-      n_points_near_cutout: 0
-      range_m_s: 2.0
 
   optimizer:
     optimize_variables:
@@ -263,7 +254,7 @@ optimization:
 
 The most important fields are:
 
-- `wind_speeds`: wind-speed points used for the optimized power curve. `fine_resolution` can add extra points close to cut-out.
+- `wind_speeds`: evenly spaced wind-speed points used for the optimized power curve.
 - `optimize_variables`: switches individual decision variables on or off. Disabled variables keep their nominal cycle values.
 - `x0`: starting guess for SLSQP, ordered as reel-out speed, reel-in speed, retraction-end tether fraction, traction-end tether fraction, traction elevation angle in degrees, and RORI end elevation in degrees.
 - `scaling`: converts variables to similar magnitudes for SLSQP using `x_scaled = x / scaling`.

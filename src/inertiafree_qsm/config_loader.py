@@ -248,16 +248,11 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
     }
 
     direct_wind = direct_config.get('wind_speeds', {})
-    direct_fine = direct_wind.get('fine_resolution', {})
     direct_simulation = {
         'wind_speeds': {
             'cut_in': direct_wind.get('cut_in'),
             'cut_out': direct_wind.get('cut_out'),
             'n_points': int(direct_wind.get('n_points', 30)),
-            'fine_resolution': {
-                'n_points_near_cutout': int(direct_fine.get('n_points_near_cutout', 0)),
-                'range_m_s': float(direct_fine.get('range_m_s', 2.0)),
-            },
         },
         'tether_length_end_traction': tetherLengthStartRetraction,
         'tether_length_end_retraction': tetherLengthEndRetraction,
@@ -265,7 +260,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
 
     opt_config = sim_config.get('optimization', {})
     opt_wind = opt_config.get('wind_speeds', {})
-    opt_fine = opt_wind.get('fine_resolution', {})
     opt_optimizer = opt_config.get('optimizer', {})
     opt_bounds_cfg = opt_config.get('bounds', {})
     opt_constraints_cfg = opt_config.get('constraints') or {}
@@ -297,10 +291,6 @@ def load_system_and_simulation_settings(system_config_path, simulation_settings_
             'cut_in': opt_wind.get('cut_in'),
             'cut_out': opt_wind.get('cut_out'),
             'n_points': int(opt_wind.get('n_points')),
-            'fine_resolution': {
-                'n_points_near_cutout': int(opt_fine.get('n_points_near_cutout')),
-                'range_m_s': float(opt_fine.get('range_m_s')),
-            },
         },
         'optimizer': {
             'max_iterations': int(opt_optimizer.get('max_iterations')),
@@ -434,18 +424,12 @@ def _print_simulation_settings(settings, maxTetherLength, startFraction,
     dw = direct['wind_speeds']
     print(f"    Wind speeds  : cut-in={dw['cut_in']}, cut-out={dw['cut_out']}, "
           f"n_points={dw['n_points']}")
-    dfr = dw['fine_resolution']
-    print(f"    Fine res     : {dfr['n_points_near_cutout']} pts, "
-          f"range={dfr['range_m_s']:.1f} m/s")
 
     # -- Optimisation --------------------------------------------------------
     print("\n  Optimisation:")
     ow = opt['wind_speeds']
     print(f"    Wind speeds  : cut-in={ow['cut_in']}, cut-out={ow['cut_out']}, "
           f"n_points={ow['n_points']}")
-    fr = ow['fine_resolution']
-    print(f"    Fine res     : {fr['n_points_near_cutout']} pts, "
-          f"range={fr['range_m_s']:.1f} m/s")
     op = opt['optimizer']
     print(f"    Max iter     : {op['max_iterations']}")
     print(f"    ftol / eps   : {op['ftol']:.1e} / {op['eps']:.1e}")
