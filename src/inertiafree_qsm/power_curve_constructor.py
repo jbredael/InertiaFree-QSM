@@ -735,10 +735,45 @@ class PowerCurveConstructor:
                 'out': _safe_float(source.get('out', 0.0)),
             }
 
+        def _tether_force_stats(forces):
+            """Return (average, minimum, maximum) for a list of tether force values."""
+            if not forces:
+                return 0.0, 0.0, 0.0
+            return float(np.mean(forces)), float(np.min(forces)), float(np.max(forces))
+
         mechanical_power = _phase_values(kpi.get('average_power'))
         mechanical_energy = _phase_values(kpi.get('energy'))
         electrical_power = _phase_values(kpi.get('electrical_average_power'))
         electrical_energy = _phase_values(kpi.get('electrical_energy'))
+
+        # Compute tether force statistics per phase from steady_states.
+        # Phase ordering: traction → transition_rori → retraction → transition_riro.
+        steady_states = kpi.get('steady_states') or []
+        phase_sizes = kpi.get('phase_sizes') or {}
+        n_traction = phase_sizes.get('traction', 0)
+        n_trans_rori = phase_sizes.get('transition_rori', 0)
+        n_retraction = phase_sizes.get('retraction', 0)
+        n_trans_riro = phase_sizes.get('transition_riro', 0)
+
+        if steady_states:
+            all_forces = [float(ss.tether_force_ground) for ss in steady_states]
+            i0 = 0
+            traction_forces = all_forces[i0:i0 + n_traction]; i0 += n_traction
+            trans_rori_forces = all_forces[i0:i0 + n_trans_rori]; i0 += n_trans_rori
+            retraction_forces = all_forces[i0:i0 + n_retraction]; i0 += n_retraction
+            trans_riro_forces = all_forces[i0:i0 + n_trans_riro]
+        else:
+            all_forces = []
+            traction_forces = []
+            trans_rori_forces = []
+            retraction_forces = []
+            trans_riro_forces = []
+
+        avg_cycle, min_cycle, max_cycle = _tether_force_stats(all_forces)
+        avg_traction, min_traction, max_traction = _tether_force_stats(traction_forces)
+        avg_retraction, min_retraction, max_retraction = _tether_force_stats(retraction_forces)
+        avg_trans_rori, min_trans_rori, max_trans_rori = _tether_force_stats(trans_rori_forces)
+        avg_trans_riro, min_trans_riro, max_trans_riro = _tether_force_stats(trans_riro_forces)
 
         time_history = None
         sim_successful = kpi.get('sim_successful', False)
@@ -791,6 +826,23 @@ class PowerCurveConstructor:
                     'average_transition_rori_power': electrical_power['trans_rori'],
                     'average_transition_riro_power': electrical_power['trans_riro'],
                 },
+                'tether_force_ground': {
+                    'average_tether_force_cycle': avg_cycle,
+                    'minimum_tether_force_cycle': min_cycle,
+                    'maximum_tether_force_cycle': max_cycle,
+                    'average_tether_force_traction': avg_traction,
+                    'minimum_tether_force_traction': min_traction,
+                    'maximum_tether_force_traction': max_traction,
+                    'average_tether_force_retraction': avg_retraction,
+                    'minimum_tether_force_retraction': min_retraction,
+                    'maximum_tether_force_retraction': max_retraction,
+                    'average_tether_force_trans_rori': avg_trans_rori,
+                    'minimum_tether_force_trans_rori': min_trans_rori,
+                    'maximum_tether_force_trans_rori': max_trans_rori,
+                    'average_tether_force_trans_riro': avg_trans_riro,
+                    'minimum_tether_force_trans_riro': min_trans_riro,
+                    'maximum_tether_force_trans_riro': max_trans_riro,
+                },
                 'energy': {
                     'cycle_energy': mechanical_energy['cycle'],
                     'reel_out_energy': mechanical_energy['out'],
@@ -819,6 +871,7 @@ class PowerCurveConstructor:
                     'cycle_time': _safe_float(kpi['duration']['cycle']),
                 },
             },
+
         }
         if time_history is not None:
             entry['time_history'] = time_history
