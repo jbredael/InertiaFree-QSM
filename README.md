@@ -171,7 +171,7 @@ All workflows start by instantiating a `PowerCurveConstructor` with paths to the
 from inertiafree_qsm import PowerCurveConstructor
 
 constructor = PowerCurveConstructor(
-    system_config_path="data/kitepower V3_20.yml",
+    system_config_path="data/tudelft V3_25.yml",
     wind_resource_path="data/wind_resource.yml",
     simulation_settings_path="data/simulation_settings.yml",
 )
